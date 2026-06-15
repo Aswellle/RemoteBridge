@@ -1,13 +1,18 @@
-# Structured Logging Design (P1-1 planning pass)
+# Structured Logging Design (P1-1)
 
-> Status: **planning** — no code changed yet. Scopes the P1-1 finding from
-> `.full-review/05-final-report.md` ("`console.log/error/warn` scattered across ~40+
-> production paths instead of structured logging (pino/electron-log); includes a leftover
-> debug `console.log` in `relay.ts::notifyAndDisconnectClient` and an emoji-prefixed
-> pre-`app`-exists log in `db/client.ts`"). Companion to
+> Status: **Implemented**. All 61 `console.*` call sites are now leveled, structured calls:
+> `apps/server` (15, via new `apps/server/src/utils/logger.ts`, a standalone `pino`
+> instance sharing `LOG_LEVEL` with Fastify's own request-scoped logger), `apps/desktop`
+> (35, via new `apps/desktop/src/main/logger.ts` wrapping `electron-log/main`, new
+> dependency `electron-log@5.4.4`), and `apps/web` (11, via new `apps/web/src/lib/logger.ts`,
+> a thin `console` wrapper whose `debug`/`info` no-op when `NODE_ENV=production`, while
+> `warn`/`error` always pass through). The two correctness fixes called out below are also
+> done: the leftover debug `console.log` in `ws/relay.ts::notifyAndDisconnectClient` and the
+> emoji-prefixed pre-`app`-exists logs in `db/client.ts` are now leveled `logger.*` calls.
+> See `CHANGELOG.md` for the changelog entry. Companion to
 > `docs/file-tunnel-binary-framing-design.md` (P1-12) and `docs/test-and-doc-gaps-plan.md`
-> (#19) — the three Phase-C items from the 2026-06-15 remediation review tracked in
-> `CHANGELOG.md`'s "Known issues / not yet fixed".
+> (#19) — the three Phase-C items from the 2026-06-15 remediation review, all now
+> implemented.
 
 ## Goals / non-goals
 

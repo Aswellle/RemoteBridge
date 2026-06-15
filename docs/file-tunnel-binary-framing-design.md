@@ -1,14 +1,27 @@
-# WS File-Tunnel Binary Framing Design (P1-12 planning pass)
+# WS File-Tunnel Binary Framing Design (P1-12)
 
-> Status: **planning** — no code changed yet. Scopes the P1-12 finding from
-> `.full-review/05-final-report.md` ("WS file tunnel's base64 chunking costs ~2.3x
-> allocations per 256KB chunk — for a 500MB transfer, ~1s of blocking CPU on the Electron
-> main process (plus symmetric cost on the relay). Memory stays bounded (4MB backpressure
-> design is correct); this is a CPU/allocation finding only."). Evolves the design
-> documented inline in CLAUDE.md as "ADR-004" — see `docs/test-and-doc-gaps-plan.md` for
-> formalizing ADR-004 itself once this lands. Feasibility confirmed against the installed
-> `ws@^8.17.0` on both `apps/desktop` and `apps/server`, which supports `(data, isBinary)`
-> on the `message` event and binary `send()` for `Buffer` payloads.
+> Status: **Implemented**. Steps 1-7 of the file-by-file change list below are live:
+> `packages/shared/src/file-tunnel-codec.ts` provides `encodeFileChunkFrame`/
+> `decodeFileChunkFrame`, the desktop sender (`apps/desktop/src/main/ws-client/file-tunnel.ts`)
+> sends non-empty chunks as binary WS frames via `RelayClient.sendRaw()`
+> (`apps/desktop/src/main/ws-client/client.ts`), and the relay
+> (`apps/server/src/ws/handler.ts` + `ws/file-tunnel.ts` + `routes/proxy.ts`) decodes them
+> via `resolveFileTunnelBinaryFrame` alongside the unchanged legacy JSON path — see
+> "Backward/forward compatibility" below. The formalized result is documented in
+> `docs/adr/ADR-004-file-tunnel-framing.md`. Covered by
+> `packages/shared/test/file-tunnel-codec.test.ts` (7 unit tests) and three new
+> `apps/server/test/session-flows.test.ts` cases (full download / Range download / preview
+> over the binary path). Step 8's large-payload CPU/allocation timing benchmark was not
+> added — the functional-correctness tests above substitute for it.
+>
+> Originally scoped from the P1-12 finding in `.full-review/05-final-report.md` ("WS file
+> tunnel's base64 chunking costs ~2.3x allocations per 256KB chunk — for a 500MB transfer,
+> ~1s of blocking CPU on the Electron main process (plus symmetric cost on the relay).
+> Memory stays bounded (4MB backpressure design is correct); this is a CPU/allocation
+> finding only."), evolving the design previously documented inline in CLAUDE.md as
+> "ADR-004". Feasibility was confirmed against the installed `ws@^8.17.0` on both
+> `apps/desktop` and `apps/server`, which supports `(data, isBinary)` on the `message` event
+> and binary `send()` for `Buffer` payloads.
 
 ## Problem
 

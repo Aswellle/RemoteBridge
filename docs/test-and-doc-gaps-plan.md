@@ -1,12 +1,20 @@
-# Test & Documentation Gaps Plan (#19 planning pass)
+# Test & Documentation Gaps Plan (#19)
 
-> Status: **planning** — no code changed yet. Covers the "Test/doc gaps" theme of the P2
-> backlog in `.full-review/05-final-report.md`: shallow `e2e.test.ts` assertions,
-> intra-file test-order coupling, brittle CDP manual scripts, missing `docs/adr/`, no
-> sequence diagrams, and a small doc gap on `/messages/:sessionId`'s revocation guarantee.
-> One of three Phase-C items from the 2026-06-15 remediation review; see
-> `docs/observability-logging-design.md` (P1-1) and
-> `docs/file-tunnel-binary-framing-design.md` (P1-12) for the other two.
+> Status: **Implemented**. All 6 items below are done: e2e.test.ts assertions deepened
+> (#1 — message content/direction, `since`, `limit`/`page` pagination, security-log
+> `eventType` filter, `GET /security-logs/events`), test-order coupling documented with a
+> top-of-file comment (#2 — the "stretch goal" `beforeAll`-chain refactor was not done,
+> per its own framing as optional), `manual-trust-revoke.mjs`/
+> `manual-settings-hot-reload.mjs` classified as CDP-only with precondition comments (#3),
+> `docs/adr/` created with ADR-004/ADR-005 + a template (#4 — the optional ADR-006
+> renumbering of `relay-room-state-design.md` was not done), three Mermaid sequence
+> diagrams added — Auth (CLAUDE.md), file tunnel (ADR-004), host reconnect/room rebuild
+> (ADR-005) (#5), and the `/messages/:sessionId` revocation guarantee documented in
+> CLAUDE.md (#6). Covers the "Test/doc gaps" theme of the P2 backlog in
+> `.full-review/05-final-report.md`. One of three Phase-C items from the 2026-06-15
+> remediation review; see `docs/observability-logging-design.md` (P1-1) and
+> `docs/file-tunnel-binary-framing-design.md` (P1-12) for the other two, both also now
+> implemented.
 
 ## 1. Shallow assertions in `apps/server/test/e2e.test.ts`
 

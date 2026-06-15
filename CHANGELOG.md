@@ -407,6 +407,61 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
   though only one is ever rendered at a time. They're now wrapped with
   `dynamic(() => import(...), { ssr: false })`, establishing the lazy-load pattern before
   a heavier viewer (syntax highlighter, PDF.js) is added.
+- **Structured logging replaces `console.*` across all three runtime packages** (P1-1):
+  all 61 `console.log`/`console.error`/`console.warn` call sites identified in
+  `docs/observability-logging-design.md` are now leveled, structured calls. `apps/server`
+  (15 sites) gets a new `apps/server/src/utils/logger.ts` exporting a standalone `pino()`
+  instance with `level: process.env.LOG_LEVEL ?? 'info'`, matching `index.ts`'s Fastify
+  `logger.level` so both stay in sync; used in `db/client.ts` (including before `app`
+  exists), `ws/relay.ts`, `ws/handler.ts`, `routes/proxy.ts`, and `routes/auth.ts`.
+  `apps/desktop` (35 sites) adds `electron-log@5.4.4` and a new
+  `apps/desktop/src/main/logger.ts` wrapping `electron-log/main`, with both
+  `log.transports.file.level`/`log.transports.console.level` set from `LOG_LEVEL`; used
+  throughout `src/main/` (`index.ts`, `electron-binding.ts`, `file-server/`, `ipc/`,
+  `ws-client/`, `security/audit-logger.ts`). `apps/web` (11 sites) adds a thin
+  `apps/web/src/lib/logger.ts` whose `debug`/`info` no-op when
+  `NODE_ENV === 'production'` while `warn`/`error` always pass through; used in
+  `store/app-store.ts`, `hooks/useWebSocket.ts`, `components/previews/FilePreview.tsx`,
+  and the messages/security dashboard pages. Also fixes the two correctness issues named
+  in the design doc: the leftover debug `console.log`s in
+  `ws/relay.ts::notifyAndDisconnectClient` are now `logger.debug`, and the
+  emoji-prefixed pre-`app`-exists logs in `db/client.ts` (`📦`/`✅`/`🧹`) are now plain
+  `logger.info` calls with structured fields (e.g. `{securityLogs, messages}` for the
+  retention-cleanup counts). No behavior change beyond log format/destination. Verified
+  via shared rebuild, clean `tsc --noEmit` on all three packages, and the full server
+  (60/60), desktop (19/19), and web (9/9) vitest suites.
+- **WS file tunnel now streams non-empty chunks as binary WS frames** (P1-12): per
+  `docs/file-tunnel-binary-framing-design.md`, each non-empty 256KB chunk of
+  `CMD_FETCH_FILE`'s response is now a single self-describing **binary** WS frame
+  instead of a base64-encoded JSON `RESP_FILE_CHUNK` — eliminating the
+  `Buffer → base64 string → JSON.stringify` encode and
+  `JSON.parse → Buffer.from(base64)` decode on both the desktop main process and the
+  relay (~2.3x allocation overhead, ~1s cumulative blocking CPU per 500MB transfer per
+  `.full-review/05-final-report.md`). New shared codec
+  `packages/shared/src/file-tunnel-codec.ts` exports `encodeFileChunkFrame`/
+  `decodeFileChunkFrame`: a small fixed header (version, eof/hasMeta flags,
+  `transferId`, `seq`, and — only on `seq === 0` — `totalSize`/`rangeStart`/`rangeEnd`/
+  `contentType`/`fileName`) immediately followed by the raw chunk bytes. `RelayClient`
+  gains `sendRaw(buffer: Buffer): boolean` (`apps/desktop/src/main/ws-client/client.ts`),
+  calling `this.ws.send(buffer)` directly (binary auto-detected for `Buffer` payloads);
+  `ws-client/file-tunnel.ts` uses it for non-empty chunks instead of
+  `client.send({..., data: chunk.toString('base64')})`. On the relay,
+  `ws/handler.ts`'s WS `message` handler branches on `ws`'s `isBinary` flag:
+  `isBinary === true` → `decodeFileChunkFrame` → new `resolveFileTunnelBinaryFrame`
+  (`ws/file-tunnel.ts`); `isBinary === false` → the existing `JSON.parse` →
+  `resolveFileTunnelMessage` (unchanged, still handles the empty-file
+  `data: '', eof: true` case and `RESP_FILE_ERROR`, both of which remain JSON). Both
+  paths normalize to the same `{ data: Buffer, ... }` shape, so
+  `routes/proxy.ts::tunnelFromHost`'s `onChunk` needs no branching —
+  `raw.write(chunk.data)` either way, preserving Range/206. Backward compatible: a Host
+  that predates this change keeps working via the `isBinary === false` path with no
+  version negotiation (relevant given P1-23, no desktop auto-update yet). Documented in
+  `docs/adr/ADR-004-file-tunnel-framing.md` (status: Accepted, as built). Covered by
+  `packages/shared/test/file-tunnel-codec.test.ts` (7 unit tests, header round-trip +
+  meta presence/absence) and 3 new `apps/server/test/session-flows.test.ts` cases (full
+  download / Range download / preview, all over the binary path), plus the updated
+  `apps/desktop/test/file-tunnel.test.ts` (decodes `sendRaw`'s frames via
+  `decodeFileChunkFrame`).
 
 ### Testing
 
@@ -478,11 +533,11 @@ implicit "v0" protocol:
 Tracked from `.full-review/05-final-report.md`, in rough priority order. None of these are
 regressions introduced by the fixes above.
 
-- **P1-1** — `console.log`/`console.error` still used throughout
-  `apps/server`/`apps/desktop`/`apps/web` instead of structured logging.
-- **P1-12** — WS file tunnel base64 chunking still costs ~2.3x allocations per 256KB chunk.
 - **P1-23** — Electron desktop has no auto-update or code-signing/distribution pipeline.
 - **P2** — ~17 medium-priority items tracked in `.full-review/05-final-report.md`'s
   "Medium Priority (P2)" section (type-safety `as any` usage, token/session hardening,
-  frontend perf, module/build hygiene, test/doc gaps, environment/ops). All ~16 P3/Low
-  items from that report have been addressed — see P3-1 through P3-18 in Fixed above.
+  frontend perf, module/build hygiene, environment/ops). All ~16 P3/Low items from that
+  report have been addressed — see P3-1 through P3-18 in Fixed above. The "test/doc gaps"
+  sub-item of P2 is also addressed — see `docs/test-and-doc-gaps-plan.md` (#19,
+  **Implemented**) and the Testing section above. P1-1 (structured logging) and P1-12
+  (binary file-tunnel framing) are also done — see Fixed above.
