@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
 import path from 'path';
 import fs from 'fs';
+import { logger } from '../utils/logger';
 
 // 确保数据目录存在（支持环境变量 RB_DATA_DIR 自定义路径）
 const dataDir = process.env.RB_DATA_DIR || path.join(process.env.HOME || process.env.USERPROFILE || '.', '.remotebridge', 'data');
@@ -23,7 +24,7 @@ export const db = drizzle(sqlite, { schema });
 
 // ===== 初始化数据库表 =====
 export function initDatabase(): void {
-  console.log('📦 初始化数据库...');
+  logger.info('初始化数据库...');
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS hosts (
@@ -75,7 +76,7 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_security_logs_host_created ON security_logs(host_id, created_at);
   `);
 
-  console.log('✅ 数据库初始化完成');
+  logger.info('数据库初始化完成');
 }
 
 // ===== 数据保留任务 =====
@@ -96,10 +97,10 @@ export function startRetentionJob(): void {
     try {
       const result = runRetentionCleanup();
       if (result.securityLogs > 0 || result.messages > 0) {
-        console.log(`🧹 数据保留清理: security_logs ${result.securityLogs} 条, messages ${result.messages} 条`);
+        logger.info({ securityLogs: result.securityLogs, messages: result.messages }, '数据保留清理完成');
       }
     } catch (err) {
-      console.error('数据保留清理失败:', err);
+      logger.error({ err }, '数据保留清理失败');
     }
   };
 
@@ -144,7 +145,7 @@ export function getHealthStats(): DbHealthStats {
       },
     };
   } catch (err) {
-    console.error('数据库健康检查失败:', err);
+    logger.error({ err }, '数据库健康检查失败');
     return { ok: false, error: '数据库健康检查失败' };
   }
 }

@@ -26,7 +26,9 @@ import {
   clearAll,
 } from './connection-registry';
 import { resolvePendingRequest } from './pending-requests';
-import { resolveFileTunnelMessage } from './file-tunnel';
+import { resolveFileTunnelMessage, resolveFileTunnelBinaryFrame } from './file-tunnel';
+import { decodeFileChunkFrame } from '@remotebridge/shared';
+import { logger } from '../utils/logger';
 
 // ===== 心跳配置 =====
 const HEARTBEAT_INTERVAL = 30000;  // 30 秒
@@ -135,7 +137,19 @@ export function setupWebSocket(app: FastifyInstance): void {
     }
 
     // 消息处理
-    socket.on('message', (data) => {
+    socket.on('message', (data, isBinary) => {
+      // 二进制帧（P1-12）：文件隧道分块的首选格式，自描述头部见 file-tunnel-codec.ts。
+      // 仅服务端代理 ↔ Host 之间使用，永不出现在 Client 连接上。
+      if (isBinary) {
+        try {
+          const decoded = decodeFileChunkFrame(data as Buffer);
+          resolveFileTunnelBinaryFrame(decoded);
+        } catch (err) {
+          app.log.error('解析文件隧道二进制帧失败:', err as any);
+        }
+        return;
+      }
+
       try {
         const message: WSMessage = JSON.parse(data.toString());
         handleMessage(socket, message, meta);
@@ -304,7 +318,7 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
           }).onConflictDoNothing();
         }
       } catch (err) {
-        console.error('持久化消息失败:', err);
+        logger.error({ err }, '持久化消息失败');
       }
       // 继续中继消息给对方
       relayMessage(socket, message, meta);

@@ -23,6 +23,7 @@
     "fastify": "^4.28.0",
     "jsonwebtoken": "^9.0.2",
     "nanoid": "^5.0.7",
+    "pino": "^9.14.0",
     "ws": "^8.17.0"
   },
   "devDependencies": {

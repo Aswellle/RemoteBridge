@@ -8,8 +8,8 @@ import { sendWSMessage } from '../ws/relay';
 import { getHostSocket } from '../ws/connection-registry';
 import { waitForHostResponse } from '../ws/pending-requests';
 import { beginFileTransfer, endFileTransfer } from '../ws/file-tunnel';
+import type { NormalizedFileChunk } from '../ws/file-tunnel';
 import { WSMessageType } from '@remotebridge/shared';
-import type { RespFileChunkPayload } from '@remotebridge/shared';
 import { nanoid } from 'nanoid';
 // reply.hijack() 之后 @fastify/cors 的钩子不再执行，流式响应必须手动补 CORS 头，
 // 否则浏览器拦截代理下载/预览（curl/Node 不校验 CORS，API 级测试无感）
@@ -69,7 +69,7 @@ function tunnelFromHost(
     raw.on('close', finish);
 
     beginFileTransfer(transferId, {
-      onChunk: (chunk: RespFileChunkPayload) => {
+      onChunk: (chunk: NormalizedFileChunk) => {
         if (finished) return;
 
         if (!headersSent) {
@@ -93,10 +93,10 @@ function tunnelFromHost(
           raw.writeHead(isPartial ? 206 : 200, headers);
         }
 
-        if (chunk.data) {
+        if (chunk.data.length > 0) {
           // 浏览器侧背压无法回传给 Host（帧已在途），Node 会缓冲未写出的数据；
           // Host 端 4MB 发送水位间接限制了在途数据量
-          raw.write(Buffer.from(chunk.data, 'base64'));
+          raw.write(chunk.data);
         }
         if (chunk.eof) {
           raw.end();
@@ -106,7 +106,7 @@ function tunnelFromHost(
       onError: (err: Error) => {
         if (finished) return;
         if (!headersSent) {
-          console.error(`文件隧道传输失败: ${err.message}`);
+          reply.log.error({ err }, '文件隧道传输失败');
           raw.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', ...corsHdrs });
           raw.end(JSON.stringify({
             success: false,
@@ -277,7 +277,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
           'Content-Type': 'application/octet-stream',
         });
       } catch (err: any) {
-        console.error(`代理下载失败: ${err.message}`);
+        request.log.error({ err }, '代理下载失败');
         return reply.code(502).send({
           success: false,
           data: null,
@@ -375,7 +375,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
           'Cache-Control': 'no-store',
         });
       } catch (err: any) {
-        console.error(`代理预览失败: ${err.message}`);
+        request.log.error({ err }, '代理预览失败');
         return reply.code(502).send({
           success: false,
           data: null,

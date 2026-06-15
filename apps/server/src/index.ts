@@ -22,9 +22,10 @@ const HOST = process.env.RELAY_HOST || '0.0.0.0';
 const APP_VERSION = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8')).version as string;
 
 // ===== 创建 Fastify 实例 =====
+// 日志级别与 utils/logger.ts 的独立 pino 实例共用同一环境变量，保持两者一致
 const app = Fastify({
   logger: {
-    level: 'info',
+    level: process.env.LOG_LEVEL ?? 'info',
   },
 });
 

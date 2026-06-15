@@ -9,6 +9,7 @@ import {
   getHostClients,
   forEachClient,
 } from './connection-registry';
+import { logger } from '../utils/logger';
 
 // ===== 发送 WS 消息（统一序列化） =====
 export function sendWSMessage(ws: WebSocket, message: Partial<WSMessage>): void {
@@ -140,18 +141,18 @@ export function notifyAndDisconnectClient(
   reason: string = 'Session revoked',
 ): boolean {
   const clientWs = getClientSocket(clientId);
-  if (!clientWs) { console.error(`notifyAndDisconnectClient: client ${clientId} not in rooms`); return false; }
-  if (clientWs.readyState !== WebSocket.OPEN) { console.error(`notifyAndDisconnectClient: client ${clientId} not OPEN (state=${clientWs.readyState})`); return false; }
+  if (!clientWs) { logger.error({ clientId }, 'notifyAndDisconnectClient: client not in rooms'); return false; }
+  if (clientWs.readyState !== WebSocket.OPEN) { logger.error({ clientId, readyState: clientWs.readyState }, 'notifyAndDisconnectClient: client socket not open'); return false; }
 
   sendWSMessage(clientWs, { type, payload, timestamp: Date.now() });
-  console.log(`notifyAndDisconnectClient: sent ${type} to ${clientId}, scheduling close`);
+  logger.debug({ clientId, type }, 'notifyAndDisconnectClient: sent message to client, scheduling close');
 
   setImmediate(() => {
     try {
       clientWs.close(code, reason);
-      console.log(`notifyAndDisconnectClient: close(${code}) sent to ${clientId}`);
+      logger.debug({ clientId, code }, 'notifyAndDisconnectClient: close sent to client');
     } catch (err) {
-      console.error(`notifyAndDisconnectClient: close failed:`, err);
+      logger.error({ err, clientId }, 'notifyAndDisconnectClient: close failed');
     }
   });
 

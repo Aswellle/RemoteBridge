@@ -418,7 +418,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         'Session revoked',
       );
       if (!notified) {
-        console.warn(`revoke: client ${session[0].clientId} not connected, WS notify/disconnect skipped for session ${sessionId}`);
+        request.log.warn({ clientId: session[0].clientId, sessionId }, 'revoke: client not connected, WS notify/disconnect skipped');
       }
     } catch {
       // 通知失败不影响吊销本身（数据库状态已更新）
