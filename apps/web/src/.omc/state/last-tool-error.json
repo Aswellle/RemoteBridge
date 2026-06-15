@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /d/AI/remotebridge/apps/server && node test/manual-trust-revoke.mjs\",\"timeout\":120000,\"description\":\"Run trust/revoke functional test via desktop CDP\"}",
+  "error": "Exit code 1\n✅ 1. listClients 返回 4 项\n✅ 2. 条目含 sessionId（吊销前提）: GFUm5EipJR...\n✅ 3. online 实时状态正确（测试设备A 在线）\n✅ 4. 信任操作成功\n✅ 5. 信任标记已持久化并出现在列表中\n✅ 6. 取消信任往返成功\n❌ 7. UI 异常: {\"hasLabel\":false,\"revokeCount\":0,\"revokeEnabled\":false,\"hasTrustBtn\":false}\n❌ 8. 会话仍在列表: {\"clientId\":\"67250ce9-db57-4606-9687-d4128be23a5c\",\"sessionId\":\"GFUm5EipJRPr53tlgCnPd\",\"label\":\"测试设备A\",\"lastSeenAt\":1781282076,\"online\":true,\"isTrusted\":false}\n\n========== 结果: 6 通过, 2 失败 ==========",
+  "timestamp": "2026-06-12T16:38:24.574Z",
+  "retry_count": 1
+}

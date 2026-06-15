@@ -1,0 +1,40 @@
+# RemoteBridge Relay Server - systemd 服务单元（裸机部署，进程崩溃自动重启）
+#
+# 安装步骤：
+#   1. 将整个仓库部署到 /opt/remotebridge（包含已安装的 node_modules 和已构建的
+#      packages/shared/dist、apps/server/dist —— 即先执行 scripts/deploy-server.sh）
+#   2. 创建运行用户与数据目录：
+#        sudo useradd --system --home /opt/remotebridge remotebridge
+#        sudo chown -R remotebridge:remotebridge /opt/remotebridge
+#   3. 准备环境变量文件 /opt/remotebridge/.env（参考根目录 .env.example），
+#      并设置 RB_DATA_DIR=/var/lib/remotebridge
+#   4. 安装并启用本单元：
+#        sudo cp deploy/systemd/remotebridge-server.service /etc/systemd/system/
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now remotebridge-server
+#        sudo systemctl status remotebridge-server
+#        journalctl -u remotebridge-server -f
+
+[Unit]
+Description=RemoteBridge Relay Server
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/remotebridge/.env
+WorkingDirectory=/opt/remotebridge/apps/server
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+User=remotebridge
+Group=remotebridge
+
+# /var/lib/remotebridge is created (and owned by User=) automatically;
+# point RB_DATA_DIR at it in .env.
+StateDirectory=remotebridge
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

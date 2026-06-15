@@ -1,0 +1,24 @@
+# Dependencies & build outputs (rebuilt inside the image)
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/out
+**/*.tsbuildinfo
+.cache
+
+# VCS / tooling
+.git
+.full-review
+**/.gstack
+**/.omc
+
+# Env files (pass secrets via compose env_file / environment instead)
+.env
+.env.*.local
+.env.local
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db

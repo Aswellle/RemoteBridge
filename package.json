@@ -1,0 +1,22 @@
+{
+  "name": "remotebridge",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "^1.13.0",
+    "typescript": "^5.3.0"
+  },
+  "packageManager": "pnpm@9.1.0",
+  "dependencies": {
+    "browserslist": "^4.28.2",
+    "caniuse-lite": "^1.0.30001797"
+  }
+}

@@ -1,0 +1,396 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1781446117213,
+  "projectRoot": "D:\\AI\\remotebridge",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "pnpm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "pnpm --filter @remotebridge/server exec tsc --noEmit 2>&1 | tail -60",
+    "testCommand": "ls apps/web/node_modules/.bin/vitest* 2>&1; ls apps/web/node_modules/vitest/package.json 2>&1 | head -5",
+    "lintCommand": "pnpm lint",
+    "devCommand": "pnpm dev",
+    "scripts": {
+      "dev": "turbo dev",
+      "build": "turbo build",
+      "lint": "turbo lint",
+      "clean": "turbo clean"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": true,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "apps": {
+      "path": "apps",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1781446117157,
+      "keyFiles": []
+    },
+    "deploy": {
+      "path": "deploy",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1781446117158,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 3,
+      "lastAccessed": 1781446117178,
+      "keyFiles": [
+        "code-review-report.md",
+        "relay-room-state-design.md",
+        "runbook.md"
+      ]
+    },
+    "packages": {
+      "path": "packages",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1781446117179,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 3,
+      "lastAccessed": 1781446117180,
+      "keyFiles": [
+        "deploy-server.sh",
+        "dev-desktop.ps1",
+        "setup.sh"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "CHANGELOG.md",
+      "accessCount": 59,
+      "lastAccessed": 1781492391042,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server\\src\\routes\\auth.ts",
+      "accessCount": 21,
+      "lastAccessed": 1781465768814,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server\\src",
+      "accessCount": 20,
+      "lastAccessed": 1781496159970,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\desktop\\src\\main\\ws-client\\dir-handlers.ts",
+      "accessCount": 11,
+      "lastAccessed": 1781463123834,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\desktop\\src\\renderer\\App.tsx",
+      "accessCount": 10,
+      "lastAccessed": 1781452327340,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server\\src\\routes\\hosts.ts",
+      "accessCount": 9,
+      "lastAccessed": 1781465751335,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\server\\src\\index.ts",
+      "accessCount": 8,
+      "lastAccessed": 1781493934493,
+      "type": "file"
+    },
+    {
+      "path": ".full-review",
+      "accessCount": 7,
+      "lastAccessed": 1781452187185,
+      "type": "directory"
+    },
+    {
+      "path": "packages\\shared\\src\\ws-types.ts",
+      "accessCount": 7,
+      "lastAccessed": 1781493745800,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\desktop\\src\\renderer\\pages\\Messages.tsx",
+      "accessCount": 6,
+      "lastAccessed": 1781451617548,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\server\\package.json",
+      "accessCount": 6,
+      "lastAccessed": 1781462808566,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\server\\src\\ws\\rooms.ts",
+      "accessCount": 6,
+      "lastAccessed": 1781465979877,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src",
+      "accessCount": 6,
+      "lastAccessed": 1781493723216,
+      "type": "directory"
+    },
+    {
+      "path": ".full-review\\05-final-report.md",
+      "accessCount": 6,
+      "lastAccessed": 1781496110234,
+      "type": "file"
+    },
+    {
+      "path": ".full-review\\01a-code-quality.md",
+      "accessCount": 5,
+      "lastAccessed": 1781450361238,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\web\\package.json",
+      "accessCount": 5,
+      "lastAccessed": 1781452328018,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server\\src\\routes\\messages.ts",
+      "accessCount": 5,
+      "lastAccessed": 1781492338696,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\server\\src\\routes\\security-logs.ts",
+      "accessCount": 4,
+      "lastAccessed": 1781450036138,
+      "type": "file"
+    },
+    {
+      "path": "apps\\desktop\\src\\main\\index.ts",
+      "accessCount": 4,
+      "lastAccessed": 1781450433354,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\desktop\\test\\token-manager.test.ts",
+      "accessCount": 4,
+      "lastAccessed": 1781450470394,
+      "type": "file"
+    },
+    {
+      "path": ".full-review\\02a-security.md",
+      "accessCount": 4,
+      "lastAccessed": 1781451041798,
+      "type": "directory"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 4,
+      "lastAccessed": 1781492297838,
+      "type": "file"
+    },
+    {
+      "path": "apps\\desktop\\src\\main",
+      "accessCount": 4,
+      "lastAccessed": 1781493722145,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\desktop\\src\\main\\electron-binding.ts",
+      "accessCount": 3,
+      "lastAccessed": 1781450370929,
+      "type": "file"
+    },
+    {
+      "path": "apps\\desktop\\src\\renderer",
+      "accessCount": 3,
+      "lastAccessed": 1781450385883,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\desktop\\src\\renderer\\pages\\Clients.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1781450403514,
+      "type": "file"
+    },
+    {
+      "path": "apps\\desktop\\src\\renderer\\pages\\SecurityLogs.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1781450405389,
+      "type": "file"
+    },
+    {
+      "path": "apps\\desktop\\src\\main\\db\\client.ts",
+      "accessCount": 3,
+      "lastAccessed": 1781450430460,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server\\src\\db\\client.ts",
+      "accessCount": 3,
+      "lastAccessed": 1781450949298,
+      "type": "file"
+    },
+    {
+      "path": "使用说明书.md",
+      "accessCount": 3,
+      "lastAccessed": 1781451142326,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\web\\src\\components\\previews\\FilePreview.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1781451219790,
+      "type": "file"
+    },
+    {
+      "path": "apps\\desktop",
+      "accessCount": 3,
+      "lastAccessed": 1781452186224,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\web\\src\\components\\previews\\ImageViewer.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1781452404081,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server\\test",
+      "accessCount": 3,
+      "lastAccessed": 1781463767584,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\server\\src\\utils\\jwt.ts",
+      "accessCount": 3,
+      "lastAccessed": 1781496158360,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\src\\hooks\\useWebSocket.ts",
+      "accessCount": 2,
+      "lastAccessed": 1781447755063,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\tsconfig.json",
+      "accessCount": 2,
+      "lastAccessed": 1781447999783,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server\\test\\security-logs.test.ts",
+      "accessCount": 2,
+      "lastAccessed": 1781448801527,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server",
+      "accessCount": 2,
+      "lastAccessed": 1781465495960,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\desktop\\src\\main\\file-server\\token-manager.ts",
+      "accessCount": 2,
+      "lastAccessed": 1781496160861,
+      "type": "file"
+    },
+    {
+      "path": "packages\\shared\\src\\security.ts",
+      "accessCount": 2,
+      "lastAccessed": 1781496201539,
+      "type": "directory"
+    },
+    {
+      "path": "fix-corrupted2.ps1",
+      "accessCount": 1,
+      "lastAccessed": 1781446249683,
+      "type": "file"
+    },
+    {
+      "path": "packages\\shared\\vitest.config.ts",
+      "accessCount": 1,
+      "lastAccessed": 1781446797108,
+      "type": "file"
+    },
+    {
+      "path": "apps\\desktop\\vitest.config.ts",
+      "accessCount": 1,
+      "lastAccessed": 1781446797201,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\vitest.config.ts",
+      "accessCount": 1,
+      "lastAccessed": 1781447964652,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\.eslintrc.json",
+      "accessCount": 1,
+      "lastAccessed": 1781448360623,
+      "type": "file"
+    },
+    {
+      "path": "apps\\web\\test\\useWebSocket.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1781448560235,
+      "type": "file"
+    },
+    {
+      "path": "fix-corrupted3.ps1",
+      "accessCount": 1,
+      "lastAccessed": 1781448877697,
+      "type": "file"
+    },
+    {
+      "path": "apps\\server\\src\\db\\schema.ts",
+      "accessCount": 1,
+      "lastAccessed": 1781449330327,
+      "type": "directory"
+    },
+    {
+      "path": "apps\\server\\tsconfig.json",
+      "accessCount": 1,
+      "lastAccessed": 1781450207531,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

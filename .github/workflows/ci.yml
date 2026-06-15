@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # P3-17 (04b-DC9): report-only dependency audit — pnpm audit can have false
+      # positives on dev-only deps, so this doesn't fail the build, just surfaces
+      # known vulnerabilities in the job log for manual review.
+      - name: Audit dependencies (report-only)
+        run: pnpm audit --prod || true
+
+      # apps/server, apps/web and apps/desktop all import @remotebridge/shared
+      # from its compiled dist/, so it must be built before anything else.
+      - name: Build shared package
+        run: pnpm --filter @remotebridge/shared build
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Lint web
+        run: pnpm --filter @remotebridge/web lint
+
+      - name: Typecheck
+        run: |
+          pnpm --filter @remotebridge/shared exec tsc --noEmit
+          pnpm --filter @remotebridge/server exec tsc --noEmit
+          pnpm --filter @remotebridge/desktop exec tsc --noEmit
+          pnpm --filter @remotebridge/web exec tsc --noEmit
+
+      - name: Test shared
+        run: pnpm --filter @remotebridge/shared test
+
+      # P1-15: vitest globalSetup spawns its own relay on :3099, so this
+      # works standalone with no live relay required.
+      - name: Test server
+        run: pnpm --filter @remotebridge/server test
+
+      - name: Test desktop
+        run: pnpm --filter @remotebridge/desktop test
+
+      - name: Test web
+        run: pnpm --filter @remotebridge/web test

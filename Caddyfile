@@ -1,0 +1,25 @@
+# TLS-terminating reverse proxy for RemoteBridge (docker-compose service "caddy").
+#
+# - For a real deployment, set DOMAIN to your public hostname in .env; Caddy
+#   will automatically obtain and renew a Let's Encrypt certificate for it.
+# - For local testing, the default "localhost" makes Caddy serve HTTPS with
+#   its internal (self-signed) CA - import Caddy's local root CA or accept
+#   the browser warning.
+#
+# Routing:
+#   /api/*  and /health  -> relay server REST API
+#   /ws*               -> relay server WebSocket endpoint
+#   everything else    -> Next.js web client
+
+{$DOMAIN:localhost} {
+	encode gzip
+
+	@server path /api/* /health /ws*
+	handle @server {
+		reverse_proxy server:3001
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

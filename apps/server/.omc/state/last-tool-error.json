@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd ../shared && pnpm exec tsc --noEmit 2>&1 | tail -30\",\"description\":\"Typecheck shared package\"}",
+  "error": "Exit code 1\n/usr/bin/bash: line 1: cd: ../shared: No such file or directory",
+  "timestamp": "2026-06-14T19:10:55.385Z",
+  "retry_count": 1
+}
