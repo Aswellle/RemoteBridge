@@ -9,6 +9,7 @@ import { createDownloadToken, validateDownloadToken, markTokenUsed } from '../fi
 import { getFileServerPort } from '../file-server/server';
 import fs from 'fs/promises';
 import path from 'path';
+import log from '../logger';
 
 // ===== 预览配置 =====
 const PREVIEW_MAX_SIZE = 10 * 1024 * 1024; // 10MB 以上不预览
@@ -79,7 +80,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
         }, payload),
       });
     } catch (err) {
-      console.error('列出白名单目录失败:', err);
+      log.error('列出白名单目录失败:', err);
       client.send({
         type: WSMessageType.RESP_DIR_ERROR,
         sessionId,
@@ -203,7 +204,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
         }, payload),
       });
     } catch (err) {
-      console.error('列出目录失败:', err);
+      log.error('列出目录失败:', err);
       client.send({
         type: WSMessageType.RESP_DIR_ERROR,
         sessionId,
@@ -310,7 +311,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
         }, payload),
       });
     } catch (err) {
-      console.error('处理下载请求失败:', err);
+      log.error('处理下载请求失败:', err);
       client.send({
         type: WSMessageType.RESP_DOWNLOAD_ERROR,
         sessionId,
@@ -413,7 +414,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
         }, payload),
       });
     } catch (err) {
-      console.error('处理预览请求失败:', err);
+      log.error('处理预览请求失败:', err);
       client.send({
         type: WSMessageType.RESP_PREVIEW_ERROR,
         sessionId,

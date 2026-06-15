@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { WSMessageType } from '@remotebridge/shared';
+import { WSMessageType, decodeFileChunkFrame } from '@remotebridge/shared';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // vi.mock factories are hoisted above imports; `var` avoids TDZ issues since
 // the factories' closures read these at call time, not at definition time.
 var sentMessages: any[] = [];
+var sentRawFrames: Buffer[] = [];
 var bufferedAmountQueue: number[] = [];
 var isConnectedValue = true;
 var handlers = new Map<string, (payload: any) => Promise<void> | void>();
@@ -22,6 +23,10 @@ vi.mock('../src/main/ws-client/client', () => ({
     },
     send: (message: any) => {
       sentMessages.push(message);
+      return true;
+    },
+    sendRaw: (buffer: Buffer) => {
+      sentRawFrames.push(buffer);
       return true;
     },
     isConnected: () => isConnectedValue,
@@ -57,7 +62,7 @@ vi.mock('../src/main/file-server/server', () => ({
 
 import { setupFileTunnelHandler } from '../src/main/ws-client/file-tunnel';
 
-// > CHUNK_SIZE (256KB) so the stream yields multiple RESP_FILE_CHUNK frames.
+// > CHUNK_SIZE (256KB) so the stream yields multiple binary file-chunk frames.
 const FILE_SIZE = 600 * 1024;
 const BACKPRESSURE_HIGH_WATER = 4 * 1024 * 1024;
 
@@ -80,6 +85,7 @@ describe('setupFileTunnelHandler / CMD_FETCH_FILE backpressure', () => {
 
   beforeEach(() => {
     sentMessages = [];
+    sentRawFrames = [];
     bufferedAmountQueue = [];
     isConnectedValue = true;
   });
@@ -98,15 +104,15 @@ describe('setupFileTunnelHandler / CMD_FETCH_FILE backpressure', () => {
     // Two 50ms polls must elapse before the first chunk can be sent.
     expect(elapsed).toBeGreaterThanOrEqual(90);
 
-    const chunks = sentMessages.filter((m) => m.type === WSMessageType.RESP_FILE_CHUNK);
+    const chunks = sentRawFrames.map((f) => decodeFileChunkFrame(f));
     expect(chunks.length).toBeGreaterThanOrEqual(2);
 
-    chunks.forEach((c, i) => expect(c.payload.seq).toBe(i));
-    expect(chunks[0].payload.totalSize).toBe(FILE_SIZE);
-    expect(chunks[chunks.length - 1].payload.eof).toBe(true);
-    chunks.slice(0, -1).forEach((c) => expect(c.payload.eof).toBe(false));
+    chunks.forEach((c, i) => expect(c.seq).toBe(i));
+    expect(chunks[0].totalSize).toBe(FILE_SIZE);
+    expect(chunks[chunks.length - 1].eof).toBe(true);
+    chunks.slice(0, -1).forEach((c) => expect(c.eof).toBe(false));
 
-    const rebuilt = Buffer.concat(chunks.map((c) => Buffer.from(c.payload.data, 'base64')));
+    const rebuilt = Buffer.concat(chunks.map((c) => c.data));
     expect(rebuilt.equals(fs.readFileSync(testFilePath))).toBe(true);
 
     expect(sentMessages.some((m) => m.type === WSMessageType.RESP_FILE_ERROR)).toBe(false);
@@ -120,7 +126,7 @@ describe('setupFileTunnelHandler / CMD_FETCH_FILE backpressure', () => {
     const handler = handlers.get(WSMessageType.CMD_FETCH_FILE);
     await handler!({ transferId: 'transfer-2', token: 'valid-token' });
 
-    expect(sentMessages.filter((m) => m.type === WSMessageType.RESP_FILE_CHUNK)).toHaveLength(0);
+    expect(sentRawFrames).toHaveLength(0);
     expect(sentMessages.filter((m) => m.type === WSMessageType.RESP_FILE_ERROR)).toHaveLength(0);
   });
 });

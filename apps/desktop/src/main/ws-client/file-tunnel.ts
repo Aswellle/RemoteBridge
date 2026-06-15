@@ -1,7 +1,7 @@
 import { createReadStream } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
-import { WSMessageType } from '@remotebridge/shared';
+import { WSMessageType, encodeFileChunkFrame } from '@remotebridge/shared';
 import type { CmdFetchFilePayload } from '@remotebridge/shared';
 import { getRelayClient } from './client';
 import db from '../db/client';
@@ -9,9 +9,10 @@ import { validatePath } from '../security/path-guard';
 import { logAccess } from '../security/audit-logger';
 import { validateDownloadToken, markTokenUsed } from '../file-server/token-manager';
 import { getContentTypeForExt } from '../file-server/server';
+import log from '../logger';
 
 // ===== 分块/背压配置 =====
-// 256KB 原始数据 → base64 后约 341KB/帧
+// 256KB 原始数据，二进制帧（P1-12）下加上固定头部直接发送，无 base64 膨胀
 const CHUNK_SIZE = 256 * 1024;
 // WS 发送缓冲超过 4MB 时暂停读盘，等 Relay 消化
 const BACKPRESSURE_HIGH_WATER = 4 * 1024 * 1024;
@@ -104,27 +105,23 @@ export function setupFileTunnelHandler(): void {
 
         sentBytes += (chunk as Buffer).length;
         const currentSeq = seq++;
+        const isEof = sentBytes >= rangeLength;
         // 文件元信息只在首帧携带，后续分块帧省略（避免对大文件的每个分块重复发送相同元数据）
         const meta = currentSeq === 0
           ? { totalSize, rangeStart: start, rangeEnd: end, contentType, fileName }
           : {};
-        const sent = client.send({
-          type: WSMessageType.RESP_FILE_CHUNK,
-          payload: {
-            transferId,
-            seq: currentSeq,
-            data: (chunk as Buffer).toString('base64'),
-            eof: sentBytes >= rangeLength,
-            ...meta,
-          },
-        });
+        const frame = encodeFileChunkFrame(
+          { transferId, seq: currentSeq, eof: isEof, ...meta },
+          chunk as Buffer,
+        );
+        const sent = client.sendRaw(frame);
         if (!sent) {
           stream.destroy();
           return; // 连接在发送时断开，放弃传输（Relay 侧靠空闲超时清理）
         }
       }
     } catch (err) {
-      console.error('文件隧道读取失败:', err);
+      log.error('文件隧道读取失败:', err);
       sendError('FS_ERROR', '文件系统访问失败');
     }
   });

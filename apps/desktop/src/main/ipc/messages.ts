@@ -3,6 +3,7 @@ import os from 'os';
 import { nanoid } from 'nanoid';
 import { getRelayClient } from '../ws-client/client';
 import db from '../db/client';
+import log from '../logger';
 
 // ===== 注册消息相关 IPC =====
 export function registerMessagesHandlers(): void {
@@ -42,7 +43,7 @@ export function registerMessagesHandlers(): void {
           senderLabel: os.hostname(),
         });
       } catch (err) {
-        console.error('持久化发出的消息失败:', err);
+        log.error('持久化发出的消息失败:', err);
       }
 
       return { success: true, data: { messageId } };
@@ -55,7 +56,7 @@ export function registerMessagesHandlers(): void {
     try {
       return db.getMessages(limit || 200);
     } catch (error: any) {
-      console.error('获取消息历史失败:', error);
+      log.error('获取消息历史失败:', error);
       return [];
     }
   });

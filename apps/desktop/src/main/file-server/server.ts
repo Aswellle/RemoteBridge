@@ -4,6 +4,7 @@ import path from 'path';
 import { validateDownloadToken, markTokenUsed } from './token-manager';
 import { validatePath } from '../security/path-guard';
 import { db } from '../db/client';
+import log from '../logger';
 
 // ===== 本地文件服务器 =====
 let fileServer: ReturnType<typeof Fastify> | null = null;
@@ -201,7 +202,7 @@ export async function startFileServer(): Promise<number> {
   const address = fileServer.server.address();
   fileServerPort = typeof address === 'object' && address ? address.port : 0;
 
-  console.log(`📁 本地文件服务器启动于 http://127.0.0.1:${fileServerPort}`);
+  log.info(`本地文件服务器启动于 http://127.0.0.1:${fileServerPort}`);
   return fileServerPort;
 }
 

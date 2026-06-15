@@ -1,6 +1,7 @@
 import axios from 'axios';
 import db from '../db/client';
 import { config } from '../config/store';
+import log from '../logger';
 
 // ===== 获取 Relay API 配置 =====
 function getRelayApi(): string {
@@ -22,7 +23,7 @@ export async function logAccess(event: {
   try {
     db.insertAccessLog(event);
   } catch (err) {
-    console.error('[AuditLogger] 写入本地访问日志失败:', err);
+    log.error('[AuditLogger] 写入本地访问日志失败:', err);
   }
 
   // 2. 发送到 Relay 服务器
@@ -42,7 +43,7 @@ export async function logAccess(event: {
     }
   } catch (err) {
     // 静默失败 — 不影响主流程
-    console.warn('[AuditLogger] 发送访问日志到 Relay 失败:', (err as Error).message);
+    log.warn('[AuditLogger] 发送访问日志到 Relay 失败:', (err as Error).message);
   }
 }
 
@@ -67,6 +68,6 @@ export async function logSecurity(event: {
       });
     }
   } catch (err) {
-    console.warn('[AuditLogger] 发送安全日志到 Relay 失败:', (err as Error).message);
+    log.warn('[AuditLogger] 发送安全日志到 Relay 失败:', (err as Error).message);
   }
 }

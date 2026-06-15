@@ -11,6 +11,7 @@ import { cleanExpiredTokens } from './file-server/token-manager';
 import { config } from './config/store';
 import db, { initDatabase } from './db/client';
 import axios from 'axios';
+import log from './logger';
 
 // IPC 模块
 import { registerAuthHandlers, ensureHostRegisteredAndConnected } from './ipc/auth';
@@ -40,15 +41,15 @@ app.whenReady().then(async () => {
 
   // 启动本地文件服务器
   const filePort = await startFileServer();
-  console.log(`📁 文件服务器端口: ${filePort}`);
+  log.info(`文件服务器端口: ${filePort}`);
 
   // 定期清理过期下载令牌，防止 download_tokens 表无限增长
   const tokenCleaner = setInterval(() => {
     try {
       const removed = cleanExpiredTokens();
-      if (removed > 0) console.log(`🧹 已清理过期下载令牌: ${removed} 条`);
+      if (removed > 0) log.info(`已清理过期下载令牌: ${removed} 条`);
     } catch (err) {
-      console.error('清理过期下载令牌失败:', err);
+      log.error('清理过期下载令牌失败:', err);
     }
   }, 60 * 60 * 1000);
   tokenCleaner.unref?.();
@@ -60,12 +61,12 @@ app.whenReady().then(async () => {
   ensureHostRegisteredAndConnected(getMainWindow, getRelayApi, getRelayUrl)
     .then((result) => {
       if (result.success) {
-        console.log(`✅ 已自动连接 Relay (hostId: ${result.data?.hostId})`);
+        log.info(`已自动连接 Relay (hostId: ${result.data?.hostId})`);
       } else {
-        console.warn(`⚠️ 自动连接 Relay 失败: ${result.error}`);
+        log.warn(`自动连接 Relay 失败: ${result.error}`);
       }
     })
-    .catch((err) => console.error('自动连接 Relay 异常:', err));
+    .catch((err) => log.error('自动连接 Relay 异常:', err));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -125,7 +126,7 @@ function registerIpcHandlers(): void {
     try {
       return db.getAccessLogs(limit || 100);
     } catch (error: any) {
-      console.error('获取访问日志失败:', error);
+      log.error('获取访问日志失败:', error);
       return [];
     }
   });
@@ -152,7 +153,7 @@ function registerIpcHandlers(): void {
         return { success: true, data: response.data.data };
       } catch (error: any) {
         const msg = error?.response?.data?.error?.message || error.message;
-        console.error('获取安全日志失败:', msg);
+        log.error('获取安全日志失败:', msg);
         return { success: false, error: msg };
       }
     },

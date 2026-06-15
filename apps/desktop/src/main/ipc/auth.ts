@@ -7,6 +7,7 @@ import { setupDirWsHandlers } from '../ws-client/dir-handlers';
 import { setupFileTunnelHandler } from '../ws-client/file-tunnel';
 import { config } from '../config/store';
 import { updateTrayStatus } from '../tray';
+import log from '../logger';
 
 // ===== 认证失效自动恢复 =====
 // Host token（365d）过期或主机记录在服务端丢失时，WS 会被 4001 拒绝。
@@ -30,7 +31,7 @@ function scheduleAuthRecovery(
   getRelayUrl: () => string,
 ): void {
   if (authRecoveryTimer) return; // 已有恢复在排队
-  console.log(`Host 认证失败，${AUTH_RECOVERY_DELAY_MS / 1000}s 后重新校验/注册身份`);
+  log.info(`Host 认证失败，${AUTH_RECOVERY_DELAY_MS / 1000}s 后重新校验/注册身份`);
   getMainWindow()?.webContents.send('event:connection-status', { status: 'connecting' });
   updateTrayStatus('disconnected');
 
@@ -38,7 +39,7 @@ function scheduleAuthRecovery(
     authRecoveryTimer = null;
     const result = await ensureHostRegisteredAndConnected(getMainWindow, getRelayApi, getRelayUrl);
     if (!result.success) {
-      console.error('身份恢复失败，继续重试:', result.error);
+      log.error('身份恢复失败，继续重试:', result.error);
       scheduleAuthRecovery(getMainWindow, getRelayApi, getRelayUrl);
     }
   }, AUTH_RECOVERY_DELAY_MS);

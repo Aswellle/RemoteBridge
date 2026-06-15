@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { nanoid } from 'nanoid';
 import { WSMessage, WSMessageType } from '@remotebridge/shared';
 import { app, BrowserWindow } from 'electron';
+import log from '../logger';
 
 // ===== Relay 客户端配置 =====
 interface RelayClientConfig {
@@ -50,7 +51,7 @@ export class RelayClient {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.on('open', () => {
-        console.log('已连接到 Relay Server');
+        log.info('已连接到 Relay Server');
         this.reconnectAttempts = 0;
         this.reconnectDelay = 1000;
         this.isConnecting = false;
@@ -65,12 +66,12 @@ export class RelayClient {
           const message: WSMessage = JSON.parse(data.toString());
           this.handleMessage(message);
         } catch (err) {
-          console.error('解析消息失败:', err);
+          log.error('解析消息失败:', err);
         }
       });
 
       this.ws.on('close', (code, reason) => {
-        console.log(`连接关闭: ${code} - ${reason}`);
+        log.info(`连接关闭: ${code} - ${reason}`);
         this.isConnecting = false;
         this.stopPingLoop();
         this.config.onDisconnect?.();
@@ -89,7 +90,7 @@ export class RelayClient {
       });
 
       this.ws.on('error', (error) => {
-        console.error('WebSocket 错误:', error);
+        log.error('WebSocket 错误:', error);
         this.isConnecting = false;
         this.config.onError?.(error as Error);
       });
@@ -140,7 +141,7 @@ export class RelayClient {
       this.maxReconnectDelay
     );
 
-    console.log(`将在 ${this.reconnectDelay}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
+    log.debug(`将在 ${this.reconnectDelay}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
 
     this.reconnectTimer = setTimeout(() => {
       this.connect();
@@ -161,7 +162,18 @@ export class RelayClient {
       }));
       return true;
     }
-    console.warn(`send: 连接未就绪 (readyState=${this.ws?.readyState}), 丢弃消息 type=${message.type}`);
+    log.warn(`send: 连接未就绪 (readyState=${this.ws?.readyState}), 丢弃消息 type=${message.type}`);
+    return false;
+  }
+
+  // ===== 发送原始二进制帧（文件隧道二进制分块，见 file-tunnel-codec.ts） =====
+  // ws 对 Buffer 载荷自动以二进制帧发送，无需额外标记。
+  sendRaw(buffer: Buffer): boolean {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(buffer);
+      return true;
+    }
+    log.warn(`sendRaw: 连接未就绪 (readyState=${this.ws?.readyState}), 丢弃二进制帧`);
     return false;
   }
 

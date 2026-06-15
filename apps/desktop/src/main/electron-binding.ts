@@ -3,6 +3,7 @@
 // 此 hook 拦截 process.dlopen，将 better-sqlite3 的 .node 加载重定向到 Electron 预编译版本
 import fs from 'fs';
 import path from 'path';
+import log from './logger';
 
 if (process.versions?.electron) {
   // 查找 .cache 中的 Electron 预编译版本
@@ -36,7 +37,7 @@ if (process.versions?.electron) {
         try {
           return origDlopen.call(this, module, alt, ...args);
         } catch (err) {
-          console.warn('加载 Electron 版 better-sqlite3 二进制失败，回退到原始路径:', (err as Error).message);
+          log.warn('加载 Electron 版 better-sqlite3 二进制失败，回退到原始路径:', (err as Error).message);
         }
       }
       return origDlopen.call(this, module, filename, ...args);
