@@ -149,6 +149,16 @@ export interface CmdFetchFilePayload {
   rangeEnd?: number;
 }
 
+/**
+ * RESP_FILE_CHUNK 的线上格式（P1-12）：非空分块的首选传输方式是
+ * `packages/shared/src/file-tunnel-codec.ts` 定义的自描述二进制 WS 帧
+ * （`encodeFileChunkFrame`/`decodeFileChunkFrame`），而不是本接口描述的
+ * JSON+base64 形式。Relay 通过 WS `message` 事件的 `isBinary` 标志区分两种格式，
+ * 二进制路径优先；本接口仅用于：
+ *  - 空文件场景（totalSize === 0 的单帧 eof 响应，仍走 JSON）；
+ *  - 旧版（未更新）Host 走的 legacy JSON 解析路径的解析目标类型。
+ * 两条路径最终都规范化为内部 `data: Buffer` 形态，proxy.ts 无需分支处理。
+ */
 export interface RespFileChunkPayload {
   transferId: string;
   /** 分块序号，从 0 递增 */

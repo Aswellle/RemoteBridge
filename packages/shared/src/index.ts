@@ -17,3 +17,6 @@ export * from './file-utils';
 
 // 安全日志 UI 常量（事件类型标签/颜色）
 export * from './security-log-ui';
+
+// 文件隧道二进制帧编解码
+export * from './file-tunnel-codec';
