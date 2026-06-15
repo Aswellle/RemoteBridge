@@ -6,6 +6,7 @@ import { WSMessage, WSMessageType } from '@remotebridge/shared';
 import { useAppStore } from '@/store/app-store';
 import { refreshAccessToken } from '@/lib/api';
 import { handleDownloadReady, handleDownloadError } from '@/lib/download-manager';
+import { logger } from '@/lib/logger';
 
 // ===== WebSocket 管理器 =====
 export class WebSocketManager {
@@ -48,7 +49,7 @@ export class WebSocketManager {
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      console.log('WebSocket 连接成功');
+      logger.info('WebSocket 连接成功');
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000;
       this.store.getState().setConnectionStatus('connected');
@@ -60,12 +61,12 @@ export class WebSocketManager {
         const message: WSMessage = JSON.parse(event.data);
         this.handleMessage(message);
       } catch (err) {
-        console.error('解析 WebSocket 消息失败:', err);
+        logger.error('解析 WebSocket 消息失败:', err);
       }
     };
 
     this.ws.onclose = (event) => {
-      console.log('WebSocket 连接关闭:', event.code, event.reason);
+      logger.info('WebSocket 连接关闭:', event.code, event.reason);
       this.store.getState().setConnectionStatus('disconnected');
       this.store.getState().setWsInstance(null);
 
@@ -92,7 +93,7 @@ export class WebSocketManager {
     };
 
     this.ws.onerror = (error) => {
-      console.error('WebSocket 错误:', error);
+      logger.error('WebSocket 错误:', error);
       this.store.getState().setConnectionStatus('error');
     };
   }
@@ -113,7 +114,7 @@ export class WebSocketManager {
       case WSMessageType.RESP_DIR_ERROR: {
         this.store.getState().setIsLoadingDir(false);
         const errMsg = (message.payload as any).message || '目录访问被拒绝';
-        console.error('目录访问错误:', errMsg);
+        logger.error('目录访问错误:', errMsg);
         // 之前只打 console，用户面对的是转完圈后凭空消失的加载态
         toast.error('无法打开目录', { description: errMsg });
         break;
@@ -214,7 +215,7 @@ export class WebSocketManager {
       this.maxReconnectDelay
     );
 
-    console.log(`将在 ${this.reconnectDelay}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
+    logger.debug(`将在 ${this.reconnectDelay}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
 
     this.reconnectTimer = setTimeout(() => {
       this.connect();

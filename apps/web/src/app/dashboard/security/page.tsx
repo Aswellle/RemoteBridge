@@ -5,6 +5,7 @@ import { useAppStore } from '@/store/app-store';
 import api from '@/lib/api';
 import { ShieldCheck, Loader2, AlertTriangle } from 'lucide-react';
 import { EVENT_TYPE_LABELS, EVENT_TYPE_COLORS } from '@remotebridge/shared';
+import { logger } from '@/lib/logger';
 
 // ===== 安全日志条目类型 =====
 interface SecurityLogEntry {
@@ -69,7 +70,7 @@ export default function SecurityPage() {
     } catch (err: any) {
       const msg = err.response?.data?.error?.message || err.message || '查询失败';
       setError(msg);
-      console.error('获取安全日志失败:', err);
+      logger.error('获取安全日志失败:', err);
     } finally {
       setLoading(false);
     }

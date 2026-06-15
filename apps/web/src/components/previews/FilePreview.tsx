@@ -7,6 +7,7 @@ import { Download, X, Loader2, AlertTriangle, Image, FileText, FileType, FolderO
 import { getFileCategory } from '@remotebridge/shared';
 import { usePreview } from '@/hooks/usePreview';
 import { useAppStore } from '@/store/app-store';
+import { logger } from '@/lib/logger';
 
 // 按需加载预览组件：同一时间只会渲染其中一个，拆分后非激活类型不进入主 bundle
 const ImageViewer = dynamic(() => import('@/components/previews/ImageViewer'), { ssr: false });
@@ -53,7 +54,7 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
       const { requestDownload } = useAppStore.getState();
       requestDownload(filePath);
     } catch (err) {
-      console.error('下载请求失败:', err);
+      logger.error('下载请求失败:', err);
     }
   }, [filePath]);
 

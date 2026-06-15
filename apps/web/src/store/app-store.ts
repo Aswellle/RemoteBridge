@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { WSMessage, WSMessageType, FileEntry, HostInfo, AllowedDirectory } from '@remotebridge/shared';
 import api from '@/lib/api';
+import { logger } from '@/lib/logger';
 
 // ===== Host history entry =====
 interface HostHistoryEntry {
@@ -312,7 +313,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       }
     } catch (err: any) {
-      console.error('连接失败:', err);
+      logger.error('连接失败:', err);
       set({ connectionStatus: 'error' });
       showErrorToast('连接失败', err?.response?.data?.message || err?.message || '请检查连接码是否正确');
       throw err;
@@ -469,7 +470,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       }
     } catch (err) {
-      console.error('加载消息历史失败:', err);
+      logger.error('加载消息历史失败:', err);
       showErrorToast('加载消息历史失败');
     }
   },

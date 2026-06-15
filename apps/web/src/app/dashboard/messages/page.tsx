@@ -6,6 +6,7 @@ import { useAppStore } from '@/store/app-store';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { formatRelativeTime } from '@remotebridge/shared';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { logger } from '@/lib/logger';
 
 export default function MessagesPage() {
   const { connectionStatus, messages, sendMessage, markMessagesRead, sessionId, loadMessageHistory } = useAppStore();
@@ -33,7 +34,7 @@ export default function MessagesPage() {
         setIsLoadingHistory(true);
         await loadMessageHistory(sessionId);
       } catch (err) {
-        console.error('加载消息历史失败:', err);
+        logger.error('加载消息历史失败:', err);
       } finally {
         setIsLoadingHistory(false);
       }
