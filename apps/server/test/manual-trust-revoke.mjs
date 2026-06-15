@@ -5,6 +5,27 @@
 //
 // P1-14: 需要通过 CDP 驱动一个真实运行中的 Electron 渲染进程及在线 web 客户端会话，
 // 无法在 vitest 中无头运行，保留为手动脚本，不计入 vitest 套件/CI。
+//
+// ## Candidates for vitest migration (test-and-doc-gaps-plan.md #3)
+// 以下断言实质测试的是主进程 IPC handler / 本地 DB 状态，UI 仅是触发方式，
+// 可迁移到 apps/desktop/test/*（mock axios + db.client，直接调用 ipcMain handler）：
+// - 断言 1-3（clients:list 形状：sessionId/online/label 字段映射，relay 可达时合并
+//   relay 数据 + 本地 is_trusted 标记）→ 对应 apps/desktop/src/main/ipc/clients.ts 的
+//   `clients:list` handler；可仿照现有 apps/desktop/test/* 的 mock 风格新增
+//   apps/desktop/test/ipc-clients.test.ts。
+// - 断言 4-6（trustClient 往返：trustClient(id, true)/(id, false) → db.setClientTrust
+//   → 再次 clients:list 看到 isTrusted 翻转）→ 同上 clients.ts 的 `clients:trust` +
+//   `clients:list` handler 组合，纯 DB 状态断言，无需渲染端。
+// - 断言 8 的非 UI 部分（吊销后该 sessionId 不再出现在 clients:list 中）→
+//   clients.ts 的 `clients:revoke` handler 调用 relay 的
+//   DELETE /auth/revoke/:sessionId（该 relay 端点本身已被
+//   relay-roundtrip.test.ts「会话吊销即时生效」覆盖），但桌面端
+//   `clients:revoke` → `clients:list` 不再含该会话这一环目前未覆盖，
+//   可加入上述 ipc-clients.test.ts。
+//
+// 仍需保留为 CDP 脚本（真正需要渲染 DOM）：
+// - 断言 7（客户端页 UI：标签可见 / 吊销按钮可用 / 信任按钮存在）。
+// - 断言 8 中"驱动真实吊销按钮点击 + window.confirm"的交互路径本身。
 import WebSocket from 'ws';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

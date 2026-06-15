@@ -5,6 +5,33 @@
 //
 // P1-14: 需要通过 CDP 驱动一个真实运行中的 Electron 渲染进程，无法在 vitest 中
 // 无头运行，保留为手动脚本，不计入 vitest 套件/CI。
+//
+// ## Candidates for vitest migration (test-and-doc-gaps-plan.md #3)
+// 阶段 A（断言 A1-A4）实质测试的是主进程 IPC handler，不依赖渲染 DOM，
+// 可迁移到 apps/desktop/test/*（mock ws-client/client 的 getRelayClient + ensureHostRegisteredAndConnected，
+// 直接调用 ipcMain handler）：
+// - A1/A4（saveSettings({relayUrl 变更}) → reconnected === true，往返切换 3002↔3001）→
+//   apps/desktop/src/main/ipc/settings.ts 的 `settings:save` handler 中
+//   relayUrlChanged 分支（断开旧连接 → ensureHostRegisteredAndConnected）。
+// - A2（重连后 getRelayStatus().connected === true）→
+//   apps/desktop/src/main/ipc/auth.ts 的 `relay:get-status` handler，
+//   反映 getRelayClient() 连接状态，可在 settings:save 之后直接断言。
+// - A3（getRelayUrl() 反映新地址）→ `host:get-relay-url` handler，
+//   读取 config.getRelayUrl()，纯 config getter/setter 往返。
+// - B6（getSettings().theme === 'light' 持久化）→ `settings:get`/`settings:save`
+//   handler 的 config.getTheme()/setTheme() 往返，与 UI 点击路径无关。
+// 上述均可新增 apps/desktop/test/ipc-settings.test.ts，仿照
+// apps/desktop/test/token-manager.test.ts 等现有 mock 风格。
+//
+// B4/B7 中 applyTheme() 本身（apps/desktop/src/renderer/theme.ts：对
+// document.documentElement.classList 做 toggle('light', ...)）是一个纯 DOM
+// 操作，理论上可在 jsdom 环境下单测；但 apps/desktop/test/* 目前只有主进程测试，
+// 无渲染端/jsdom 测试基建，迁移性价比低，暂不列为候选。
+//
+// 仍需保留为 CDP 脚本（真正需要渲染 DOM）：
+// - B1-B3（设置页导航/按钮点击的真实交互路径）。
+// - B4/B7 中 <html>.light 类的最终断言（依赖 B1-B3 这条真实点击链路触发）。
+// - B5（getComputedStyle 计算后的背景色，需要真实 CSS 渲染，无法用 jsdom 替代）。
 import WebSocket from 'ws';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

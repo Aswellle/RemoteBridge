@@ -14,6 +14,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import WebSocket from 'ws';
+import { encodeFileChunkFrame } from '@remotebridge/shared';
 import { API_BASE, openWs, post, createSession, wait, type TestSession } from './helpers';
 
 function buildTestFile(size: number): Buffer {
@@ -97,6 +98,23 @@ describe('会话内多场景验证 (P1-14)', () => {
           const start = rangeStart ?? 0;
           const end = rangeEnd ?? FILE_SIZE - 1;
           const slice = FILE.subarray(start, end + 1);
+
+          // P1-12: 二进制帧路径 —— 用 /data/test-binary.bin 触发，
+          // 模拟桌面端 file-tunnel.ts 改用 sendRaw(encodeFileChunkFrame(...)) 发送非空分块
+          if (filePath === '/data/test-binary.bin') {
+            let seq = 0;
+            for (let off = 0; off < slice.length; off += CHUNK) {
+              const part = slice.subarray(off, Math.min(off + CHUNK, slice.length));
+              const currentSeq = seq++;
+              const eof = off + CHUNK >= slice.length;
+              const meta = currentSeq === 0
+                ? { totalSize: FILE_SIZE, rangeStart: start, rangeEnd: end, contentType: 'application/x-test-binary', fileName: 'test-binary.bin' }
+                : {};
+              hostWs.send(encodeFileChunkFrame({ transferId, seq: currentSeq, eof, ...meta }, Buffer.from(part)));
+            }
+            return;
+          }
+
           let seq = 0;
           for (let off = 0; off < slice.length; off += CHUNK) {
             const part = slice.subarray(off, Math.min(off + CHUNK, slice.length));
@@ -171,6 +189,48 @@ describe('会话内多场景验证 (P1-14)', () => {
       expect(res.status).toBe(502);
       const json = await res.json();
       expect(json.error?.code).toBe('TUNNEL_ERROR');
+    });
+
+    describe('二进制帧路径 (P1-12)', () => {
+      it('完整下载：200 + Content-Length + 内容一致（Host 经二进制 WS 帧回传分块）', async () => {
+        const res = await fetch(
+          `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent('/data/test-binary.bin')}`,
+          { headers: { Authorization: `Bearer ${session.accessToken}` } },
+        );
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-length')).toBe(String(FILE_SIZE));
+        const body = Buffer.from(await res.arrayBuffer());
+        expect(body.equals(FILE)).toBe(true);
+        expect(res.headers.get('content-disposition') || '').toContain('attachment');
+      });
+
+      it('Range 下载：206 + Content-Range + 字节切片一致（二进制帧）', async () => {
+        const res = await fetch(
+          `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent('/data/test-binary.bin')}`,
+          {
+            headers: {
+              Authorization: `Bearer ${session.accessToken}`,
+              Range: 'bytes=1000-99999',
+            },
+          },
+        );
+        expect(res.status).toBe(206);
+        expect(res.headers.get('content-range')).toBe(`bytes 1000-99999/${FILE_SIZE}`);
+        const body = Buffer.from(await res.arrayBuffer());
+        expect(body.length).toBe(99000);
+        expect(body.equals(FILE.subarray(1000, 100000))).toBe(true);
+      });
+
+      it('预览：200 + Host 报告的 Content-Type 透传（二进制帧）', async () => {
+        const res = await fetch(
+          `${API_BASE}/proxy/preview/${session.sessionId}?filePath=${encodeURIComponent('/data/test-binary.bin')}`,
+          { headers: { Authorization: `Bearer ${session.accessToken}` } },
+        );
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe('application/x-test-binary');
+        const body = Buffer.from(await res.arrayBuffer());
+        expect(body.equals(FILE)).toBe(true);
+      });
     });
   });
 

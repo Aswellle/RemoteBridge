@@ -4,6 +4,12 @@
  *
  * 前置条件: 服务器已运行（默认 localhost:3099）
  * 运行: NODE_PATH=./node_modules npx vitest run
+ *
+ * 顺序依赖说明 (P2，test-and-doc-gaps-plan.md #2):
+ * 下方的模块级可变状态（hostToken/hostId/clientToken/refreshToken/sessionId/pin/clientId）
+ * 由本文件靠前的 it() 写入，再由跨 describe 块的靠后 it() 读取——这是有意为之的顺序依赖
+ * 约定，依赖 vitest 默认按文件内 it() 声明顺序串行执行；不要为了 test.concurrent/.each
+ * 重构而打乱执行顺序，否则会出现"token 为空"之类难以定位真实原因的级联失败。
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -22,6 +28,8 @@ let refreshToken = '';
 let sessionId = '';
 let pin = '';
 let clientId = '';
+let clientToHostContent = '';
+let hostToClientContent = '';
 
 // ===== HTTP 工具 =====
 function request(
@@ -122,6 +130,10 @@ function sendWS(ws: WebSocket, message: Record<string, unknown>): void {
       timestamp: Date.now(),
     }),
   );
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ===== 测试套件 =====
@@ -241,6 +253,7 @@ describe('RemoteBridge 核心业务逻辑', () => {
 
     it('消息中继 Client → Host', async () => {
       const testContent = 'Hello from client ' + Date.now();
+      clientToHostContent = testContent;
       sendWS(clientConn.ws, {
         type: 'MSG_TEXT',
         payload: { content: testContent },
@@ -253,6 +266,7 @@ describe('RemoteBridge 核心业务逻辑', () => {
 
     it('消息中继 Host → Client', async () => {
       const testContent = 'Hello from host ' + Date.now();
+      hostToClientContent = testContent;
       // 从 CLIENT_JOINED 中获取 clientId
       const joinedMsg = hostConn.messages.find(
         (m) => m.type === 'CLIENT_JOINED',
@@ -291,6 +305,71 @@ describe('RemoteBridge 核心业务逻辑', () => {
       });
       expect(res.data.success).toBe(true);
       expect(Array.isArray(res.data.data)).toBe(true);
+
+      // 验证"消息中继 Client → Host"/"消息中继 Host → Client"（上方 WebSocket 连接块）
+      // 写入的两条消息按正确的 content/direction 出现在历史记录中。
+      // 消息内容/方向持久化的更通用保证见 session-flows.test.ts「消息持久化双向语义」。
+      const clientToHostRow = res.data.data.find(
+        (m: any) => m.content === clientToHostContent,
+      );
+      expect(clientToHostRow).toBeTruthy();
+      expect(clientToHostRow.direction).toBe('client_to_host');
+
+      const hostToClientRow = res.data.data.find(
+        (m: any) => m.content === hostToClientContent,
+      );
+      expect(hostToClientRow).toBeTruthy();
+      expect(hostToClientRow.direction).toBe('host_to_client');
+    });
+
+    it('消息历史 API — since 参数仅返回更新的消息', async () => {
+      // 跨越秒级边界，确保新消息的 createdAt 严格大于上面两条已存在消息的 createdAt
+      // （/messages 用 gt(createdAt, since) 严格比较，同秒会被误排除）
+      await wait(1100);
+      const sinceTs = Math.floor(Date.now() / 1000);
+      await wait(1100);
+
+      const newClientMsg = 'since-test client ' + Date.now();
+      const newHostMsg = 'since-test host ' + Date.now();
+      await request('POST', `/messages/${sessionId}`, { content: newClientMsg }, {
+        Authorization: `Bearer ${clientToken}`,
+      });
+      await request('POST', `/messages/${sessionId}`, { content: newHostMsg }, {
+        Authorization: `Bearer ${hostToken}`,
+      });
+
+      const res = await request(
+        'GET',
+        `/messages/${sessionId}?since=${sinceTs}&limit=50`,
+        undefined,
+        { Authorization: `Bearer ${clientToken}` },
+      );
+      expect(res.data.success).toBe(true);
+      const contents = res.data.data.map((m: any) => m.content);
+      expect(contents).toContain(newClientMsg);
+      expect(contents).toContain(newHostMsg);
+      expect(contents).not.toContain(clientToHostContent);
+      expect(contents).not.toContain(hostToClientContent);
+    });
+
+    it('消息历史 API — limit/page 分页', async () => {
+      const page1 = await request(
+        'GET',
+        `/messages/${sessionId}?limit=1&page=1`,
+        undefined,
+        { Authorization: `Bearer ${clientToken}` },
+      );
+      const page2 = await request(
+        'GET',
+        `/messages/${sessionId}?limit=1&page=2`,
+        undefined,
+        { Authorization: `Bearer ${clientToken}` },
+      );
+      expect(page1.data.success).toBe(true);
+      expect(page2.data.success).toBe(true);
+      expect(page1.data.data).toHaveLength(1);
+      expect(page2.data.data).toHaveLength(1);
+      expect(page1.data.data[0].id).not.toBe(page2.data.data[0].id);
     });
 
     it('安全日志 API', async () => {
@@ -299,6 +378,79 @@ describe('RemoteBridge 核心业务逻辑', () => {
       });
       expect(res.data.success).toBe(true);
       expect(res.data.data.total).toBeGreaterThanOrEqual(1);
+      expect(Array.isArray(res.data.data.logs)).toBe(true);
+
+      // PIN 连接流程（"PIN 连接 → 获取 session + tokens"）应已写入一条
+      // SESSION_CREATED 事件，eventType 值需与 EVENT_TYPE_LABELS
+      // (packages/shared/src/security-log-ui.ts) 中的合法枚举一致。
+      const sessionCreatedLog = res.data.data.logs.find(
+        (l: any) => l.eventType === 'SESSION_CREATED' && l.clientId === clientId,
+      );
+      expect(sessionCreatedLog).toBeTruthy();
+      expect(sessionCreatedLog.hostId).toBe(hostId);
+      expect(typeof sessionCreatedLog.createdAt).toBe('number');
+    });
+
+    it('安全日志 API — eventType 筛选', async () => {
+      const res = await request(
+        'GET',
+        '/security-logs?eventType=SESSION_CREATED',
+        undefined,
+        { Authorization: `Bearer ${hostToken}` },
+      );
+      expect(res.data.success).toBe(true);
+      expect(res.data.data.total).toBeGreaterThanOrEqual(1);
+      for (const log of res.data.data.logs) {
+        expect(log.eventType).toBe('SESSION_CREATED');
+      }
+    });
+
+    it('安全日志 API — clientId 筛选', async () => {
+      const res = await request(
+        'GET',
+        `/security-logs?clientId=${clientId}`,
+        undefined,
+        { Authorization: `Bearer ${hostToken}` },
+      );
+      expect(res.data.success).toBe(true);
+      expect(res.data.data.total).toBeGreaterThanOrEqual(1);
+      for (const log of res.data.data.logs) {
+        expect(log.clientId).toBe(clientId);
+      }
+    });
+
+    it('安全日志 API — 日期范围筛选', async () => {
+      const now = Math.floor(Date.now() / 1000);
+
+      // 一个包含当前时间的范围 → 应能查到刚写入的 SESSION_CREATED
+      const within = await request(
+        'GET',
+        `/security-logs?startDate=${now - 3600}&endDate=${now + 3600}`,
+        undefined,
+        { Authorization: `Bearer ${hostToken}` },
+      );
+      expect(within.data.success).toBe(true);
+      expect(within.data.data.total).toBeGreaterThanOrEqual(1);
+
+      // 一个完全位于过去的范围 → 应该排除所有记录
+      const before = await request(
+        'GET',
+        `/security-logs?startDate=${now - 7200}&endDate=${now - 3600}`,
+        undefined,
+        { Authorization: `Bearer ${hostToken}` },
+      );
+      expect(before.data.success).toBe(true);
+      expect(before.data.data.total).toBe(0);
+    });
+
+    it('GET /security-logs/events 返回非空事件类型列表', async () => {
+      const res = await request('GET', '/security-logs/events', undefined, {
+        Authorization: `Bearer ${hostToken}`,
+      });
+      expect(res.data.success).toBe(true);
+      expect(Array.isArray(res.data.data)).toBe(true);
+      expect(res.data.data.length).toBeGreaterThan(0);
+      expect(res.data.data).toContain('SESSION_CREATED');
     });
   });
 
