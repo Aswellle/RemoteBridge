@@ -148,7 +148,7 @@ export const JWT_CONFIG = {
   ACCESS_TOKEN_EXPIRY: '2h',
   REFRESH_TOKEN_EXPIRY: '30d',
   HOST_TOKEN_EXPIRY: '365d',
-};
+} as const;
 
 // ===== Rate Limiting 配置 =====
 export const RATE_LIMIT_CONFIG = {

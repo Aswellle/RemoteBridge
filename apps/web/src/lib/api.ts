@@ -1,8 +1,9 @@
 import axios from 'axios';
+import { RELAY_API_URL } from './env';
 
 // ===== 创建 Axios 实例 =====
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1',
+  baseURL: RELAY_API_URL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',

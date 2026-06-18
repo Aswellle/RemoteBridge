@@ -55,6 +55,24 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
   all `window.open()`/`target=_blank` via `setWindowOpenHandler`, and restricts
   `will-navigate` to the app's own renderer URL (dev server origin, or the packaged
   `file://renderer/index.html`).
+- **Download/preview tokens now enforced against the requesting clientId** (P2 / 02a-S10):
+  `packages/shared/src/ws-types.ts::CmdFetchFilePayload` gains `clientId?: string`.
+  `apps/server/src/routes/proxy.ts::tunnelFromHost()` now forwards the session's `clientId`
+  in the `CMD_FETCH_FILE` payload it sends to the Host. The Host's
+  `apps/desktop/src/main/ws-client/file-tunnel.ts::CMD_FETCH_FILE` handler now calls
+  `validateDownloadToken(token, payload.clientId)`, activating the previously dead-code
+  `CLIENT_MISMATCH` guard in `token-manager.ts`. Previously, any client who obtained a
+  valid download token (even one issued for a different clientId) could fetch the
+  corresponding file over the WS tunnel.
+- **Host credentials encrypted at rest via Electron `safeStorage`** (P2 / 02a-S13-adjacent):
+  `apps/desktop/src/main/config/store.ts` now encrypts `hostSecret` and `hostToken` using
+  `electron.safeStorage` (OS-backed: DPAPI on Windows, Keychain on macOS, libsecret on
+  Linux) before writing to `electron-store`. Reads transparently decrypt. Existing plaintext
+  values in already-written configs are returned as-is and re-encrypted on next write
+  (auto-migration, no manual action). When `safeStorage.isEncryptionAvailable()` returns
+  `false` (rare — headless / no keychain), values are stored plaintext as before.
+  `hostId` is not encrypted (non-secret identifier). No new dependency —
+  `safeStorage` is built into Electron 28.
 
 ### Added
 
@@ -462,6 +480,51 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
   download / Range download / preview, all over the binary path), plus the updated
   `apps/desktop/test/file-tunnel.test.ts` (decodes `sendRaw`'s frames via
   `decodeFileChunkFrame`).
+- **`JWT_CONFIG` is now a const-asserted type; `as any` casts removed from `jwt.ts`** (P2 / 01a-M1):
+  `packages/shared/src/security.ts::JWT_CONFIG` (token expiry strings) gains `as const` so
+  `'2h'`/`'30d'`/`'365d'` are literal types rather than `string`. The three `as any` casts
+  for `expiresIn` in `apps/server/src/utils/jwt.ts` (`signHostToken`, `signClientAccessToken`,
+  `signClientRefreshToken`) are removed — `jsonwebtoken` now infers the correct overload.
+- **`ConnectionMeta` stored in a `WeakMap`, not on the WebSocket object** (P2 / 04a-B7):
+  `apps/server/src/ws/connection-registry.ts` replaces the `(ws as any).__meta` property-bag
+  pattern with a module-level `WeakMap<WebSocket, ConnectionMeta>` and exports typed
+  `getConnMeta(ws)`/`setConnMeta(ws, meta)` accessors. All call sites in `ws/handler.ts`
+  (7 occurrences) and `ws/relay.ts` (1 occurrence) updated. Eliminates `as any` casts and
+  makes metadata GC-safe (entries are automatically collected when the WebSocket is closed
+  and dereferenced).
+- **`ALLOWED_ORIGINS` now warned at startup in production** (P2 / 04b-DC8, partial):
+  `apps/server/src/utils/secrets.ts::validateJwtSecrets()` now logs a warning when
+  `NODE_ENV=production` and `ALLOWED_ORIGINS` is unset or `'*'`. This is a non-fatal
+  warning (not a startup refusal) — a misconfigured `ALLOWED_ORIGINS` in production means
+  the deployed web client is CORS-blocked, not a security vulnerability per se. See
+  `docs/runbook.md` for the recommended value.
+- **Web relay URL defaults centralized into `apps/web/src/lib/env.ts`** (P2 / 04b-DC8):
+  `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_WS_URL` fallbacks (`'http://localhost:3001/api/v1'`
+  and `'ws://localhost:3001/ws'`) were inlined in four separate files (`lib/api.ts`,
+  `hooks/useWebSocket.ts`, `hooks/usePreview.ts`, `lib/download-manager.ts`). All four now
+  import `RELAY_API_URL`/`RELAY_WS_URL` from a single new `apps/web/src/lib/env.ts`.
+- **`/auth/connect` response now reports live host-online status** (P2 / 01b-M4):
+  `apps/server/src/routes/auth.ts`'s `POST /auth/connect` previously hardcoded
+  `online: true` in the response, independent of whether the Host's WebSocket was actually
+  connected. Now calls `isHostOnline(matchedHost.id)` from `ws/connection-registry.ts`,
+  matching the behaviour already used by `GET /hosts/:hostId/status`.
+- **Messages capped at 500 most-recent in the web client** (P2 / 02b-M1):
+  `apps/web/src/store/app-store.ts`'s `loadMessageHistory` merge and the real-time
+  `MSG_TEXT` arrival path both now cap the `messages` array to the 500 most-recent entries
+  (`slice(-500)`), preventing unbounded memory growth during long sessions.
+- **Download-manager blob-URL and anchor-removal delays increased** (P2 / 01a-L10):
+  `apps/web/src/lib/download-manager.ts` increases the `URL.revokeObjectURL` delay from
+  60 s to 300 s (giving the browser time to start the download before the object URL is
+  revoked) and the `document.body.removeChild(a)` delay from 100 ms to 1 s (ensuring the
+  synthetic anchor click registers before DOM removal).
+- **`ipc/messages.ts` static import replaces CJS `require`** (P2 / 04a-B8):
+  `apps/desktop/src/main/ipc/messages.ts` used `const { WSMessageType } = require('@remotebridge/shared')`
+  inside an otherwise static-import file. Replaced with `import { WSMessageType } from '@remotebridge/shared'`.
+- **`turbo.json` `dev` task now depends on `^build`** (P2 / 04a-B10):
+  The `dev` task in `turbo.json` gains `"dependsOn": ["^build"]`, so `pnpm dev` at the
+  monorepo root correctly builds `@remotebridge/shared` before starting `apps/server`,
+  `apps/web`, and `apps/desktop` in watch mode. Previously a clean checkout's first
+  `pnpm dev` could race and start apps before `packages/shared/dist/` existed.
 
 ### Testing
 
@@ -534,10 +597,25 @@ Tracked from `.full-review/05-final-report.md`, in rough priority order. None of
 regressions introduced by the fixes above.
 
 - **P1-23** — Electron desktop has no auto-update or code-signing/distribution pipeline.
-- **P2** — ~17 medium-priority items tracked in `.full-review/05-final-report.md`'s
-  "Medium Priority (P2)" section (type-safety `as any` usage, token/session hardening,
-  frontend perf, module/build hygiene, environment/ops). All ~16 P3/Low items from that
-  report have been addressed — see P3-1 through P3-18 in Fixed above. The "test/doc gaps"
-  sub-item of P2 is also addressed — see `docs/test-and-doc-gaps-plan.md` (#19,
-  **Implemented**) and the Testing section above. P1-1 (structured logging) and P1-12
-  (binary file-tunnel framing) are also done — see Fixed above.
+- **02a-S11** — Web client stores `accessToken`/`refreshToken` in `localStorage`. Moving
+  to `httpOnly` cookies requires redesigning the WS authentication handshake (tokens cannot
+  be attached to a WebSocket upgrade request via a cookie from JS, so a cookie-exchange
+  step would need to be added). Cross-cutting change deferred pending a design.
+- **02a-S13** — Host JWT has no rotation/refresh mechanism (`HOST_TOKEN_EXPIRY: '365d'`).
+  Implementing rotation requires a new host-token-refresh protocol endpoint and desktop-side
+  rotation logic. Deferred pending a design.
+- **01a-M5** — Three divergent message-type shapes: server DB (`id, session_id, direction,
+  content, type, sender_id, ...`), desktop DB (`local_messages`, slightly different columns),
+  and web store (inline `{ id, content, direction, type, timestamp }` object). A shared
+  type would require aligning all three schemas. Maintenance/drift risk, not a current
+  functional bug; deferred.
+- **01b-M2 / 01a-M10** — Drizzle schema in `db/schema.ts` and raw DDL in
+  `db/client.ts::initDatabase()` are a dual source of truth. Accepted trade-off per CLAUDE.md
+  (P3-16 removed drizzle-kit migrations; Drizzle is type-safe queries only, not migration
+  authority).
+
+All P3/Low items from `.full-review/05-final-report.md` are addressed (P3-1 through
+P3-18). All P1 items are addressed (P1-1 structured logging, P1-12 binary file-tunnel
+framing, and the rest in Fixed above). The "test/doc gaps" (#19) and relay room-state
+(P1-7) items are also done. The bulk of P2 items are fixed — see the Security and Fixed
+sections above for Tracks A–F.

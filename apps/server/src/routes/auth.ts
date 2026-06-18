@@ -6,6 +6,7 @@ import { eq, and, gt, isNull, ne, or } from 'drizzle-orm';
 import { generatePinWithHash, isValidPinFormat, verifyPin } from '../utils/pin';
 import { signHostToken, signClientAccessToken, signClientRefreshToken, verifyHostToken, verifyRefreshToken, extractTokenFromHeader } from '../utils/jwt';
 import { notifyAndDisconnectClient } from '../ws/relay';
+import { isHostOnline } from '../ws/connection-registry';
 import { RATE_LIMIT_CONFIG, JWT_CONFIG, WSMessageType } from '@remotebridge/shared';
 import type { ApiResponse, RegisterHostRequest, GeneratePinResponse, ConnectRequest, ConnectResponse } from '@remotebridge/shared';
 
@@ -263,7 +264,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
           hostId: matchedHost.id,
           name: matchedHost.name,
           os: matchedHost.os || 'unknown',
-          online: true,
+          online: isHostOnline(matchedHost.id),
         },
       },
       error: null,

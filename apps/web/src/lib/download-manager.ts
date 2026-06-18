@@ -3,9 +3,7 @@
 import { toast } from 'sonner';
 import type { RespDownloadReadyPayload, RespDownloadErrorPayload } from '@remotebridge/shared';
 import { useAppStore } from '@/store/app-store';
-
-// ===== Relay API 基础 URL =====
-const RELAY_API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+import { RELAY_API_URL as RELAY_API_BASE } from './env';
 
 /**
  * 下载响应的全局唯一处理器，由 useWebSocket 的共享消息循环调用。
@@ -134,7 +132,7 @@ function saveBlob(blob: Blob, fileName: string): void {
   const blobUrl = URL.createObjectURL(blob);
   anchorDownload(blobUrl, fileName);
   // 延迟释放，给浏览器留出启动保存的时间
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 300000);
 }
 
 function anchorDownload(url: string, fileName: string): void {
@@ -146,5 +144,5 @@ function anchorDownload(url: string, fileName: string): void {
   a.click();
   setTimeout(() => {
     document.body.removeChild(a);
-  }, 100);
+  }, 1000);
 }

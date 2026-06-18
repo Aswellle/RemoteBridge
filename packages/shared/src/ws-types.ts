@@ -147,6 +147,8 @@ export interface CmdFetchFilePayload {
   /** 字节范围（含端点）；缺省表示完整文件。仅支持 start-end 形式 */
   rangeStart?: number;
   rangeEnd?: number;
+  /** 请求方客户端 ID，由 Relay 注入，用于 validateDownloadToken 的令牌绑定校验 */
+  clientId?: string;
 }
 
 /**

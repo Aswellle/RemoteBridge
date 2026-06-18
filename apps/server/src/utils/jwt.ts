@@ -34,7 +34,7 @@ export function signHostToken(hostId: string): string {
   };
 
   return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_CONFIG.HOST_TOKEN_EXPIRY as any,
+    expiresIn: JWT_CONFIG.HOST_TOKEN_EXPIRY,
   });
 }
 
@@ -48,7 +48,7 @@ export function signClientAccessToken(clientId: string, sessionId: string, hostI
   };
 
   return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_CONFIG.ACCESS_TOKEN_EXPIRY as any,
+    expiresIn: JWT_CONFIG.ACCESS_TOKEN_EXPIRY,
   });
 }
 
@@ -63,7 +63,7 @@ export function signClientRefreshToken(clientId: string, sessionId: string, host
   };
 
   return jwt.sign(payload, JWT_REFRESH_SECRET, {
-    expiresIn: JWT_CONFIG.REFRESH_TOKEN_EXPIRY as any,
+    expiresIn: JWT_CONFIG.REFRESH_TOKEN_EXPIRY,
   });
 }
 

@@ -1,5 +1,5 @@
 import Store from 'electron-store';
-import { Rectangle } from 'electron';
+import { Rectangle, safeStorage } from 'electron';
 
 // ===== 配置 schema =====
 interface ConfigSchema {
@@ -29,6 +29,25 @@ const defaults: ConfigSchema = {
   theme: 'dark',
 };
 
+// ===== safeStorage 加密工具 =====
+const ENCRYPTED_PREFIX = 'enc:';
+
+function encryptField(value: string): string {
+  if (safeStorage.isEncryptionAvailable()) {
+    const encrypted = safeStorage.encryptString(value);
+    return ENCRYPTED_PREFIX + encrypted.toString('base64');
+  }
+  return value;
+}
+
+function decryptField(value: string): string {
+  if (value.startsWith(ENCRYPTED_PREFIX)) {
+    const buf = Buffer.from(value.slice(ENCRYPTED_PREFIX.length), 'base64');
+    return safeStorage.decryptString(buf);
+  }
+  return value; // 兼容旧版明文或加密不可用时的回退
+}
+
 // ===== 创建配置存储实例 =====
 const configStore = new Store<ConfigSchema>({
   name: 'remotebridge-config',
@@ -42,12 +61,12 @@ export const config = {
   setHostId: (value: string): void => { configStore.set('hostId', value); },
 
   // Host Secret
-  getHostSecret: (): string => configStore.get('hostSecret', ''),
-  setHostSecret: (value: string): void => { configStore.set('hostSecret', value); },
+  getHostSecret: (): string => decryptField(configStore.get('hostSecret', '')),
+  setHostSecret: (value: string): void => { configStore.set('hostSecret', encryptField(value)); },
 
   // Host Token
-  getHostToken: (): string => configStore.get('hostToken', ''),
-  setHostToken: (value: string): void => { configStore.set('hostToken', value); },
+  getHostToken: (): string => decryptField(configStore.get('hostToken', '')),
+  setHostToken: (value: string): void => { configStore.set('hostToken', encryptField(value)); },
 
   // Relay URL (WebSocket)
   getRelayUrl: (): string => configStore.get('relayUrl', defaults.relayUrl),

@@ -24,6 +24,8 @@ import {
   forEachHost,
   forEachClient,
   clearAll,
+  getConnMeta,
+  setConnMeta,
 } from './connection-registry';
 import { resolvePendingRequest } from './pending-requests';
 import { resolveFileTunnelMessage, resolveFileTunnelBinaryFrame } from './file-tunnel';
@@ -42,7 +44,7 @@ export function setupWebSocket(app: FastifyInstance): void {
 
     // 检查所有 Host 连接（超时只 close，由 close 事件统一清理房间，避免重复/竞态删除）
     forEachHost((hostId, ws) => {
-      const meta = (ws as any).__meta as ConnectionMeta;
+      const meta = getConnMeta(ws);
       if (meta && now - meta.lastPong > HEARTBEAT_TIMEOUT) {
         app.log.warn(`Host ${hostId} 心跳超时，关闭连接`);
         ws.close(4000, 'Heartbeat timeout');
@@ -53,7 +55,7 @@ export function setupWebSocket(app: FastifyInstance): void {
 
     // 检查所有 Client 连接
     forEachClient((clientId, ws) => {
-      const meta = (ws as any).__meta as ConnectionMeta;
+      const meta = getConnMeta(ws);
       if (meta && now - meta.lastPong > HEARTBEAT_TIMEOUT) {
         app.log.warn(`Client ${clientId} 心跳超时，关闭连接`);
         ws.close(4000, 'Heartbeat timeout');
@@ -106,7 +108,7 @@ export function setupWebSocket(app: FastifyInstance): void {
       meta.connectedAt = Date.now();
     }
 
-    (socket as any).__meta = meta;
+    setConnMeta(socket, meta);
 
     // 注册到房间管理
     if (type === 'host') {
@@ -117,7 +119,7 @@ export function setupWebSocket(app: FastifyInstance): void {
       // 仍在线的 Client 的映射必须在这里重建，否则它们的 CMD_* 永远 PEER_OFFLINE；
       // 同时广播 HOST_ONLINE，让 Web 端解除"主机离线"状态
       forEachClient((clientId, clientWs) => {
-        const clientMeta = (clientWs as any).__meta as ConnectionMeta | undefined;
+        const clientMeta = getConnMeta(clientWs);
         if (clientMeta?.hostId === payload.sub) {
           rebindClientToHost(clientId, payload.sub);
           sendWSMessage(clientWs, {
@@ -165,7 +167,7 @@ export function setupWebSocket(app: FastifyInstance): void {
 
     // 连接关闭
     socket.on('close', (code: number, reason: Buffer) => {
-      const meta = (socket as any).__meta as ConnectionMeta;
+      const meta = getConnMeta(socket);
       if (meta) {
         if (meta.type === 'host') {
           // 重连竞态保护：仅当房间里登记的还是“本”socket 才清理。
@@ -269,10 +271,12 @@ async function validateClientSession(
 // ===== 消息处理 =====
 async function handleMessage(socket: WebSocket, message: WSMessage, meta: ConnectionMeta): Promise<void> {
   switch (message.type) {
-    case WSMessageType.PONG:
+    case WSMessageType.PONG: {
       // 更新最后响应时间
-      (socket as any).__meta.lastPong = Date.now();
+      const pongMeta = getConnMeta(socket);
+      if (pongMeta) pongMeta.lastPong = Date.now();
       break;
+    }
 
     case WSMessageType.PING:
       // 回显请求 id —— 对端依赖 id 匹配 pending ping 来计算 RTT
@@ -291,7 +295,7 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
       if (meta.type === 'host' && !message.sessionId) {
         const targetClientId = (message.payload as { clientId?: string } | undefined)?.clientId;
         const targetWs = targetClientId ? getClientSocket(targetClientId) : undefined;
-        const targetMeta = targetWs ? ((targetWs as any).__meta as ConnectionMeta | undefined) : undefined;
+        const targetMeta = targetWs ? getConnMeta(targetWs) : undefined;
         if (targetMeta?.sessionId) {
           message.sessionId = targetMeta.sessionId;
         }

@@ -219,7 +219,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 添加消息（未读数只统计主机来向的消息——自己发的不算"未读"）
   addMessage: (message) =>
     set((state) => ({
-      messages: [...state.messages, message],
+      messages: [...state.messages, message].slice(-500), // keep most recent 500
       unreadCount: message.direction === 'host_to_client'
         ? state.unreadCount + 1
         : state.unreadCount,
@@ -466,7 +466,9 @@ export const useAppStore = create<AppState>((set, get) => ({
             }))
             .sort((a, b) => a.timestamp - b.timestamp);
 
-          return { messages: [...newMessages, ...state.messages] };
+          const merged = [...newMessages, ...state.messages];
+          const capped = merged.slice(-500); // keep most recent 500
+          return { messages: capped };
         });
       }
     } catch (err) {

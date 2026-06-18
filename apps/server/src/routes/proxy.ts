@@ -40,6 +40,7 @@ function tunnelFromHost(
   origin: string | undefined,
   reply: FastifyReply,
   extraHeaders: Record<string, string> = {},
+  clientId?: string,
 ): Promise<void> {
   const token = new URL(hostUrl).searchParams.get('token');
   if (!token) {
@@ -129,6 +130,7 @@ function tunnelFromHost(
         token,
         rangeStart: range?.start,
         rangeEnd: range?.end,
+        clientId,
       },
       timestamp: Date.now(),
     });
@@ -275,7 +277,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
         await tunnelFromHost(hostWs, resp.downloadUrl, request.headers.range, request.headers.origin, reply, {
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
           'Content-Type': 'application/octet-stream',
-        });
+        }, payload.sub);
       } catch (err: any) {
         request.log.error({ err }, '代理下载失败');
         return reply.code(502).send({
@@ -373,7 +375,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
         // （预览不强制下载、Content-Type 用 Host 报告的真实 MIME，Cache-Control 防缓存）
         await tunnelFromHost(hostWs, resp.previewUrl, request.headers.range, request.headers.origin, reply, {
           'Cache-Control': 'no-store',
-        });
+        }, payload.sub);
       } catch (err: any) {
         request.log.error({ err }, '代理预览失败');
         return reply.code(502).send({

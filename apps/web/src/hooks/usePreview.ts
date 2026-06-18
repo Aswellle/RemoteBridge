@@ -3,9 +3,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { WSMessageType, type RespPreviewReadyPayload, type RespPreviewErrorPayload } from '@remotebridge/shared';
 import { useAppStore } from '@/store/app-store';
-
-// ===== Relay API 基础 URL =====
-const RELAY_API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+import { RELAY_API_URL as RELAY_API_BASE } from '@/lib/env';
 
 // ===== 预览状态 =====
 interface PreviewState {

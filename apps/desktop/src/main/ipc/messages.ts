@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import os from 'os';
 import { nanoid } from 'nanoid';
+import { WSMessageType } from '@remotebridge/shared';
 import { getRelayClient } from '../ws-client/client';
 import db from '../db/client';
 import log from '../logger';
@@ -13,8 +14,6 @@ export function registerMessagesHandlers(): void {
       if (!client || !client.isConnected()) {
         return { success: false, error: '未连接到 Relay 服务器' };
       }
-
-      const { WSMessageType } = require('@remotebridge/shared');
 
       // id 在这里显式生成：线上消息、本地持久化、对端持久化共用同一个 id，
       // 三方才能按 id 去重（Relay 会把它作为 messageId 注入 payload）

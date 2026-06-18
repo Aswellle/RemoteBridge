@@ -14,6 +14,17 @@ export interface ConnectionMeta {
   connectedAt?: number;
 }
 
+// ===== 连接元数据 WeakMap（类型安全替代 (ws as any).__meta） =====
+const connMeta = new WeakMap<WebSocket, ConnectionMeta>();
+
+export function getConnMeta(ws: WebSocket): ConnectionMeta | undefined {
+  return connMeta.get(ws);
+}
+
+export function setConnMeta(ws: WebSocket, meta: ConnectionMeta): void {
+  connMeta.set(ws, meta);
+}
+
 // ===== 房间状态（唯一持有者，不对外暴露原始 Map） =====
 const hostSockets = new Map<string, WebSocket>();    // hostId -> WebSocket
 const clientSockets = new Map<string, WebSocket>();  // clientId -> WebSocket
@@ -126,7 +137,7 @@ export async function getRoomInfo(hostId: string): Promise<RoomInfo | null> {
 
   const clients: RoomInfo['clients'] = [];
   forEachClientOfHost(hostId, (clientId, ws) => {
-    const meta = (ws as any).__meta as ConnectionMeta | undefined;
+    const meta = getConnMeta(ws);
     clients.push({
       clientId,
       clientLabel: meta?.clientLabel,

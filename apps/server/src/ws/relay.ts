@@ -8,6 +8,7 @@ import {
   getClientHost,
   getHostClients,
   forEachClient,
+  getConnMeta,
 } from './connection-registry';
 import { logger } from '../utils/logger';
 
@@ -49,7 +50,7 @@ export function relayToClient(msg: WSMessage, clientId: string, sessionId?: stri
   if (sessionId) {
     let found = false;
     forEachClient((_id, ws) => {
-      const clientMeta = (ws as any).__meta as ConnectionMeta | undefined;
+      const clientMeta = getConnMeta(ws);
       if (clientMeta?.sessionId === sessionId) {
         sendWSMessage(ws, msg);
         found = true;

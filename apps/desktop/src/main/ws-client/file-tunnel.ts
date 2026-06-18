@@ -42,8 +42,8 @@ export function setupFileTunnelHandler(): void {
     };
 
     try {
-      // 1. 验证令牌（单次使用、30 分钟过期）
-      const validation = validateDownloadToken(token);
+      // 1. 验证令牌（单次使用、30 分钟过期；clientId 由 Relay 注入，校验令牌绑定）
+      const validation = validateDownloadToken(token, payload.clientId);
       if (!validation.valid || !validation.token) {
         sendError('INVALID_TOKEN', `令牌无效: ${validation.reason}`);
         return;

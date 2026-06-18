@@ -7,6 +7,7 @@ import { useAppStore } from '@/store/app-store';
 import { refreshAccessToken } from '@/lib/api';
 import { handleDownloadReady, handleDownloadError } from '@/lib/download-manager';
 import { logger } from '@/lib/logger';
+import { RELAY_WS_URL } from '@/lib/env';
 
 // ===== WebSocket 管理器 =====
 export class WebSocketManager {
@@ -274,8 +275,7 @@ export function useWebSocket() {
     // 对断开的实例则重新建连（之前"已有 manager 就直接 return"——
     // 断开后重新登录时永远不会再建连，必须刷新页面）
     if (!sharedManager) {
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001/ws';
-      sharedManager = new WebSocketManager(wsUrl, store);
+      sharedManager = new WebSocketManager(RELAY_WS_URL, store);
     }
     sharedManager.connect();
   }, [store]);

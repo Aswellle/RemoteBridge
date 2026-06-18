@@ -5,6 +5,11 @@ import { DEFAULT_JWT_SECRET } from './jwt';
 // 避免 jwt.ts 中的开发回退值（DEFAULT_JWT_SECRET、`${JWT_SECRET}-refresh`）被带入生产环境。
 const MIN_SECRET_LENGTH = 32;
 
+// 简单控制台 logger，与本文件现有风格一致（无外部依赖）
+const logger = {
+  warn: (...args: unknown[]) => console.warn('[secrets]', ...args),
+};
+
 function isDerivedRefreshSecret(jwtSecret: string, refreshSecret: string | undefined): boolean {
   return !refreshSecret || refreshSecret === `${jwtSecret}-refresh`;
 }
@@ -35,6 +40,15 @@ export function validateJwtSecrets(): void {
       'NODE_ENV=production 拒绝启动，JWT 密钥配置不安全:\n' +
       problems.map((p) => `  - ${p}`).join('\n') +
       '\n请使用 `openssl rand -base64 48` 为 JWT_SECRET 和 JWT_REFRESH_SECRET 分别生成独立的强密钥。'
+    );
+  }
+
+  // ===== ALLOWED_ORIGINS 生产环境检查（仅警告，不阻止启动）=====
+  const allowedOrigins = process.env.ALLOWED_ORIGINS;
+  if (!allowedOrigins || allowedOrigins.trim() === '*') {
+    logger.warn(
+      'ALLOWED_ORIGINS 未设置或为 "*"，生产环境下应明确指定允许的来源域名，' +
+      '否则任何来源均可访问 API。请在环境变量中设置 ALLOWED_ORIGINS（逗号分隔的域名列表）。'
     );
   }
 }
