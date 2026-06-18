@@ -167,6 +167,19 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
 
 ### Fixed
 
+- **Desktop packaged app: `Cannot find module 'conf'` at runtime** (build-infra): pnpm's
+  virtual-store junction structure (`node_modules/.pnpm/…`) is not followed correctly by
+  Electron's module resolver inside a packaged ASAR. Transitive dependencies (e.g. `conf`,
+  a dep of `electron-store`) are not reachable via standard Node.js resolution from inside
+  the ASAR. Fixed by bundling all pure-JS production deps into `dist/main/index.js` via
+  Vite/Rollup: `externalizeDepsPlugin` in `apps/desktop/electron.vite.config.ts` now
+  excludes (i.e. bundles) `@remotebridge/shared`, `axios`, `electron-log`, `electron-store`,
+  `electron-updater`, `fastify`, `nanoid`, and `ws`. Only `better-sqlite3` (native `.node`
+  file) remains external, handled by the `dlopen` hook. The main bundle grew from ~65 KB to
+  ~2.4 MB; this is expected and acceptable. `commonjsOptions.include` was also added to the
+  main build (same reason as the renderer fix above: `@remotebridge/shared`'s CJS
+  `__exportStar` is not statically analyzable by Rollup without it).
+
 - **Desktop Windows installer build** (build-infra): Three fixes required for
   `pnpm --filter @remotebridge/desktop package:win` to produce a valid NSIS installer on
   Windows:
