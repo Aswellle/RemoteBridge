@@ -29,6 +29,9 @@ export default defineConfig({
     root: path.resolve(__dirname, 'src/renderer'),
     build: {
       outDir: 'dist/renderer',
+      commonjsOptions: {
+        include: [/packages[\\/]shared[\\/]dist/, /node_modules/],
+      },
       rollupOptions: {
         input: {
           index: path.resolve(__dirname, 'src/renderer/index.html'),

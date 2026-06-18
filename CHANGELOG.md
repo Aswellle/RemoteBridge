@@ -167,6 +167,27 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
 
 ### Fixed
 
+- **Desktop Windows installer build** (build-infra): Three fixes required for
+  `pnpm --filter @remotebridge/desktop package:win` to produce a valid NSIS installer on
+  Windows:
+  1. `electron-builder.config.ts` converted to `electron-builder.config.js` (CommonJS) —
+     electron-builder 24.x requires `ts-node` to execute TypeScript configs; without it the
+     config was silently ignored (defaulting to wrong output dir, missing `files` pattern,
+     ignoring `npmRebuild: false`).
+  2. `electron.vite.config.ts` renderer build gains `commonjsOptions: { include:
+     [/packages[\\/]shared[\\/]dist/, /node_modules/] }` — Rollup's CJS plugin only
+     processes `/node_modules/` by default, so `packages/shared/dist/index.js` (a workspace
+     package) was treated as ESM; `__exportStar` re-exports (e.g. `EVENT_TYPE_LABELS`,
+     `EVENT_TYPE_COLORS`) could not be statically analyzed, causing a build error.
+  3. `package:win/mac/linux` scripts in `apps/desktop/package.json` now pass
+     `--config=electron-builder.config.js` explicitly so the config is always found
+     regardless of working directory.
+  `npmRebuild: false` + `extraResources: [{ from: '../../.cache/better_sqlite3.electron.node',
+  to: '.cache/better_sqlite3.electron.node' }]` are set in the JS config: the `dlopen` hook
+  in `electron-binding.ts` redirects `better-sqlite3` loads to the Electron-built prebuilt,
+  so electron-builder doesn't need to rebuild the native module; `extraResources` places the
+  prebuilt into `resources/.cache/` so the path-traversal hook finds it in packaged apps.
+
 - **Relay room-state consolidated into `ws/connection-registry.ts`** (P1-7): the three
   module-level Maps (`hostSockets`, `clientSockets`, `sessionRooms`) and the
   `ConnectionMeta` interface moved out of `apps/server/src/ws/handler.ts` into a new
