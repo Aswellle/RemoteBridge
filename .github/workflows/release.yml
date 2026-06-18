@@ -1,0 +1,76 @@
+name: Release
+
+# 推送 v* 格式的 tag 时触发（如 git tag v1.1.0 && git push --tags）
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build & Release (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            pkg_cmd: package:win
+          - os: macos-latest
+            pkg_cmd: package:mac
+          - os: ubuntu-latest
+            pkg_cmd: package:linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @remotebridge/shared build
+
+      # electron-builder 需要 python3/make/g++ 来编译 better-sqlite3
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y python3 make g++
+
+      - name: Package desktop app
+        run: pnpm --filter @remotebridge/desktop ${{ matrix.pkg_cmd }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          # ── Windows 代码签名（在仓库 Settings → Secrets 中配置） ──
+          # CSC_LINK:          Base64 编码的 .p12 证书文件内容
+          # CSC_KEY_PASSWORD:  .p12 证书密码
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # ── macOS 代码签名 + Notarization ──
+          # CSC_LINK:                  Base64 编码的 Developer ID .p12
+          # CSC_KEY_PASSWORD:          .p12 密码
+          # APPLE_ID:                  Apple 账号邮箱
+          # APPLE_APP_SPECIFIC_PASSWORD: App 专用密码（appleid.apple.com 生成）
+          # APPLE_TEAM_ID:             开发者 Team ID
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: apps/desktop/release/**/*.{exe,dmg,AppImage,yml}
+          if-no-files-found: warn

@@ -11,6 +11,22 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
 
 ### Security
 
+- **Host JWT rotation protocol** (02a-S13): `JWT_CONFIG.HOST_TOKEN_EXPIRY` shortened from
+  `'365d'` to `'90d'`; `JWT_CONFIG.HOST_TOKEN_ROTATION_THRESHOLD_DAYS: 30` added to
+  `packages/shared/src/security.ts`. New relay endpoint `POST /auth/host-token-refresh`
+  (`apps/server/src/routes/auth.ts`): verifies the current host JWT signature, signs a new
+  90-day token with the same `hostId`, and returns `{ token, expiresAt }`. New desktop
+  module `apps/desktop/src/main/token-rotator.ts` decodes the JWT `exp` field without
+  verification (`Buffer.from(parts[1], 'base64url')`, no `jsonwebtoken` import added to
+  desktop), checks remaining days against the threshold, and POSTs to
+  `/auth/host-token-refresh` when `days ≤ 30`. The rotation runs 30s after
+  `app.whenReady()` (waiting for the relay connection to stabilize) and then daily. Wired
+  in `apps/desktop/src/main/index.ts`; `stopTokenRotator()` is called on `window-all-closed`.
+  IPC `host:get-token-expiry-days` exposes the remaining days to the renderer (settings
+  page). Covered by `apps/server/test/host-token-refresh.test.ts` (4 tests: valid token →
+  new token + expiresAt, hostId preserved, no-token → 401 MISSING_TOKEN, forged token →
+  401 INVALID_TOKEN; uses a directly-signed synthetic token to avoid the rate-limited
+  `register-host` endpoint).
 - **Revoked/expired session check on message history** (P0-1): `GET`/`POST /messages/:sessionId`
   now validate the access token with `verifyAccessToken` (was signature-only `verifyToken`,
   which also accepted refresh tokens) and reject requests where the session's `revokedAt`
@@ -76,6 +92,27 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
 
 ### Added
 
+- **Electron auto-update and code-signing pipeline** (P1-23): new
+  `apps/desktop/src/main/updater.ts` wires `electron-updater` events into a typed
+  `UpdateStatus` union pushed to the renderer via IPC `event:update-status`. IPC handlers
+  `updater:get-status`, `updater:check`, `updater:download`, and `updater:install` are
+  registered, with a 10s delayed silent check on packaged startup. `apps/desktop/App.tsx`
+  shows a non-blocking `UpdateBanner` component (available / downloading-with-progress /
+  downloaded-ready-to-install / error states). `apps/desktop/electron-builder.config.ts`
+  gains a `publish` block targeting GitHub Releases (`owner`/`repo` from CI env vars);
+  code-signing env vars (`WIN_CSC_LINK`, `APPLE_ID`, etc.) are documented in comments but
+  require real certificates to activate. New `.github/workflows/release.yml` triggers on
+  `v*` tags, builds on Windows/macOS/Linux via a matrix, and uploads release artifacts.
+  Preload (`apps/desktop/src/preload/index.ts`) exposes `getUpdateStatus`, `checkForUpdates`,
+  `downloadUpdate`, `installUpdate`, `onUpdateStatus` and the `UpdateStatus` type.
+- **httpOnly cookie token design doc** (02a-S11): `docs/httponly-cookie-token-design.md`
+  documents the full migration path from localStorage to httpOnly cookies for
+  `accessToken`/`refreshToken`. Key elements: a new server-side `GET /auth/ws-ticket`
+  endpoint issues short-lived (30s) one-time WS tickets via cookie-authenticated REST;
+  clients exchange the ticket for the WS connection URL parameter (avoiding the token-in-URL
+  risk). The document covers Set-Cookie attributes (Secure, HttpOnly, SameSite=Strict),
+  CORS `credentials: true` requirements, a `ws/tickets.ts` in-memory ticket store, and a
+  7-file implementation checklist. Implementation deferred — see Known issues below.
 - **Host audit-log ingestion endpoint** (P0-2 / P1-8): added `POST /api/v1/security-logs`,
   which validates the Host JWT and the `eventType` against a `VALID_EVENT_TYPES` allowlist
   before inserting into `security_logs`. Previously `apps/desktop/src/main/security/audit-logger.ts`
@@ -596,14 +633,11 @@ implicit "v0" protocol:
 Tracked from `.full-review/05-final-report.md`, in rough priority order. None of these are
 regressions introduced by the fixes above.
 
-- **P1-23** — Electron desktop has no auto-update or code-signing/distribution pipeline.
-- **02a-S11** — Web client stores `accessToken`/`refreshToken` in `localStorage`. Moving
-  to `httpOnly` cookies requires redesigning the WS authentication handshake (tokens cannot
-  be attached to a WebSocket upgrade request via a cookie from JS, so a cookie-exchange
-  step would need to be added). Cross-cutting change deferred pending a design.
-- **02a-S13** — Host JWT has no rotation/refresh mechanism (`HOST_TOKEN_EXPIRY: '365d'`).
-  Implementing rotation requires a new host-token-refresh protocol endpoint and desktop-side
-  rotation logic. Deferred pending a design.
+- **02a-S11** — Web client stores `accessToken`/`refreshToken` in `localStorage`. A design
+  doc (`docs/httponly-cookie-token-design.md`) covering the httpOnly cookie migration and
+  WS ticket exchange is now written. Full implementation (7 files to change across server,
+  web, and desktop) is deferred — it's a cross-cutting change with CORS and WS handshake
+  implications.
 - **01a-M5** — Three divergent message-type shapes: server DB (`id, session_id, direction,
   content, type, sender_id, ...`), desktop DB (`local_messages`, slightly different columns),
   and web store (inline `{ id, content, direction, type, timestamp }` object). A shared
@@ -616,6 +650,7 @@ regressions introduced by the fixes above.
 
 All P3/Low items from `.full-review/05-final-report.md` are addressed (P3-1 through
 P3-18). All P1 items are addressed (P1-1 structured logging, P1-12 binary file-tunnel
-framing, and the rest in Fixed above). The "test/doc gaps" (#19) and relay room-state
-(P1-7) items are also done. The bulk of P2 items are fixed — see the Security and Fixed
-sections above for Tracks A–F.
+framing, P1-23 auto-update pipeline, and the rest in Fixed above). The "test/doc gaps"
+(#19) and relay room-state (P1-7) items are also done. All P2 items are fixed — Tracks
+A–F in Security/Fixed above plus 02a-S13 (Host JWT rotation). 02a-S11 (httpOnly cookie
+tokens) has a design doc; full implementation remains deferred.

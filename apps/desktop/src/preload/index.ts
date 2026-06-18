@@ -79,6 +79,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('event:session-revoked', (_, data) => callback(data));
   },
 
+  // === Host token 轮换 ===
+  getHostTokenExpiryDays: () => ipcRenderer.invoke('host:get-token-expiry-days'),
+
+  // === 自动更新 ===
+  getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
+  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
+  onUpdateStatus: (callback: (status: unknown) => void) => {
+    ipcRenderer.on('event:update-status', (_, status) => callback(status));
+  },
+
   // === 清理事件监听器 ===
   removeAllListeners: (channel: string) => {
     ipcRenderer.removeAllListeners(channel);
@@ -182,5 +194,20 @@ export interface ElectronAPI {
   onConnectionStatus: (callback: (data: { status: string; error?: string }) => void) => void;
   onNewMessage: (callback: (data: any) => void) => void;
   onSessionRevoked: (callback: (data: any) => void) => void;
+  getHostTokenExpiryDays: () => Promise<number | null>;
+  getUpdateStatus: () => Promise<UpdateStatus>;
+  checkForUpdates: () => Promise<void>;
+  downloadUpdate: () => Promise<void>;
+  installUpdate: () => Promise<void>;
+  onUpdateStatus: (callback: (status: UpdateStatus) => void) => void;
   removeAllListeners: (channel: string) => void;
 }
+
+export type UpdateStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'available'; version: string; releaseNotes: string }
+  | { state: 'not-available' }
+  | { state: 'downloading'; percent: number; bytesPerSecond: number; transferred: number; total: number }
+  | { state: 'downloaded'; version: string }
+  | { state: 'error'; message: string };

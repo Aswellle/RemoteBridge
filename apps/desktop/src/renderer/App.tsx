@@ -15,7 +15,7 @@ import {
   ArrowRight,
   Monitor,
 } from 'lucide-react';
-import { ElectronAPI, SettingsData } from '../preload/index';
+import { ElectronAPI, SettingsData, UpdateStatus } from '../preload/index';
 import { applyTheme } from './theme';
 import SecurityLogs from './pages/SecurityLogs';
 import MessagesPage from './pages/Messages';
@@ -26,6 +26,78 @@ declare global {
   interface Window {
     electronAPI: ElectronAPI;
   }
+}
+
+// ===== 更新横幅 =====
+function UpdateBanner({
+  status,
+  onDownload,
+  onInstall,
+}: {
+  status: UpdateStatus;
+  onDownload: () => void;
+  onInstall: () => void;
+}) {
+  if (status.state === 'idle' || status.state === 'checking' || status.state === 'not-available') {
+    return null;
+  }
+
+  if (status.state === 'available') {
+    return (
+      <div className="flex items-center justify-between px-4 py-2 bg-primary/10 border-b border-primary/20 text-sm">
+        <span className="text-foreground">
+          发现新版本 <span className="font-semibold">v{status.version}</span>，可立即升级
+        </span>
+        <button
+          onClick={onDownload}
+          className="ml-4 px-3 py-1 bg-primary hover:bg-primary/90 rounded text-xs font-medium transition-colors"
+        >
+          下载更新
+        </button>
+      </div>
+    );
+  }
+
+  if (status.state === 'downloading') {
+    return (
+      <div className="flex items-center gap-3 px-4 py-2 bg-primary/10 border-b border-primary/20 text-sm">
+        <span className="text-foreground whitespace-nowrap">正在下载更新…</span>
+        <div className="flex-1 bg-secondary rounded-full h-1.5 overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all duration-300"
+            style={{ width: `${status.percent}%` }}
+          />
+        </div>
+        <span className="text-muted-foreground text-xs whitespace-nowrap">{status.percent}%</span>
+      </div>
+    );
+  }
+
+  if (status.state === 'downloaded') {
+    return (
+      <div className="flex items-center justify-between px-4 py-2 bg-success/10 border-b border-success/20 text-sm">
+        <span className="text-foreground">
+          v<span className="font-semibold">{status.version}</span> 已下载完毕，重启即可完成升级
+        </span>
+        <button
+          onClick={onInstall}
+          className="ml-4 px-3 py-1 bg-success hover:bg-success/90 rounded text-xs font-medium transition-colors"
+        >
+          立即安装
+        </button>
+      </div>
+    );
+  }
+
+  if (status.state === 'error') {
+    return (
+      <div className="flex items-center px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-sm">
+        <span className="text-destructive">更新检查失败：{status.message}</span>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // ===== Skeleton 组件 =====
@@ -115,6 +187,7 @@ export default function App() {
   const [editingAlias, setEditingAlias] = useState<number | null>(null);
   const [aliasValue, setAliasValue] = useState('');
   const [latency, setLatency] = useState(0);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' });
 
   // 加载系统信息
   useEffect(() => {
@@ -203,6 +276,16 @@ export default function App() {
     }, 3000);
     return () => clearInterval(interval);
   }, [connectionStatus]);
+
+  // 订阅更新状态推送 + 启动时同步当前状态
+  useEffect(() => {
+    window.electronAPI.getUpdateStatus?.().then(setUpdateStatus).catch(() => {});
+    window.electronAPI.onUpdateStatus?.((s) => setUpdateStatus(s as UpdateStatus));
+    return () => { window.electronAPI.removeAllListeners('event:update-status'); };
+  }, []);
+
+  const handleDownloadUpdate = () => { window.electronAPI.downloadUpdate?.().catch(() => {}); };
+  const handleInstallUpdate = () => { window.electronAPI.installUpdate?.(); };
 
   // 注册 Host
   const handleRegister = async () => {
@@ -311,7 +394,13 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
+    <div className="flex flex-col h-screen bg-background text-foreground">
+      <UpdateBanner
+        status={updateStatus}
+        onDownload={handleDownloadUpdate}
+        onInstall={handleInstallUpdate}
+      />
+      <div className="flex flex-1 min-h-0">
       {/* 侧边栏 */}
       <aside className="w-64 bg-card border-r border-border flex flex-col flex-shrink-0">
         {/* Logo + 版本号 */}
@@ -695,6 +784,7 @@ export default function App() {
         {/* === 设置页 === */}
         {activeTab === 'settings' && <SettingsPage />}
       </main>
+      </div>
     </div>
   );
 }

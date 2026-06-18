@@ -147,7 +147,11 @@ export function generatePin(length: number = 8): string {
 export const JWT_CONFIG = {
   ACCESS_TOKEN_EXPIRY: '2h',
   REFRESH_TOKEN_EXPIRY: '30d',
-  HOST_TOKEN_EXPIRY: '365d',
+  // 从 365d 缩短至 90d（02a-S13）；配套的桌面端 token-rotator.ts 在过期前
+  // 30 天自动调用 POST /auth/host-token-refresh，确保 host 无感知轮换。
+  HOST_TOKEN_EXPIRY: '90d',
+  // 桌面端触发主动轮换的阈值：剩余有效期 ≤ 此值时发起轮换请求
+  HOST_TOKEN_ROTATION_THRESHOLD_DAYS: 30,
 } as const;
 
 // ===== Rate Limiting 配置 =====

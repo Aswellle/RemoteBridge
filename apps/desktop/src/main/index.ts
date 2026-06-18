@@ -14,6 +14,8 @@ import axios from 'axios';
 import log from './logger';
 
 // IPC 模块
+import { setupAutoUpdater } from './updater';
+import { setupTokenRotator, stopTokenRotator } from './token-rotator';
 import { registerAuthHandlers, ensureHostRegisteredAndConnected } from './ipc/auth';
 import { registerDirsHandlers } from './ipc/dirs';
 import { registerClientsHandlers } from './ipc/clients';
@@ -54,6 +56,12 @@ app.whenReady().then(async () => {
   }, 60 * 60 * 1000);
   tokenCleaner.unref?.();
 
+  // 初始化自动更新（注册 updater IPC + 延迟静默检查）
+  setupAutoUpdater(getMainWindow);
+
+  // 初始化 Host JWT 定期轮换（注册 IPC + 启动后 30s 首次检查 + 每日检查）
+  setupTokenRotator(getRelayApi);
+
   // 注册所有 IPC 处理器
   registerIpcHandlers();
 
@@ -80,6 +88,7 @@ app.on('before-quit', () => {
 });
 
 app.on('window-all-closed', async () => {
+  stopTokenRotator();
   await stopFileServer();
   if (process.platform !== 'darwin') {
     app.quit();

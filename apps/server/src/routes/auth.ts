@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import jwt from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client';
 import { hosts, sessions, securityLogs } from '../db/schema';
@@ -433,5 +434,60 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     };
 
     return reply.send(response);
+  });
+
+  // --- POST /auth/host-token-refresh ---
+  // Host 主动轮换自己的 JWT（02a-S13）。
+  // 适用场景：桌面端 token-rotator.ts 检测到 token 剩余有效期 ≤ 30d 时调用。
+  // 不验证主机记录是否存在（verifyHostToken 已签名校验），直接签发新 token。
+  fastify.post('/auth/host-token-refresh', {
+    config: {
+      rateLimit: {
+        max: RATE_LIMIT_CONFIG.PIN_GENERATE_MAX, // 5 次/分钟/host，复用同档限制
+        timeWindow: RATE_LIMIT_CONFIG.WINDOW_MS,
+        keyGenerator: (req) => {
+          const tok = extractTokenFromHeader(req.headers.authorization);
+          try {
+            const p = verifyHostToken(tok!);
+            return `host-token-refresh:${p.sub}`;
+          } catch {
+            return `host-token-refresh:${req.ip}`;
+          }
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const token = extractTokenFromHeader(request.headers.authorization);
+    if (!token) {
+      return reply.code(401).send({
+        success: false,
+        data: null,
+        error: { code: 'MISSING_TOKEN', message: '缺少认证令牌' },
+        timestamp: Date.now(),
+      });
+    }
+
+    let payload: any;
+    try {
+      payload = verifyHostToken(token);
+    } catch {
+      return reply.code(401).send({
+        success: false,
+        data: null,
+        error: { code: 'INVALID_TOKEN', message: 'Host token 无效或已过期' },
+        timestamp: Date.now(),
+      });
+    }
+
+    const newToken = signHostToken(payload.sub);
+    // 从新 token 中读取 exp（避免重复计算 90d 偏移量）
+    const decoded = jwt.decode(newToken) as { exp: number };
+
+    return reply.send({
+      success: true,
+      data: { token: newToken, expiresAt: decoded.exp },
+      error: null,
+      timestamp: Date.now(),
+    });
   });
 }
