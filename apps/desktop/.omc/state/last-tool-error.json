@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cat apps/desktop/vitest.config.ts; echo \\\"---POSTCSS---\\\"; cat apps/desktop/postcss.config.js; echo \\\"---PKG TEST SCRIPT---\\\"; grep -A2 '\\\"test\\\"' apps/desktop/package.json\",\"description\":...",
-  "error": "Exit code 2\ncat: apps/desktop/vitest.config.ts: No such file or directory\n---POSTCSS---\ncat: apps/desktop/postcss.config.js: No such file or directory\n---PKG TEST SCRIPT---\ngrep: apps/desktop/package.json: No such file or directory",
-  "timestamp": "2026-06-14T19:18:37.328Z",
-  "retry_count": 1
-}
