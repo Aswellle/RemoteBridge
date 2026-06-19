@@ -1,5 +1,7 @@
 # RemoteBridge
 
+**[中文文档](./README.zh-CN.md)**
+
 Access your PC's files from anywhere — no port forwarding, no VPN, no dynamic DNS.
 
 RemoteBridge uses a **relay server architecture**: an Electron desktop app (the *Host*) on your PC connects outbound to a public relay over WebSocket; a Next.js web client connects to the same relay and the relay forwards messages between them via session-keyed rooms. Your PC never listens on a public port.
@@ -8,6 +10,28 @@ RemoteBridge uses a **relay server architecture**: an Electron desktop app (the 
 Web Browser  ──────►  Relay Server  ◄──────  Desktop Host (your PC)
   (client)               (cloud)               (Electron app)
 ```
+
+## Use Cases
+
+### Remote work
+Working from home but need files sitting on your office PC? Open RemoteBridge in a browser, enter the PIN your office Host generated, and browse or download what you need — no VPN client, no IT ticket, no TeamViewer session.
+
+### File sharing with colleagues
+Need to hand off a large build artifact, design asset, or log bundle to a teammate? Share the PIN, let them grab the file directly from your machine, then revoke the session when they're done. Nothing gets uploaded to a third-party cloud.
+
+### Personal NAS / home server access
+Run the Host on a home server or NAS. Access your media library, documents, or backups from any browser — hotel Wi-Fi, mobile hotspot, corporate network — without punching holes in your router.
+
+### Developer workflow
+Expose a specific project directory on a dev machine. A QA engineer or designer can preview build outputs, inspect logs, or download assets without needing SSH access or a shared drive.
+
+### Small-team collaboration without IT overhead
+No Active Directory, no shared drive, no VPN to configure. Each team member runs a Host on their own machine, shares a PIN for the duration of a task, then revokes it. Audit logs track every access attempt.
+
+### Education / lab access
+Students or researchers can remotely retrieve files from a lab workstation outside campus hours, without the institution having to expose RDP or SSH to the internet.
+
+---
 
 ## Features
 
@@ -106,7 +130,7 @@ pnpm --filter @remotebridge/web dev        # web client only
 pnpm --filter @remotebridge/desktop dev    # Electron host
 ```
 
-> **Desktop native module note**  
+> **Desktop native module note**
 > `better-sqlite3` must be compiled for the Electron ABI, not the system Node ABI. If the desktop app crashes with a `NODE_MODULE_VERSION` mismatch on first run, execute:
 >
 > ```powershell
