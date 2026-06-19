@@ -46,7 +46,7 @@ module.exports = {
     target: [
       {
         target: 'dmg',
-        arch: ['x64', 'arm64'],
+        arch: ['arm64'],   // macos-latest runner is Apple Silicon (arm64)
       },
     ],
     icon: 'resources/icon.icns',

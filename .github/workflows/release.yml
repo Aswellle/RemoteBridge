@@ -10,18 +10,18 @@ permissions:
   contents: write   # 创建 GitHub Release + 上传安装包 assets
 
 jobs:
-  release:
+  build:
     name: Build & Release (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60   # 防止 runner 长期排队导致 workflow 永不结束
     strategy:
-      fail-fast: false
+      fail-fast: false    # 一个平台失败不取消其他平台
       matrix:
         include:
           - os: windows-latest
             eb_flag: --win
-          - os: macos-13        # Intel x64；macos-latest 已是 arm64 需额外处理
+          - os: macos-latest   # Apple Silicon (arm64)；macos-13 Intel runner 供给严重不足
             eb_flag: --mac
-            extra_eb_args: --arch x64
           - os: ubuntu-latest
             eb_flag: --linux
 
@@ -49,7 +49,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y python3 make g++
 
-      # 各平台均需编译适合本平台 + Electron 版本的 native 二进制（.cache/ 不再提交到 git）
+      # 各平台均需编译适合本平台 + Electron 版本的 native 二进制（.cache/ 不提交到 git）
       - name: Rebuild better-sqlite3 for Electron
         working-directory: apps/desktop
         shell: bash
@@ -68,13 +68,26 @@ jobs:
       - name: Build Vite bundles
         run: pnpm --filter @remotebridge/desktop exec electron-vite build
 
-      # electron-builder 打包并通过 GH_TOKEN 发布到 GitHub Releases
+      # electron-builder 打包并上传到 GitHub Release（Draft）
       - name: Package & publish to GitHub Releases
         working-directory: apps/desktop
-        run: npx electron-builder ${{ matrix.eb_flag }} ${{ matrix.extra_eb_args }} --config=electron-builder.config.js --publish always
+        run: npx electron-builder ${{ matrix.eb_flag }} --config=electron-builder.config.js --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 跳过代码签名：空字符串的 WIN_CSC_LINK / CSC_LINK 会被 electron-builder
-          # 误认为路径并报错，因此不传入未配置的签名 secret。
-          # 需要签名时在仓库 Settings → Secrets 配置后再添加回此处。
+          # 跳过代码签名：空字符串的 WIN_CSC_LINK / CSC_LINK 会被误认为路径报错，
+          # 需要签名时在 Settings → Secrets 配置后再添加回此处。
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+  # 所有平台构建完毕（或超时/失败）后，将 Draft Release 正式发布
+  # 使用 if: !cancelled() 确保只要 workflow 未被手动取消就会执行
+  finalize:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Mark release as published
+        continue-on-error: true   # 若所有平台都失败导致 release 未创建，此步骤允许失败
+        run: gh release edit "${{ github.ref_name }}" --draft=false --repo Aswellle/RemoteBridge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
