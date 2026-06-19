@@ -1,6 +1,12 @@
 {
   "name": "@remotebridge/desktop",
   "version": "1.0.0",
+  "description": "RemoteBridge desktop host agent",
+  "author": "Aswellle",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Aswellle/RemoteBridge.git"
+  },
   "private": true,
   "main": "./dist/main/index.js",
   "scripts": {

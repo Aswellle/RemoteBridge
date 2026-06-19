@@ -72,7 +72,7 @@ jobs:
       # electron-builder 打包并通过 GH_TOKEN 发布到 GitHub Releases
       - name: Package & publish to GitHub Releases
         working-directory: apps/desktop
-        run: npx electron-builder ${{ matrix.eb_flag }} ${{ matrix.extra_eb_args }} --publish always
+        run: npx electron-builder ${{ matrix.eb_flag }} ${{ matrix.extra_eb_args }} --config=electron-builder.config.js --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 跳过代码签名（无证书时 CI 构建不报错）
