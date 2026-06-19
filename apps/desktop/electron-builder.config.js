@@ -26,15 +26,6 @@ module.exports = {
     },
   ],
 
-  publish: [
-    {
-      provider: 'github',
-      owner: process.env.GITHUB_REPOSITORY_OWNER || 'YOUR_GITHUB_USERNAME',
-      repo: process.env.GITHUB_REPOSITORY_NAME || 'remotebridge',
-      releaseType: 'release',
-    },
-  ],
-
   win: {
     target: [
       {
