@@ -16,6 +16,13 @@ module.exports = {
   // 无需 electron-builder 再次 rebuild。
   npmRebuild: false,
 
+  publish: {
+    provider: 'github',
+    owner: 'Aswellle',
+    repo: 'RemoteBridge',
+    releaseType: 'release',
+  },
+
   // 打包后 __dirname 从 app.asar/dist/main 向上遍历跨越 ASAR 边界到 resources/，
   // 此处将 .cache/better_sqlite3.electron.node 放入 resources/.cache/ 供 hook 找到。
   extraResources: [
