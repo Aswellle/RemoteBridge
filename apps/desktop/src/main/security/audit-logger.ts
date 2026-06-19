@@ -5,7 +5,7 @@ import log from '../logger';
 
 // ===== 获取 Relay API 配置 =====
 function getRelayApi(): string {
-  return config.getRelayApiUrl() || 'http://127.0.0.1:3001/api/v1';
+  return config.getRelayApiUrl() || 'http://127.0.0.1:3002/api/v1';
 }
 
 function getHostToken(): string {

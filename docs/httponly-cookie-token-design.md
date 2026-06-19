@@ -28,7 +28,7 @@ cannot be exfiltrated via `document.cookie`.
 ## Core challenge: WebSocket authentication
 
 The Electron desktop and the relay server are on different ports in development
-(`ws://127.0.0.1:3001` vs `http://localhost:3000`).  In production both are
+(`ws://127.0.0.1:3002` vs `http://localhost:3000`).  In production both are
 served behind the same Caddy domain, so cookies are same-site.
 
 The WS upgrade request is issued by the browser's networking layer — it **does**

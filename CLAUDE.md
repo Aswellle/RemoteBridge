@@ -22,7 +22,7 @@ First-time bootstrap (install + build shared in one step) is scripted: `bash scr
 Per-package (use `--filter`):
 
 ```sh
-pnpm --filter @remotebridge/server dev          # relay server, default port 3001 (RELAY_PORT)
+pnpm --filter @remotebridge/server dev          # relay server, default port 3002 (RELAY_PORT)
 pnpm --filter @remotebridge/web dev             # web client on :3000
 pnpm --filter @remotebridge/desktop dev         # Electron host app
 pnpm --filter @remotebridge/desktop package:win # electron-builder packaging (also :mac, :linux)
@@ -51,7 +51,7 @@ The other three packages' suites are smaller and focused, and run independently 
 
 `apps/server/test/manual-*.mjs` are standalone verification scripts (not vitest), in three groups:
 - `manual-file-tunnel`, `manual-host-reconnect`, `manual-message-history`, `manual-relay-roundtrip`, `manual-rest-fallback-routing` — these flows now have vitest equivalents in `relay-roundtrip.test.ts`/`session-flows.test.ts` (P1-14, sharing `test/helpers.ts`); the `.mjs` scripts remain for ad-hoc debugging against a live relay (`node test/manual-<name>.mjs` against `localhost:3099`).
-- `manual-live-host.mjs` — full-chain check against a real desktop Host on the default relay (`127.0.0.1:3001`); requires `ACCESS_TOKEN`/`SESSION_ID` env vars and a whitelisted `RB_TEST_DIR`.
+- `manual-live-host.mjs` — full-chain check against a real desktop Host on the default relay (`127.0.0.1:3002`); requires `ACCESS_TOKEN`/`SESSION_ID` env vars and a whitelisted `RB_TEST_DIR`.
 - `manual-trust-revoke.mjs` / `manual-settings-hot-reload.mjs` — CDP-driven: require Electron launched with `--remote-debugging-port=9222` and an active web client session, and drive the real renderer UI (trust/revoke, settings hot-reload).
 
 ### Database (server)
@@ -142,7 +142,7 @@ Adding a message type touches at minimum: `packages/shared/src/ws-types.ts` (enu
 Copy `.env.example` for server config. The server reads these at startup:
 
 ```
-RELAY_PORT              # default 3001
+RELAY_PORT              # default 3002
 RELAY_HOST              # default 0.0.0.0
 JWT_SECRET              # access token signing key
 JWT_REFRESH_SECRET      # refresh token signing key (separate)
@@ -156,18 +156,18 @@ NODE_ENV                # set to 'production' to enforce JWT secret strength at 
 The web client uses Next.js public env vars (prefixed `NEXT_PUBLIC_`):
 
 ```
-NEXT_PUBLIC_API_URL     # Relay REST API, default http://localhost:3001/api/v1
-NEXT_PUBLIC_WS_URL      # Relay WS endpoint, default ws://localhost:3001/ws
+NEXT_PUBLIC_API_URL     # Relay REST API, default http://localhost:3002/api/v1
+NEXT_PUBLIC_WS_URL      # Relay WS endpoint, default ws://localhost:3002/ws
 ```
 
 The desktop app overrides relay URLs via `electron-store` (set via renderer settings UI); fallback env vars:
 
 ```
-RELAY_URL               # default ws://127.0.0.1:3001/ws
-RELAY_API               # default http://127.0.0.1:3001/api/v1
+RELAY_URL               # default ws://127.0.0.1:3002/ws
+RELAY_API               # default http://127.0.0.1:3002/api/v1
 ```
 
-Desktop defaults use `127.0.0.1`, not `localhost`: Node/Electron resolves `localhost` to `::1` while the relay listens IPv4-only, so `localhost` URLs make the host's first auto-connect fail with `EACCES ::1:3001`.
+Desktop defaults use `127.0.0.1`, not `localhost`: Node/Electron resolves `localhost` to `::1` while the relay listens IPv4-only, so `localhost` URLs make the host's first auto-connect fail with `EACCES ::1:3002`.
 
 ## Deployment
 

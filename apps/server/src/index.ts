@@ -15,7 +15,7 @@ import { setupWebSocket } from './ws/handler';
 import { CORS_OPTIONS } from './utils/cors';
 
 // ===== 环境变量 =====
-const PORT = parseInt(process.env.RELAY_PORT || '3001', 10);
+const PORT = parseInt(process.env.RELAY_PORT || '3002', 10);
 const HOST = process.env.RELAY_HOST || '0.0.0.0';
 
 // ===== 应用版本（来自 package.json，避免 /health 硬编码版本号与实际不一致） =====

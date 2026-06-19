@@ -21,8 +21,8 @@ const defaults: ConfigSchema = {
   hostToken: '',
   // 默认用 127.0.0.1 而非 localhost：Node/Electron 把 localhost 解析为 ::1，
   // 而 relay 默认只监听 IPv4，localhost 会导致首次自动连接 EACCES/ECONNREFUSED
-  relayUrl: 'ws://127.0.0.1:3001/ws',
-  relayApiUrl: 'http://127.0.0.1:3001/api/v1',
+  relayUrl: 'ws://127.0.0.1:3002/ws',
+  relayApiUrl: 'http://127.0.0.1:3002/api/v1',
   windowBounds: null,
   autoStart: false,
   minimizeToTray: true,

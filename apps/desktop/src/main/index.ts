@@ -24,11 +24,11 @@ import { registerSettingsHandlers } from './ipc/settings';
 
 // ===== Relay 配置（从 config store 加载） =====
 function getRelayUrl(): string {
-  return config.getRelayUrl() || process.env.RELAY_URL || 'ws://127.0.0.1:3001/ws';
+  return config.getRelayUrl() || process.env.RELAY_URL || 'ws://127.0.0.1:3002/ws';
 }
 
 function getRelayApi(): string {
-  return config.getRelayApiUrl() || process.env.RELAY_API || 'http://127.0.0.1:3001/api/v1';
+  return config.getRelayApiUrl() || process.env.RELAY_API || 'http://127.0.0.1:3002/api/v1';
 }
 
 // ===== 应用生命周期 =====

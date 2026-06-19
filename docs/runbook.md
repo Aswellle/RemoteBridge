@@ -72,7 +72,7 @@ SQLite（`RB_DATA_DIR/remotebridge.db`）。重启后：
 1. **确认进程是否在跑**：`docker compose ps` 或 `systemctl status remotebridge-server`。
 2. **看最近日志找崩溃原因**：`docker compose logs --tail=200 server` 或
    `journalctl -u remotebridge-server -n 200`。常见原因：
-   - `EADDRINUSE`：`RELAY_PORT`（默认 3001）被占用 —— 检查是否有遗留进程或重复部署；
+   - `EADDRINUSE`：`RELAY_PORT`（默认 3002）被占用 —— 检查是否有遗留进程或重复部署；
    - `NODE_ENV=production 拒绝启动，JWT 密钥配置不安全`：`.env`/`docker-compose.yml` 里
      `JWT_SECRET`/`JWT_REFRESH_SECRET` 缺失或太弱（P0-6 的启动校验），按报错提示用
      `openssl rand -base64 48` 重新生成；
