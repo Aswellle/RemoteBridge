@@ -1,3 +1,5 @@
+const path = require('path');
+
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
   appId: 'com.remotebridge.desktop',
@@ -18,7 +20,8 @@ module.exports = {
   // 此处将 .cache/better_sqlite3.electron.node 放入 resources/.cache/ 供 hook 找到。
   extraResources: [
     {
-      from: '../../.cache/better_sqlite3.electron.node',
+      // 绝对路径：避免 electron-builder 不跟随 ../../ 相对路径到项目目录之外
+      from: path.resolve(__dirname, '..', '..', '.cache', 'better_sqlite3.electron.node'),
       to: '.cache/better_sqlite3.electron.node',
     },
   ],

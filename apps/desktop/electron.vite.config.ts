@@ -1,23 +1,50 @@
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import { builtinModules } from 'module';
+import type { Plugin } from 'rollup';
 
-// main 进程只排除真正不能打包的东西：
-//   - electron（运行时由 Electron 注入）
-//   - better-sqlite3（native .node 文件，dlopen hook 处理）
-//   - Node.js 内置模块（fs/path/os 等）
-// 其余所有纯 JS 依赖（含 electron-store 及其传递依赖 conf/dot-prop 等）
-// 全部内联进 bundle，避免 pnpm virtual store junction 在 ASAR 内不可解析。
+// main 进程只排除 electron 本身和 Node.js 内置模块。
+// better-sqlite3 的 JS 代码打包进 bundle，其 native .node 的加载通过
+// bindingsStubPlugin + electron-binding.ts 的 dlopen hook 重定向到
+// resources/.cache/better_sqlite3.electron.node（由 extraResources 复制）。
 const MAIN_EXTERNALS: (string | RegExp)[] = [
   'electron',
-  'better-sqlite3',
   ...builtinModules,
   ...builtinModules.map(m => `node:${m}`),
 ];
 
+// 将 require('bindings') 替换为直接调用 process.dlopen。
+// electron-binding.ts 的 dlopen hook 会拦截包含模块名的路径，
+// 并将加载重定向到 resources/.cache/<name>.node（Electron 预编译版本）。
+function bindingsStubPlugin(): Plugin {
+  return {
+    name: 'stub-bindings',
+    resolveId(source: string) {
+      if (source === 'bindings') return '\0stub:bindings';
+      return null;
+    },
+    load(id: string) {
+      if (id === '\0stub:bindings') {
+        return [
+          `'use strict';`,
+          `const path = require('path');`,
+          `module.exports = function bindings(name) {`,
+          `  const m = { exports: {}, id: name, loaded: false };`,
+          `  process.dlopen(m, path.join(__dirname, name + '.node'));`,
+          `  m.loaded = true;`,
+          `  return m.exports;`,
+          `};`,
+        ].join('\n');
+      }
+      return null;
+    },
+  };
+}
+
 export default defineConfig({
   main: {
+    plugins: [bindingsStubPlugin()],
     build: {
       outDir: 'dist/main',
       commonjsOptions: {
@@ -30,7 +57,6 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     build: {
       outDir: 'dist/preload',
       rollupOptions: {
