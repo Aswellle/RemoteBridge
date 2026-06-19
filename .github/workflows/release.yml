@@ -74,10 +74,7 @@ jobs:
         run: npx electron-builder ${{ matrix.eb_flag }} ${{ matrix.extra_eb_args }} --config=electron-builder.config.js --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 跳过代码签名（无证书时 CI 构建不报错）
+          # 跳过代码签名：空字符串的 WIN_CSC_LINK / CSC_LINK 会被 electron-builder
+          # 误认为路径并报错，因此不传入未配置的签名 secret。
+          # 需要签名时在仓库 Settings → Secrets 配置后再添加回此处。
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
