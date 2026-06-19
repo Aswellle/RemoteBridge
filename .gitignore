@@ -37,5 +37,15 @@ npm-debug.log*
 # Electron
 release/
 
+# Native binary cache (platform-specific, rebuilt in CI per platform)
+.cache/
+
+# Internal review artifacts and project documentation (not for public repo)
+.full-review/
+docs/
+CHANGELOG.md
+CLAUDE.md
+使用说明书.md
+
 # Claude Code / oh-my-claudecode tool state (session replays, checkpoints, agent state)
 .omc/

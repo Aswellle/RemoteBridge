@@ -1,1 +1,0 @@
-Hello RemoteBridge functional test 你好

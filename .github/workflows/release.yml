@@ -49,11 +49,10 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y python3 make g++
 
-      # macOS / Linux 各需重编译适配本平台的 Electron native 二进制。
-      # Windows 直接使用已提交至 .cache/ 的预编译版本（Electron 28 x64）。
-      - name: Rebuild better-sqlite3 for Electron (macOS / Linux)
-        if: runner.os != 'Windows'
+      # 各平台均需编译适合本平台 + Electron 版本的 native 二进制（.cache/ 不再提交到 git）
+      - name: Rebuild better-sqlite3 for Electron
         working-directory: apps/desktop
+        shell: bash
         run: |
           npx @electron/rebuild@^3 -f -w better-sqlite3
           node -e "
