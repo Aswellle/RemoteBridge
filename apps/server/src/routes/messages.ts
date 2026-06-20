@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client';
 import { messages, sessions } from '../db/schema';
-import { eq, and, desc, gt } from 'drizzle-orm';
+import { eq, and, desc, gt, isNull, inArray } from 'drizzle-orm';
 import { extractTokenFromHeader, verifyAccessToken } from '../utils/jwt';
 import { sendToClient, sendToHost } from '../ws/relay';
 import { WSMessageType } from '@remotebridge/shared';
@@ -105,6 +105,92 @@ export async function messagesRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const result = await query;
+
+    const response: ApiResponse<Message[]> = {
+      success: true,
+      data: result.map(m => ({
+        id: m.id,
+        sessionId: m.sessionId,
+        direction: m.direction as 'host_to_client' | 'client_to_host',
+        content: m.content,
+        type: m.type as 'text' | 'system' | 'notification',
+        createdAt: m.createdAt,
+        readAt: m.readAt || undefined,
+      })),
+      error: null,
+      timestamp: Date.now(),
+    };
+
+    return reply.send(response);
+  });
+
+  // --- GET /messages/client/history ---
+  // 客户端拉取跨会话完整消息历史（用当前 JWT 中的 clientId + hostId 聚合所有未吊销会话）
+  fastify.get<{
+    Querystring: { page?: string; limit?: string };
+  }>('/messages/client/history', async (request, reply) => {
+    const token = extractTokenFromHeader(request.headers.authorization);
+    if (!token) {
+      return reply.code(401).send({
+        success: false,
+        data: null,
+        error: { code: 'UNAUTHORIZED', message: '缺少认证令牌' },
+        timestamp: Date.now(),
+      });
+    }
+
+    let payload: any;
+    try {
+      payload = verifyAccessToken(token);
+    } catch {
+      return reply.code(401).send({
+        success: false,
+        data: null,
+        error: { code: 'INVALID_TOKEN', message: '认证令牌无效或已过期' },
+        timestamp: Date.now(),
+      });
+    }
+
+    if (payload.type !== 'client') {
+      return reply.code(403).send({
+        success: false,
+        data: null,
+        error: { code: 'FORBIDDEN', message: '仅客户端令牌可访问此接口' },
+        timestamp: Date.now(),
+      });
+    }
+
+    const clientId: string = payload.sub;
+    const hostId: string = payload.hostId;
+    const page = Math.max(1, parseInt(request.query.page || '1', 10));
+    const limit = Math.min(parseInt(request.query.limit || '50', 10), 200);
+
+    // 找出该 client↔host 对的所有未吊销会话
+    const clientSessions = await db.select({ id: sessions.id })
+      .from(sessions)
+      .where(and(
+        eq(sessions.clientId, clientId),
+        eq(sessions.hostId, hostId),
+        isNull(sessions.revokedAt)
+      ));
+
+    if (clientSessions.length === 0) {
+      return reply.send({
+        success: true,
+        data: [],
+        error: null,
+        timestamp: Date.now(),
+      });
+    }
+
+    const sessionIds = clientSessions.map(s => s.id);
+
+    const result = await db.select()
+      .from(messages)
+      .where(inArray(messages.sessionId, sessionIds))
+      .orderBy(desc(messages.createdAt))
+      .limit(limit)
+      .offset((page - 1) * limit);
 
     const response: ApiResponse<Message[]> = {
       success: true,

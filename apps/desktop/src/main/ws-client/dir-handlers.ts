@@ -169,7 +169,8 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
             size: stat.size,
             modifiedAt: stat.mtimeMs,
             extension: ext,
-            isPreviewable: isPreviewableFile(ext) && stat.size <= PREVIEW_MAX_SIZE,
+            // PDF 由浏览器内置 PDF 阅读器流式加载，无需 10MB 内存限制；其他格式需全量读入内存，受限
+            isPreviewable: isPreviewableFile(ext) && (ext === 'pdf' || stat.size <= PREVIEW_MAX_SIZE),
           };
         } catch {
           // 无权限等情况，跳过
@@ -354,9 +355,11 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
         return;
       }
 
-      // 2. 检查文件大小
+      // 2. 检查文件类型与大小
       const stat = await fs.stat(filePath);
-      if (stat.size > PREVIEW_MAX_SIZE) {
+      const ext = path.extname(filePath).slice(1).toLowerCase();
+      // PDF 由浏览器内置阅读器流式加载，无需全量内存，豁免 10MB 限制
+      if (ext !== 'pdf' && stat.size > PREVIEW_MAX_SIZE) {
         client.send({
           type: WSMessageType.RESP_PREVIEW_ERROR,
           sessionId,
@@ -370,7 +373,6 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
       }
 
       // 3. 检查是否可预览
-      const ext = path.extname(filePath).slice(1).toLowerCase();
       if (!isPreviewableFile(ext)) {
         client.send({
           type: WSMessageType.RESP_PREVIEW_ERROR,

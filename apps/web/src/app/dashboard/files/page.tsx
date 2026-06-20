@@ -35,19 +35,14 @@ export default function FilesPage() {
     listDir(path);
   };
 
-  // 点击文件 → 预览或下载
+  // 点击文件 → 始终打开预览模态；不支持预览的类型由 UnsupportedViewer 展示下载按钮，
+  // 统一保证"只有用户主动点击下载按钮才触发下载"
   const handleFileClick = (entry: FileEntry) => {
-    if (entry.isPreviewable) {
-      // 可预览文件 → 打开预览
-      setPreviewFile({
-        path: entry.path,
-        name: entry.name,
-        extension: entry.extension,
-      });
-    } else {
-      // 不可预览 → 直接下载
-      useAppStore.getState().requestDownload(entry.path);
-    }
+    setPreviewFile({
+      path: entry.path,
+      name: entry.name,
+      extension: entry.extension,
+    });
   };
 
   // 面包屑导航（__ALLOWED_ROOT__ 表示回到共享目录列表）

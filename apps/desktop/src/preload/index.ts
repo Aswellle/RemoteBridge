@@ -67,22 +67,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getRelayLatency: () => ipcRenderer.invoke('relay:get-latency'),
 
   // === 事件订阅 (Main → Renderer) ===
+  // 每次订阅前先清除旧监听器，防止 React effect 重跑时监听器堆叠
   onClientJoined: (callback: (data: unknown) => void) => {
+    ipcRenderer.removeAllListeners('event:client-joined');
     ipcRenderer.on('event:client-joined', (_, data) => callback(data));
   },
   onClientLeft: (callback: (data: unknown) => void) => {
+    ipcRenderer.removeAllListeners('event:client-left');
     ipcRenderer.on('event:client-left', (_, data) => callback(data));
   },
   onConnectionStatus: (callback: (data: unknown) => void) => {
+    ipcRenderer.removeAllListeners('event:connection-status');
     ipcRenderer.on('event:connection-status', (_, data) => callback(data));
   },
   onNewMessage: (callback: (data: unknown) => void) => {
+    ipcRenderer.removeAllListeners('event:new-message');
     ipcRenderer.on('event:new-message', (_, data) => callback(data));
   },
   onSessionRevoked: (callback: (data: unknown) => void) => {
+    ipcRenderer.removeAllListeners('event:session-revoked');
     ipcRenderer.on('event:session-revoked', (_, data) => callback(data));
   },
   onFileReceived: (callback: (data: { fileName: string; savedPath: string }) => void) => {
+    ipcRenderer.removeAllListeners('event:file-received');
     ipcRenderer.on('event:file-received', (_, data) => callback(data));
   },
 
@@ -95,6 +102,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadUpdate: () => ipcRenderer.invoke('updater:download'),
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   onUpdateStatus: (callback: (status: unknown) => void) => {
+    ipcRenderer.removeAllListeners('event:update-status');
     ipcRenderer.on('event:update-status', (_, status) => callback(status));
   },
 

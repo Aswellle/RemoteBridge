@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../db/client';
 import { hosts, sessions } from '../db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { extractTokenFromHeader, verifyAccessToken, verifyHostToken } from '../utils/jwt';
 import { isHostOnline, isClientOnline } from '../ws/connection-registry';
 import type { ApiResponse, HostInfo, ClientInfo, SessionInfo } from '@remotebridge/shared';
@@ -124,27 +124,37 @@ export async function hostsRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    // 查询所有未吊销的会话
+    // 查询所有未吊销的会话（SQL 层过滤，避免把已吊销行传到应用层再丢弃）
     const activeSessions = await db.select()
       .from(sessions)
       .where(
         and(
           eq(sessions.hostId, hostId),
-          // revokedAt IS NULL
+          isNull(sessions.revokedAt)
         )
       );
 
+    // 同一物理设备（clientId）可能因多次通过 PIN 码连接而产生多条 session 记录。
+    // 按 clientId 去重：保留最近活跃的那条 session（lastActiveAt 优先，否则取 createdAt）。
+    const latestByClient = new Map<string, typeof activeSessions[0]>();
+    for (const s of activeSessions) {
+      const existing = latestByClient.get(s.clientId);
+      const thisTs = s.lastActiveAt ?? s.createdAt;
+      const existingTs = existing ? (existing.lastActiveAt ?? existing.createdAt) : null;
+      if (!existing || !existingTs || (thisTs && thisTs > existingTs)) {
+        latestByClient.set(s.clientId, s);
+      }
+    }
+
     // 获取在线状态
-    const clients: ClientInfo[] = activeSessions
-      .filter(s => !s.revokedAt) // 过滤已吊销的
-      .map(s => ({
-        clientId: s.clientId,
-        sessionId: s.id, // 吊销操作需要会话 id（clientId 无法定位会话）
-        label: s.clientLabel || '未知设备',
-        lastSeenAt: s.lastActiveAt || s.createdAt,
-        isTrusted: false, // 信任标记由桌面端本地 DB 维护，列表合并在桌面端完成
-        online: isClientOnline(s.clientId),
-      }));
+    const clients: ClientInfo[] = Array.from(latestByClient.values()).map(s => ({
+      clientId: s.clientId,
+      sessionId: s.id, // 吊销操作需要会话 id（clientId 无法定位会话）
+      label: s.clientLabel || '未知设备',
+      lastSeenAt: s.lastActiveAt || s.createdAt,
+      isTrusted: false, // 信任标记由桌面端本地 DB 维护，列表合并在桌面端完成
+      online: isClientOnline(s.clientId),
+    }));
 
     const response: ApiResponse<ClientInfo[]> = {
       success: true,

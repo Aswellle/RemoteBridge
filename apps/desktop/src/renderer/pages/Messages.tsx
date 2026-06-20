@@ -95,6 +95,8 @@ export default function MessagesPage() {
             senderId: row.sender_id,
             senderLabel: row.sender_label,
           }));
+          // DB 返回 DESC（最新在前），反转为 ASC 供聊天界面从旧到新显示
+          mapped.reverse();
           setMessages(mapped);
         }
       } catch (err) {
@@ -134,7 +136,7 @@ export default function MessagesPage() {
     };
   }, [selectedClient]);
 
-  // 按 selectedClient 过滤消息
+  // 按 selectedClient 过滤消息，并按时间升序排列
   const filteredMessages = useMemo(() => {
     if (!selectedClient) return messages;
     return messages.filter((msg) => {
@@ -150,7 +152,7 @@ export default function MessagesPage() {
         return msg.sessionId === selectedClient || msg.senderId === selectedClient;
       }
       return true;
-    });
+    }).sort((a, b) => a.createdAt - b.createdAt);
   }, [messages, selectedClient]);
 
   // 发送消息
@@ -219,7 +221,7 @@ export default function MessagesPage() {
                 onClick={() => handleSelectClient(client.clientId)}
                 className={`flex items-center justify-between w-full px-3 py-2 rounded-lg transition-colors ${
                   selectedClient === client.clientId
-                    ? 'bg-primary/20 text-primary'
+                    ? 'bg-primary text-primary-foreground font-medium'
                     : 'text-foreground hover:bg-secondary'
                 }`}
               >
@@ -293,7 +295,7 @@ export default function MessagesPage() {
             <button
               type="submit"
               disabled={!inputValue.trim() || !selectedClient}
-              className="px-5 py-2 bg-primary hover:bg-primary/90 disabled:bg-secondary disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+              className="px-5 py-2 bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
             >
               发送
             </button>
@@ -331,7 +333,7 @@ function MessageBubble({
         className={`max-w-[70%] px-4 py-2.5 rounded-2xl ${
           isMe
             ? 'bg-primary text-white rounded-br-md'
-            : 'bg-secondary text-secondary-foreground rounded-bl-md'
+            : 'bg-secondary border border-border text-foreground rounded-bl-md'
         }`}
       >
         {!isMe && message.senderLabel && (

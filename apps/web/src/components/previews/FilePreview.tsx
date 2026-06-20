@@ -30,14 +30,16 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
   const localCategory = getFileCategory(fileExtension);
   const effectiveCategory = category !== 'unknown' ? category : localCategory;
 
-  // 请求预览
+  // 请求预览（未知类型无需网络请求，直接展示 UnsupportedViewer）
   useEffect(() => {
+    if (localCategory === 'unknown') {
+      return () => { clearPreview(); };
+    }
     requestPreview(filePath);
-
     return () => {
       clearPreview();
     };
-  }, [filePath, requestPreview, clearPreview]);
+  }, [filePath, requestPreview, clearPreview, localCategory]);
 
   // ESC 关闭
   useEffect(() => {
@@ -111,7 +113,9 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
 
           {/* 预览内容区 */}
           <div className="flex-1 overflow-auto">
-            {loading ? (
+            {localCategory === 'unknown' ? (
+              <UnsupportedViewer fileName={fileName} onDownload={handleDownload} />
+            ) : loading ? (
               <div className="flex items-center justify-center h-96">
                 <div className="text-center">
                   <Loader2 className="animate-spin h-10 w-10 text-primary mx-auto mb-4" />
@@ -136,7 +140,6 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
                 {effectiveCategory === 'image' && <ImageViewer url={previewUrl} fileName={fileName} />}
                 {effectiveCategory === 'text' && <TextViewer url={previewUrl} fileName={fileName} />}
                 {effectiveCategory === 'pdf' && <PdfViewer url={previewUrl} fileName={fileName} />}
-                {effectiveCategory === 'unknown' && <UnsupportedViewer fileName={fileName} onDownload={handleDownload} />}
               </div>
             ) : null}
           </div>

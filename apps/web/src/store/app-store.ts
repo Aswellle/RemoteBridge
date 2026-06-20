@@ -539,9 +539,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadMessageHistory: async (sessionId, page = 1) => {
     try {
       const { accessToken } = get();
-      if (!accessToken || !sessionId) return;
+      if (!accessToken) return;
 
-      const response = await api.get(`/messages/${sessionId}`, {
+      // 跨会话聚合：服务端用 JWT 中的 clientId+hostId 查所有未吊销会话的消息
+      const response = await api.get('/messages/client/history', {
         params: { page, limit: 50 },
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -571,7 +572,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             }))
             .sort((a, b) => a.timestamp - b.timestamp);
 
-          const merged = [...newMessages, ...state.messages];
+          const merged = [...newMessages, ...state.messages]
+            .sort((a, b) => a.timestamp - b.timestamp);
           const capped = merged.slice(-500); // keep most recent 500
           return { messages: capped };
         });
