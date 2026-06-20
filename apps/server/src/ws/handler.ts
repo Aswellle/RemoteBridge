@@ -333,6 +333,7 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
     case WSMessageType.CMD_LIST_ALLOWED:
     case WSMessageType.CMD_REQUEST_DOWNLOAD:
     case WSMessageType.CMD_REQUEST_PREVIEW:
+    case WSMessageType.CMD_UPLOAD_FILE_CHUNK:
       // 中继消息给对方
       relayMessage(socket, message, meta);
       break;
@@ -350,6 +351,8 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
     case WSMessageType.RESP_DOWNLOAD_ERROR:
     case WSMessageType.RESP_PREVIEW_READY:
     case WSMessageType.RESP_PREVIEW_ERROR:
+    case WSMessageType.RESP_UPLOAD_ACK:
+    case WSMessageType.RESP_UPLOAD_ERROR:
     case WSMessageType.MSG_NOTIFICATION:
       // 先检查是否为服务端（代理）发起的请求 —— 命中则消费，不向 Client 中继
       if (resolvePendingRequest(message)) {
