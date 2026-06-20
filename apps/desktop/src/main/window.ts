@@ -75,6 +75,19 @@ export function createWindow(): BrowserWindow {
     }
   });
 
+  // 将 renderer 的控制台消息转发到 main process stdout，便于 dev 模式排查白屏
+  if (devServerUrl) {
+    mainWindow.webContents.on('console-message', (_, level, message, line, sourceId) => {
+      console.log(`[RENDERER][${['verbose','info','warn','error'][level] ?? level}] ${message} (${sourceId}:${line})`);
+    });
+    mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, url) => {
+      console.error(`[RENDERER] did-fail-load url=${url} code=${errorCode} ${errorDescription}`);
+    });
+    mainWindow.webContents.on('render-process-gone', (_, details) => {
+      console.error(`[RENDERER] render-process-gone reason=${details.reason} exitCode=${details.exitCode}`);
+    });
+  }
+
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
   } else {

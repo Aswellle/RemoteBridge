@@ -12,6 +12,10 @@ const MAIN_EXTERNALS: (string | RegExp)[] = [
   'electron',
   ...builtinModules,
   ...builtinModules.map(m => `node:${m}`),
+  // ws 的可选原生 addon，未安装时 ws 会 try/catch 跳过；必须声明为 external
+  // 否则 Rollup 在打包时会因找不到而报错
+  'bufferutil',
+  'utf-8-validate',
 ];
 
 export default defineConfig({
@@ -53,6 +57,14 @@ export default defineConfig({
           index: path.resolve(__dirname, 'src/renderer/index.html'),
         },
       },
+    },
+    // dev 模式下强制预打包 @remotebridge/shared：
+    // shared 以 CommonJS 编译输出（__exportStar），Vite 若不预打包会通过 /@fs/ 直接
+    // 将原始 CJS 文件送给浏览器，__exportStar 的命名导出无法被 native ESM 静态解析，
+    // 导致 "does not provide an export named 'EVENT_TYPE_COLORS'" SyntaxError，
+    // 进而让整个 React 应用在挂载前崩溃（白屏）。
+    optimizeDeps: {
+      include: ['@remotebridge/shared'],
     },
     plugins: [react()],
     resolve: {
