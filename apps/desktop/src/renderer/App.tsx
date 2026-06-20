@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Link2,
   FolderOpen,
@@ -184,6 +184,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'dirs' | 'clients' | 'messages' | 'security' | 'settings'>('home');
   const [isLoading, setIsLoading] = useState(true);
   const [copiedPin, setCopiedPin] = useState(false);
+  const pinDisplayRef = useRef<HTMLDivElement>(null);
   const [editingAlias, setEditingAlias] = useState<number | null>(null);
   const [aliasValue, setAliasValue] = useState('');
   const [latency, setLatency] = useState(0);
@@ -314,6 +315,13 @@ export default function App() {
     setClients([]);
     setMessages([]);
   };
+
+  // PIN 生成后滚动到展示区域完全可见
+  useEffect(() => {
+    if (generatedPin && pinDisplayRef.current) {
+      pinDisplayRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [generatedPin]);
 
   // 生成 PIN
   const handleGeneratePin = async () => {
@@ -628,7 +636,7 @@ export default function App() {
                     </button>
 
                     {generatedPin && (
-                      <div className="mt-5 p-6 bg-background rounded-xl text-center border border-border/50">
+                      <div ref={pinDisplayRef} className="mt-5 p-6 bg-background rounded-xl text-center border border-border/50">
                         <p className="text-sm text-muted-foreground mb-3">连接码（5 分钟内有效）</p>
                         <p className="text-4xl font-mono tracking-[0.3em] text-success mb-4">
                           {generatedPin.slice(0, 4)}-{generatedPin.slice(4)}
