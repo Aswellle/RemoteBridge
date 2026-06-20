@@ -280,7 +280,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       // 1. 调用 REST API 连接（clientId 设备级持久，跨会话稳定）
       const response = await api.post('/auth/connect', {
-        pin: pin.replace(/-/g, ''),
+        pin: pin.replace(/-/g, '').toUpperCase(),
         clientId: getOrCreateClientId(),
         clientLabel,
       });
@@ -315,7 +315,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err: any) {
       logger.error('连接失败:', err);
       set({ connectionStatus: 'error' });
-      showErrorToast('连接失败', err?.response?.data?.message || err?.message || '请检查连接码是否正确');
+      showErrorToast('连接失败', err?.response?.data?.error?.message || err?.message || '请检查连接码是否正确');
       throw err;
     }
   },

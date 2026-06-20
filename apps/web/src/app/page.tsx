@@ -97,7 +97,7 @@ export default function HomePage() {
   };
 
   const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value.replace(/-/g, '');
+    const raw = e.target.value.replace(/-/g, '').toUpperCase();
     if (raw.length <= 8) {
       setPin(raw);
     }
