@@ -65,14 +65,14 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
 
   return (
     <AnimatePresence>
+      {/* 遮罩层：不绑定 onClick，只有 × 按钮和 ESC 键可关闭 */}
       <motion.div
         className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={onClose}
       >
-        {/* 模态框 */}
+        {/* 模态框：阻止冒泡，防止内容区点击透传到遮罩 */}
         <motion.div
           className="bg-background rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
           role="dialog"
@@ -82,6 +82,7 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
           transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
         >
           {/* 标题栏 */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">

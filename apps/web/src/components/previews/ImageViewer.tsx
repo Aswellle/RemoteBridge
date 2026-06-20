@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Loader2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Loader2, AlertTriangle } from 'lucide-react';
 
 interface ImageViewerProps {
   url: string;
@@ -15,6 +15,8 @@ export default function ImageViewer({ url, fileName }: ImageViewerProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
+  const [imgLoading, setImgLoading] = useState(true);
+  const [imgError, setImgError] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -35,6 +37,13 @@ export default function ImageViewer({ url, fileName }: ImageViewerProps) {
   const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+    setImgLoading(false);
+    setImgError(false);
+  };
+
+  const handleError = () => {
+    setImgLoading(false);
+    setImgError(true);
   };
 
   // 缩放控制
@@ -87,12 +96,18 @@ export default function ImageViewer({ url, fileName }: ImageViewerProps) {
     }
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
-  // 滚轮缩放
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setScale(prev => Math.max(0.1, Math.min(5, prev + delta)));
-  };
+  // 滚轮缩放：原生非 passive 监听，确保 preventDefault 有效（React 合成 onWheel 在 passive 模式下无效）
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setScale(prev => Math.max(0.1, Math.min(5, prev + delta)));
+    };
+    container.addEventListener('wheel', handler, { passive: false });
+    return () => container.removeEventListener('wheel', handler);
+  }, []);
 
   // 键盘快捷键
   useEffect(() => {
@@ -242,10 +257,27 @@ export default function ImageViewer({ url, fileName }: ImageViewerProps) {
       {/* 图片容器 */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-hidden bg-background flex items-center justify-center cursor-grab active:cursor-grabbing"
+        className="flex-1 overflow-hidden bg-background relative flex items-center justify-center cursor-grab active:cursor-grabbing"
         onMouseDown={handleMouseDown}
-        onWheel={handleWheel}
       >
+        {/* 加载占位 */}
+        {imgLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+            <div className="text-center">
+              <Loader2 className="animate-spin h-8 w-8 text-primary mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">加载图片中...</p>
+            </div>
+          </div>
+        )}
+        {/* 加载失败 */}
+        {imgError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
+            <div className="text-center text-destructive">
+              <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
+              <p className="text-sm">图片加载失败</p>
+            </div>
+          </div>
+        )}
         {/* 故意使用 <img> 而非 next/image（P3-14，04a-B16）：url 是 blob: 对象 URL 或
             relay 代理 URL，next/image 的优化器不支持 blob: 来源；本组件的缩放/旋转/
             拖拽/手势逻辑还需要直接持有 <img> DOM 引用（imgRef）和 CSS transform 控制，
@@ -255,10 +287,12 @@ export default function ImageViewer({ url, fileName }: ImageViewerProps) {
           src={url}
           alt={fileName}
           onLoad={handleLoad}
+          onError={handleError}
           className="max-w-none select-none"
           style={{
             transform: `translate(${position.x}px, ${position.y}px) scale(${scale}) rotate(${rotation}deg)`,
             transition: isDragging ? 'none' : 'transform 0.15s ease',
+            opacity: imgLoading || imgError ? 0 : 1,
           }}
           draggable={false}
         />
