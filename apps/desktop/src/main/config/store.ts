@@ -1,5 +1,17 @@
 import Store from 'electron-store';
 import { Rectangle, safeStorage } from 'electron';
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
+
+// ===== 文件上传保存路径 =====
+export interface UploadPaths {
+  images: string;
+  videos: string;
+  documents: string;
+  archives: string;
+  markdown: string;
+}
 
 // ===== 配置 schema =====
 interface ConfigSchema {
@@ -12,6 +24,7 @@ interface ConfigSchema {
   autoStart: boolean;
   minimizeToTray: boolean;
   theme: 'light' | 'dark';
+  uploadPaths: UploadPaths | null;
 }
 
 // ===== 默认值 =====
@@ -27,6 +40,7 @@ const defaults: ConfigSchema = {
   autoStart: false,
   minimizeToTray: true,
   theme: 'dark',
+  uploadPaths: null,
 };
 
 // ===== safeStorage 加密工具 =====
@@ -92,11 +106,43 @@ export const config = {
   getTheme: (): 'light' | 'dark' => configStore.get('theme', defaults.theme),
   setTheme: (value: 'light' | 'dark'): void => { configStore.set('theme', value); },
 
+  // Upload Paths
+  getUploadPaths: (): UploadPaths | null => (configStore.get('uploadPaths', null) as UploadPaths | null),
+  setUploadPaths: (value: UploadPaths): void => { configStore.set('uploadPaths', value); },
+
   // 批量获取所有配置
   getAll: (): ConfigSchema => configStore.store,
 
   // 清除所有配置
   clear: (): void => configStore.clear(),
 };
+
+// ===== 默认文件保存路径（Windows: 首个非 C 盘; 其他系统: ~/RemoteBridge-Files） =====
+export async function getDefaultUploadPaths(): Promise<UploadPaths> {
+  let baseDir: string;
+
+  if (process.platform === 'win32') {
+    baseDir = 'C:\\RemoteBridge-Files';
+    for (const letter of ['D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']) {
+      try {
+        await fs.access(`${letter}:\\`);
+        baseDir = `${letter}:\\RemoteBridge-Files`;
+        break;
+      } catch {
+        // drive not found, try next
+      }
+    }
+  } else {
+    baseDir = path.join(os.homedir(), 'RemoteBridge-Files');
+  }
+
+  return {
+    images: path.join(baseDir, 'images'),
+    videos: path.join(baseDir, 'videos'),
+    documents: path.join(baseDir, 'documents'),
+    archives: path.join(baseDir, 'archives'),
+    markdown: path.join(baseDir, 'markdown'),
+  };
+}
 
 export default config;

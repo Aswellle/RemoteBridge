@@ -42,6 +42,11 @@ export enum WSMessageType {
   MSG_SYSTEM = 'MSG_SYSTEM',
   MSG_NOTIFICATION = 'MSG_NOTIFICATION',
 
+  // 文件上传（Web → Desktop）
+  CMD_UPLOAD_FILE_CHUNK = 'CMD_UPLOAD_FILE_CHUNK',
+  RESP_UPLOAD_ACK = 'RESP_UPLOAD_ACK',
+  RESP_UPLOAD_ERROR = 'RESP_UPLOAD_ERROR',
+
   // 错误处理
   ERROR = 'ERROR',
   ACK = 'ACK',
@@ -234,4 +239,33 @@ export interface ErrorPayload {
   code: string;
   message: string;
   details?: unknown;
+}
+
+// ===== 文件类别 =====
+export type FileCategory = 'images' | 'videos' | 'documents' | 'archives' | 'markdown';
+
+// ===== 文件上传 Payload（Web → Desktop） =====
+export interface CmdUploadFileChunkPayload extends RelayRoutingFields {
+  uploadId: string;
+  fileName: string;
+  mimeType: string;
+  category: FileCategory;
+  chunkIndex: number;
+  totalChunks: number;
+  totalSize: number;
+  /** base64 编码的文件分块内容 */
+  data: string;
+}
+
+export interface RespUploadAckPayload extends RelayRoutingFields {
+  uploadId: string;
+  fileName: string;
+  savedPath: string;
+  fileSize: number;
+}
+
+export interface RespUploadErrorPayload extends RelayRoutingFields {
+  uploadId: string;
+  code: string;
+  message: string;
 }

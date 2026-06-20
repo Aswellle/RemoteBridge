@@ -1,7 +1,26 @@
 import { create } from 'zustand';
-import { WSMessage, WSMessageType, FileEntry, HostInfo, AllowedDirectory } from '@remotebridge/shared';
+import { WSMessage, WSMessageType, FileEntry, HostInfo, AllowedDirectory, FileCategory } from '@remotebridge/shared';
 import api from '@/lib/api';
 import { logger } from '@/lib/logger';
+
+// ===== 文件类别检测（MIME + 扩展名） =====
+function getFileCategoryFromFile(mimeType: string, fileName: string): FileCategory {
+  if (mimeType.startsWith('image/')) return 'images';
+  if (mimeType.startsWith('video/')) return 'videos';
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  if (ext === 'md' || ext === 'markdown') return 'markdown';
+  if (['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz'].includes(ext)) return 'archives';
+  return 'documents';
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
 // ===== Host history entry =====
 interface HostHistoryEntry {
@@ -108,8 +127,16 @@ interface AppState {
     id: string;
     content: string;
     direction: 'host_to_client' | 'client_to_host';
-    type: 'text' | 'system' | 'notification';
+    type: 'text' | 'system' | 'notification' | 'file';
     timestamp: number;
+    // 文件传输专用字段（type === 'file'）
+    uploadId?: string;
+    fileName?: string;
+    fileSize?: number;
+    mimeType?: string;
+    uploadStatus?: 'uploading' | 'completed' | 'error';
+    uploadProgress?: number;
+    savedPath?: string;
   }>;
   unreadCount: number;
 
@@ -140,10 +167,12 @@ interface AppState {
   setIsLoadingDir: (loading: boolean) => void;
   addMessage: (message: AppState['messages'][0]) => void;
   markMessagesRead: () => void;
+  updateFileMessage: (uploadId: string, updates: Partial<AppState['messages'][0]>) => void;
   addDownload: (download: AppState['activeDownloads'][0]) => void;
   updateDownload: (id: string, updates: Partial<AppState['activeDownloads'][0]>) => void;
   clearCompletedDownloads: () => void;
   sendMessage: (content: string) => void;
+  sendFile: (file: File) => Promise<void>;
   connect: (pin: string, clientLabel: string) => Promise<void>;
   disconnect: () => void;
   listAllowed: () => void;
@@ -228,6 +257,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 标记消息已读
   markMessagesRead: () => set({ unreadCount: 0 }),
 
+  // 更新文件传输消息（按 uploadId 匹配）
+  updateFileMessage: (uploadId, updates) =>
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.uploadId === uploadId ? { ...m, ...updates } : m
+      ),
+    })),
+
   // 添加下载
   addDownload: (download) =>
     set((state) => ({
@@ -271,6 +308,74 @@ export const useAppStore = create<AppState>((set, get) => ({
       type: 'text',
       timestamp: message.timestamp,
     });
+  },
+
+  // 发送文件至桌面端
+  sendFile: async (file) => {
+    const { wsInstance, sessionId } = get();
+    if (!wsInstance || wsInstance.readyState !== WebSocket.OPEN) {
+      showErrorToast('发送失败', '未连接到远程主机');
+      return;
+    }
+
+    const uploadId = crypto.randomUUID();
+    const category = getFileCategoryFromFile(file.type, file.name);
+    const msgId = crypto.randomUUID();
+
+    // 先在消息列表中插入占位消息（显示上传进度）
+    get().addMessage({
+      id: msgId,
+      content: file.name,
+      direction: 'client_to_host',
+      type: 'file',
+      timestamp: Date.now(),
+      uploadId,
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type || 'application/octet-stream',
+      uploadStatus: 'uploading',
+      uploadProgress: 0,
+    });
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8 = new Uint8Array(arrayBuffer);
+      const CHUNK_SIZE = 512 * 1024; // 512KB/chunk → ~683KB base64
+      const totalChunks = Math.max(1, Math.ceil(uint8.length / CHUNK_SIZE));
+
+      for (let i = 0; i < totalChunks; i++) {
+        const slice = uint8.subarray(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const data = uint8ToBase64(slice);
+
+        const wsMsg: WSMessage = {
+          id: crypto.randomUUID(),
+          type: WSMessageType.CMD_UPLOAD_FILE_CHUNK,
+          payload: {
+            uploadId,
+            fileName: file.name,
+            mimeType: file.type || 'application/octet-stream',
+            category,
+            chunkIndex: i,
+            totalChunks,
+            totalSize: file.size,
+            data,
+          },
+          timestamp: Date.now(),
+          sessionId: sessionId || undefined,
+        };
+
+        wsInstance.send(JSON.stringify(wsMsg));
+
+        // 更新进度（前 90% 为分块发送阶段；收到 ACK 后置 100%）
+        get().updateFileMessage(uploadId, {
+          uploadProgress: Math.round(((i + 1) / totalChunks) * 90),
+        });
+      }
+    } catch (err: any) {
+      logger.error('文件发送失败:', err);
+      get().updateFileMessage(uploadId, { uploadStatus: 'error' });
+      showErrorToast('文件发送失败', err?.message);
+    }
   },
 
   // 连接到远程主机

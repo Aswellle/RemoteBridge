@@ -59,6 +59,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: any) => ipcRenderer.invoke('settings:save', settings),
 
+  // === 文件接收路径 ===
+  getUploadPaths: () => ipcRenderer.invoke('upload:get-paths'),
+  setUploadPaths: (paths: any) => ipcRenderer.invoke('upload:set-paths', paths),
+
   // === 延迟 ===
   getRelayLatency: () => ipcRenderer.invoke('relay:get-latency'),
 
@@ -77,6 +81,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onSessionRevoked: (callback: (data: unknown) => void) => {
     ipcRenderer.on('event:session-revoked', (_, data) => callback(data));
+  },
+  onFileReceived: (callback: (data: { fileName: string; savedPath: string }) => void) => {
+    ipcRenderer.on('event:file-received', (_, data) => callback(data));
   },
 
   // === Host token 轮换 ===
@@ -104,6 +111,14 @@ export interface SettingsData {
   autoStart: boolean;
   minimizeToTray: boolean;
   theme: 'light' | 'dark';
+}
+
+export interface UploadPaths {
+  images: string;
+  videos: string;
+  documents: string;
+  archives: string;
+  markdown: string;
 }
 
 export interface ElectronAPI {
@@ -194,6 +209,9 @@ export interface ElectronAPI {
   onConnectionStatus: (callback: (data: { status: string; error?: string }) => void) => void;
   onNewMessage: (callback: (data: any) => void) => void;
   onSessionRevoked: (callback: (data: any) => void) => void;
+  onFileReceived: (callback: (data: { fileName: string; savedPath: string }) => void) => void;
+  getUploadPaths: () => Promise<{ success: boolean; data?: UploadPaths; error?: string }>;
+  setUploadPaths: (paths: UploadPaths) => Promise<{ success: boolean; error?: string }>;
   getHostTokenExpiryDays: () => Promise<number | null>;
   getUpdateStatus: () => Promise<UpdateStatus>;
   checkForUpdates: () => Promise<void>;

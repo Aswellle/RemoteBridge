@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { toast } from 'sonner';
-import { WSMessage, WSMessageType } from '@remotebridge/shared';
+import { WSMessage, WSMessageType, RespUploadAckPayload, RespUploadErrorPayload } from '@remotebridge/shared';
 import { useAppStore } from '@/store/app-store';
 import { refreshAccessToken } from '@/lib/api';
 import { handleDownloadReady, handleDownloadError } from '@/lib/download-manager';
@@ -190,6 +190,26 @@ export class WebSocketManager {
       case WSMessageType.SESSION_REVOKED:
         this.terminateSession('revoked', '会话已被主机吊销');
         break;
+
+      case WSMessageType.RESP_UPLOAD_ACK: {
+        const p = message.payload as RespUploadAckPayload;
+        this.store.getState().updateFileMessage(p.uploadId, {
+          uploadStatus: 'completed',
+          savedPath: p.savedPath,
+          uploadProgress: 100,
+        });
+        toast.success('文件已接收', { description: `${p.fileName} 已保存至桌面端` });
+        break;
+      }
+
+      case WSMessageType.RESP_UPLOAD_ERROR: {
+        const p = message.payload as RespUploadErrorPayload;
+        this.store.getState().updateFileMessage(p.uploadId, {
+          uploadStatus: 'error',
+        });
+        toast.error('文件发送失败', { description: p.message });
+        break;
+      }
     }
   }
 

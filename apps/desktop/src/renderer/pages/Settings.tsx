@@ -9,6 +9,22 @@ interface SettingsData {
   theme: 'light' | 'dark';
 }
 
+interface UploadPaths {
+  images: string;
+  videos: string;
+  documents: string;
+  archives: string;
+  markdown: string;
+}
+
+const CATEGORY_LABELS: Record<keyof UploadPaths, string> = {
+  images: '图片',
+  videos: '视频',
+  documents: '文档 (PDF / Word / Excel / PPT)',
+  archives: '压缩包',
+  markdown: 'Markdown',
+};
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsData>({
     relayUrl: 'ws://127.0.0.1:3001/ws',
@@ -21,6 +37,16 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState('');
+
+  const [uploadPaths, setUploadPaths] = useState<UploadPaths>({
+    images: '',
+    videos: '',
+    documents: '',
+    archives: '',
+    markdown: '',
+  });
+  const [isSavingPaths, setIsSavingPaths] = useState(false);
+  const [pathsSaveStatus, setPathsSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   // 加载设置
   useEffect(() => {
@@ -36,6 +62,48 @@ export default function SettingsPage() {
     }
     loadSettings();
   }, []);
+
+  // 加载文件保存路径
+  useEffect(() => {
+    async function loadUploadPaths() {
+      try {
+        const result = await window.electronAPI.getUploadPaths();
+        if (result.success && result.data) {
+          setUploadPaths(result.data);
+        }
+      } catch (err) {
+        console.error('加载文件保存路径失败:', err);
+      }
+    }
+    loadUploadPaths();
+  }, []);
+
+  // 为某个类别选择目录
+  const handleSelectPath = async (category: keyof UploadPaths) => {
+    try {
+      const dir = await window.electronAPI.selectDirectory();
+      if (dir) {
+        setUploadPaths((prev) => ({ ...prev, [category]: dir }));
+      }
+    } catch (err) {
+      console.error('选择目录失败:', err);
+    }
+  };
+
+  // 保存文件接收路径
+  const handleSaveUploadPaths = async () => {
+    setIsSavingPaths(true);
+    setPathsSaveStatus('idle');
+    try {
+      const result = await window.electronAPI.setUploadPaths(uploadPaths);
+      setPathsSaveStatus(result.success ? 'success' : 'error');
+      if (result.success) setTimeout(() => setPathsSaveStatus('idle'), 3000);
+    } catch {
+      setPathsSaveStatus('error');
+    } finally {
+      setIsSavingPaths(false);
+    }
+  };
 
   // 保存设置（保存即生效：主题立即切换，Relay 地址变更由主进程热重连）
   const handleSave = async () => {
@@ -195,6 +263,57 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* 文件接收路径 */}
+      <div className="bg-card rounded-xl p-6 border border-border/50 mb-4">
+        <h3 className="text-lg font-semibold mb-1">文件接收路径</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          Web 端发送的文件将按类型自动存入对应目录。未修改时使用平台默认路径。
+        </p>
+
+        <div className="space-y-3">
+          {(Object.keys(CATEGORY_LABELS) as (keyof UploadPaths)[]).map((cat) => (
+            <div key={cat}>
+              <label className="block text-sm text-muted-foreground mb-1">
+                {CATEGORY_LABELS[cat]}
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={uploadPaths[cat]}
+                  onChange={(e) => setUploadPaths((prev) => ({ ...prev, [cat]: e.target.value }))}
+                  className="flex-1 px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                  placeholder="（使用默认路径）"
+                />
+                <button
+                  onClick={() => handleSelectPath(cat)}
+                  className="px-3 py-2 bg-secondary hover:bg-secondary/80 border border-border rounded-lg text-sm text-muted-foreground transition-colors whitespace-nowrap"
+                >
+                  选择…
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3 mt-4">
+          <button
+            onClick={handleSaveUploadPaths}
+            disabled={isSavingPaths}
+            className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+              isSavingPaths ? 'bg-secondary cursor-not-allowed' : 'bg-primary hover:bg-primary/90'
+            }`}
+          >
+            {isSavingPaths ? '保存中...' : '保存路径'}
+          </button>
+          {pathsSaveStatus === 'success' && (
+            <span className="text-sm text-success">✓ 已保存</span>
+          )}
+          {pathsSaveStatus === 'error' && (
+            <span className="text-sm text-destructive">✗ 保存失败</span>
+          )}
         </div>
       </div>
 

@@ -3,6 +3,7 @@ import os from 'os';
 import { nanoid } from 'nanoid';
 import { WSMessageType } from '@remotebridge/shared';
 import { getRelayClient } from '../ws-client/client';
+import { config, getDefaultUploadPaths, UploadPaths } from '../config/store';
 import db from '../db/client';
 import log from '../logger';
 
@@ -57,6 +58,29 @@ export function registerMessagesHandlers(): void {
     } catch (error: any) {
       log.error('获取消息历史失败:', error);
       return [];
+    }
+  });
+
+  // --- 获取文件上传保存路径（未配置时返回平台默认值） ---
+  ipcMain.handle('upload:get-paths', async () => {
+    try {
+      const stored = config.getUploadPaths();
+      const paths = stored ?? await getDefaultUploadPaths();
+      return { success: true, data: paths };
+    } catch (error: any) {
+      log.error('获取上传路径失败:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // --- 保存文件上传路径配置 ---
+  ipcMain.handle('upload:set-paths', (_event, paths: UploadPaths) => {
+    try {
+      config.setUploadPaths(paths);
+      return { success: true };
+    } catch (error: any) {
+      log.error('保存上传路径失败:', error);
+      return { success: false, error: error.message };
     }
   });
 }
