@@ -20,6 +20,16 @@ export type UpdateStatus =
 
 let currentStatus: UpdateStatus = { state: 'idle' };
 
+function sanitizeUpdaterError(err: Error): string {
+  const msg = err.message ?? '';
+  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|network/i.test(msg)) return '网络连接失败，请检查网络后重试';
+  if (/404/.test(msg)) return '未找到更新资源，请检查发布配置';
+  if (/403|401/.test(msg)) return '访问更新服务器被拒绝';
+  // 取第一行，最多 80 字符，避免 HTTP 响应体泄露
+  const firstLine = msg.split('\n')[0].trim().slice(0, 80);
+  return firstLine || '检查更新失败';
+}
+
 function broadcast(getWin: () => BrowserWindow | null, status: UpdateStatus): void {
   currentStatus = status;
   getWin()?.webContents.send('event:update-status', status);
@@ -60,7 +70,7 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
 
   autoUpdater.on('error', (err: Error) => {
     log.error('自动更新错误:', err.message);
-    broadcast(getMainWindow, { state: 'error', message: err.message });
+    broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
   });
 
   // ===== IPC 处理器 =====
@@ -71,7 +81,7 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
       await autoUpdater.checkForUpdates();
     } catch (err: any) {
       log.error('检查更新失败:', err.message);
-      broadcast(getMainWindow, { state: 'error', message: err.message });
+      broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
     }
   });
 
@@ -80,7 +90,7 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
       await autoUpdater.downloadUpdate();
     } catch (err: any) {
       log.error('下载更新失败:', err.message);
-      broadcast(getMainWindow, { state: 'error', message: err.message });
+      broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
     }
   });
 

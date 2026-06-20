@@ -14,6 +14,8 @@ import {
   Trash2,
   ArrowRight,
   Monitor,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import { ElectronAPI, SettingsData, UpdateStatus } from '../preload/index';
 import { applyTheme } from './theme';
@@ -33,10 +35,12 @@ function UpdateBanner({
   status,
   onDownload,
   onInstall,
+  onDismiss,
 }: {
   status: UpdateStatus;
   onDownload: () => void;
   onInstall: () => void;
+  onDismiss: () => void;
 }) {
   if (status.state === 'idle' || status.state === 'checking' || status.state === 'not-available') {
     return null;
@@ -91,8 +95,17 @@ function UpdateBanner({
 
   if (status.state === 'error') {
     return (
-      <div className="flex items-center px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-sm">
-        <span className="text-destructive">更新检查失败：{status.message}</span>
+      <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-sm">
+        <AlertCircle className="w-4 h-4 flex-shrink-0 text-destructive" />
+        <span className="text-destructive font-medium">检查更新失败</span>
+        <span className="text-muted-foreground truncate flex-1">{status.message}</span>
+        <button
+          onClick={onDismiss}
+          title="关闭"
+          className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
     );
   }
@@ -407,6 +420,7 @@ export default function App() {
         status={updateStatus}
         onDownload={handleDownloadUpdate}
         onInstall={handleInstallUpdate}
+        onDismiss={() => setUpdateStatus({ state: 'idle' })}
       />
       <div className="flex flex-1 min-h-0">
       {/* 侧边栏 */}

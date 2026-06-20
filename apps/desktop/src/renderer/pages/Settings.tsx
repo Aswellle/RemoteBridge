@@ -289,7 +289,7 @@ export default function SettingsPage() {
                 />
                 <button
                   onClick={() => handleSelectPath(cat)}
-                  className="px-3 py-2 bg-secondary hover:bg-secondary/80 border border-border rounded-lg text-sm text-muted-foreground transition-colors whitespace-nowrap"
+                  className="px-3 py-2 bg-card border border-border hover:border-primary/60 hover:text-primary rounded-lg text-sm text-foreground transition-colors whitespace-nowrap"
                 >
                   选择…
                 </button>
