@@ -27,6 +27,10 @@ const app = Fastify({
   logger: {
     level: process.env.LOG_LEVEL ?? 'info',
   },
+  // 部署在 Caddy 反向代理之后：信任 X-Forwarded-For，确保限流按真实客户端 IP 计数
+  trustProxy: true,
+  // 单次请求体上限 1 MB，防止大体积 payload 占用内存/带宽
+  bodyLimit: 1_048_576,
 });
 
 // ===== 注册插件 =====

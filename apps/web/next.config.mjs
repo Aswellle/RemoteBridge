@@ -35,6 +35,14 @@ const nextConfig = {
               "form-action 'self'",
             ].join('; '),
           },
+          // 禁止 MIME 类型嗅探（防止 Content-Type 欺骗攻击）
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // 兼容不支持 CSP frame-ancestors 的旧浏览器
+          { key: 'X-Frame-Options', value: 'DENY' },
+          // 跨域请求只暴露 origin，不泄露完整 URL
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // 关闭所有浏览器设备权限，防止被嵌入页面滥用
+          { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=(), payment=()' },
         ],
       },
     ];

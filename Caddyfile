@@ -14,6 +14,22 @@
 {$DOMAIN:localhost} {
 	encode gzip
 
+	# ===== 安全响应头（生产环境必备）=====
+	header {
+		# HSTS：一年内强制 HTTPS，含子域名，可提交至 preload list
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		# 禁止浏览器 MIME 类型嗅探
+		X-Content-Type-Options "nosniff"
+		# 禁止本站被嵌入到任何 iframe（兼容不支持 CSP frame-ancestors 的旧浏览器）
+		X-Frame-Options "DENY"
+		# 跨域请求只发送 origin，同域请求发送完整 referrer
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# 关闭所有浏览器特性（摄像头/麦克风/地理位置等），按需开放
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		# 隐藏 Caddy 版本信息
+		-Server
+	}
+
 	@server path /api/* /health /ws*
 	handle @server {
 		reverse_proxy server:3001

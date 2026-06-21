@@ -31,10 +31,18 @@ RUN pnpm --filter @remotebridge/shared build \
 FROM base AS runner
 ENV NODE_ENV=production
 ENV RB_DATA_DIR=/data
-COPY --from=builder /app /app
+
+# 创建非 root 运行用户，减小容器被攻破时的爆炸半径
+RUN addgroup --system --gid 1001 relaygroup \
+    && adduser --system --uid 1001 --ingroup relaygroup relayuser \
+    && mkdir -p /data \
+    && chown relayuser:relaygroup /data
+
+COPY --from=builder --chown=relayuser:relaygroup /app /app
 WORKDIR /app/apps/server
 
 VOLUME ["/data"]
 EXPOSE 3001
 
+USER relayuser
 CMD ["node", "dist/index.js"]
