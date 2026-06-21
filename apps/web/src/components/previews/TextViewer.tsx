@@ -4,11 +4,11 @@ import { useState, useEffect, useRef } from 'react';
 import { Loader2, Hash, WrapText, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface TextViewerProps {
-  url: string;
+  // 原始文件字节（BOM 未剥离），由 usePreview 直接传入，无需二次 fetch blob URL
+  rawBytes: Uint8Array;
   fileName: string;
 }
 
-// 用户可切换的编码；TextDecoder 接受这些标准名称
 type TextEncoding = 'utf-8' | 'gbk' | 'utf-16le';
 
 const ENCODING_OPTIONS: { value: TextEncoding; label: string }[] = [
@@ -17,15 +17,15 @@ const ENCODING_OPTIONS: { value: TextEncoding; label: string }[] = [
   { value: 'utf-16le', label: 'UTF-16'        },
 ];
 
-// 读取 BOM，返回推断编码和跳过的字节数
-function detectBom(bytes: Uint8Array): { encoding: TextEncoding | 'utf-16be'; skip: number } {
-  if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) return { encoding: 'utf-8',    skip: 3 };
-  if (bytes[0] === 0xFF && bytes[1] === 0xFE)                        return { encoding: 'utf-16le', skip: 2 };
-  if (bytes[0] === 0xFE && bytes[1] === 0xFF)                        return { encoding: 'utf-16be', skip: 2 };
-  return { encoding: 'utf-8', skip: 0 };
+// 从 BOM 字节推断编码，返回编码名和应跳过的 BOM 字节数
+function detectBom(bytes: Uint8Array): { enc: string; skip: number } {
+  if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) return { enc: 'utf-8',    skip: 3 };
+  if (bytes[0] === 0xFF && bytes[1] === 0xFE)                        return { enc: 'utf-16le', skip: 2 };
+  if (bytes[0] === 0xFE && bytes[1] === 0xFF)                        return { enc: 'utf-16be', skip: 2 };
+  return { enc: 'utf-8', skip: 0 };
 }
 
-function decode(bytes: Uint8Array, enc: TextEncoding | 'utf-16be'): string {
+function decodeBytes(bytes: Uint8Array, enc: string): string {
   try {
     return new TextDecoder(enc, { fatal: false }).decode(bytes);
   } catch {
@@ -33,86 +33,51 @@ function decode(bytes: Uint8Array, enc: TextEncoding | 'utf-16be'): string {
   }
 }
 
-export default function TextViewer({ url, fileName }: TextViewerProps) {
-  // 原始字节（BOM 已剥离）
-  const [rawBytes, setRawBytes] = useState<Uint8Array | null>(null);
-  // 自动检测到的编码（含 utf-16be，不在选择器里）
-  const [detectedEnc, setDetectedEnc] = useState<TextEncoding | 'utf-16be'>('utf-8');
-  // 用户手动选择的编码（选择器仅显示三项，BOM 强制命中时自动设为最近值）
-  const [encoding, setEncoding] = useState<TextEncoding>('utf-8');
-
-  const [content, setContent] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lineCount, setLineCount] = useState(0);
-  const [wordWrap, setWordWrap] = useState(true);
+export default function TextViewer({ rawBytes, fileName }: TextViewerProps) {
+  const [content, setContent]             = useState('');
+  const [encoding, setEncoding]           = useState<TextEncoding>('utf-8');
+  const [bodyBytes, setBodyBytes]         = useState<Uint8Array | null>(null); // BOM 已剥离
+  const [lineCount, setLineCount]         = useState(0);
+  const [wordWrap, setWordWrap]           = useState(true);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
-  const [fontSize, setFontSize] = useState(14);
+  const [fontSize, setFontSize]           = useState(14);
   const preRef = useRef<HTMLPreElement>(null);
 
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
-  // 首次加载：读 ArrayBuffer，BOM 检测，初次解码
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        setLoading(true);
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('加载失败');
-        const buf = await res.arrayBuffer();
-        const all = new Uint8Array(buf);
-        const { encoding: det, skip } = detectBom(all);
-        const body = all.subarray(skip);
-        if (!cancelled) {
-          setDetectedEnc(det);
-          // utf-16be 不在选择器中，用 utf-16le 作为近似显示（内容已正确解码存 content）
-          setEncoding(det === 'utf-16be' ? 'utf-16le' : det);
-          setRawBytes(body);
-          const text = decode(body, det);
-          setContent(text);
-          setLineCount(text.split('\n').length);
-        }
-      } catch (err) {
-        if (!cancelled) setError(String(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [url]);
-
-  // 用户手动切换编码时重新解码（跳过初次加载，rawBytes 为 null 时不触发）
+  // rawBytes 变化时：BOM 检测 + 初次解码
   useEffect(() => {
     if (!rawBytes) return;
-    // 如果与自动检测一致则无需重新解码（初次已解码）
-    const effEnc: TextEncoding | 'utf-16be' = encoding;
-    if (effEnc === detectedEnc) return;
-    const text = decode(rawBytes, effEnc);
+    const { enc, skip } = detectBom(rawBytes);
+    const body = rawBytes.subarray(skip);
+    // utf-16be 无对应选择器项，映射到 utf-16le 显示（已用正确解码器解码）
+    const displayEnc: TextEncoding = enc === 'utf-16be' ? 'utf-16le' : enc as TextEncoding;
+    setEncoding(displayEnc);
+    setBodyBytes(body);
+    const text = decodeBytes(body, enc);
     setContent(text);
     setLineCount(text.split('\n').length);
+  }, [rawBytes]);
+
+  // 用户手动切换编码时重新解码（bodyBytes 未变，仅 encoding 变）
+  useEffect(() => {
+    if (!bodyBytes) return;
+    const text = decodeBytes(bodyBytes, encoding);
+    setContent(text);
+    setLineCount(text.split('\n').length);
+  // bodyBytes 变化由上面的 effect 处理（那里同时设置了 encoding），
+  // 此 effect 只响应用户手动改 encoding，不需要把 bodyBytes 列为依赖
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [encoding]);
 
   const handleZoomIn  = () => setFontSize(p => Math.min(p + 2, 28));
   const handleZoomOut = () => setFontSize(p => Math.max(p - 2, 10));
 
-  if (loading) {
+  // rawBytes 为空时显示加载中（通常不会出现，因为父组件仅在 rawBytes 存在时渲染本组件）
+  if (!rawBytes) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <Loader2 className="animate-spin h-8 w-8 text-primary mx-auto mb-3" />
-          <p className="text-muted-foreground">正在加载文件...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-96 text-destructive">
-        <p>加载失败: {error}</p>
+        <Loader2 className="animate-spin h-8 w-8 text-primary" />
       </div>
     );
   }
@@ -138,7 +103,7 @@ export default function TextViewer({ url, fileName }: TextViewerProps) {
             <WrapText className="w-3 h-3" />
             自动换行
           </button>
-          {/* 编码选择器：GBK 用于 Windows ANSI/记事本传统编码，UTF-16 用于 Windows Unicode */}
+          {/* 编码选择器：GBK 对应 Windows ANSI/记事本传统编码 */}
           <select
             value={encoding}
             onChange={e => setEncoding(e.target.value as TextEncoding)}

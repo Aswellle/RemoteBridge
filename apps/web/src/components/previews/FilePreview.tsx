@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X, Loader2, AlertTriangle, Image, FileText, FileType, FolderOpen } from 'lucide-react';
@@ -12,7 +12,6 @@ import { logger } from '@/lib/logger';
 // 按需加载预览组件：同一时间只会渲染其中一个，拆分后非激活类型不进入主 bundle
 const ImageViewer = dynamic(() => import('@/components/previews/ImageViewer'), { ssr: false });
 const TextViewer = dynamic(() => import('@/components/previews/TextViewer'), { ssr: false });
-const PdfViewer = dynamic(() => import('@/components/previews/PdfViewer'), { ssr: false });
 const UnsupportedViewer = dynamic(() => import('@/components/previews/UnsupportedViewer'), { ssr: false });
 
 // ===== 预览页面 Props =====
@@ -24,11 +23,21 @@ interface FilePreviewPageProps {
 }
 
 export default function FilePreview({ filePath, fileName, fileExtension, onClose }: FilePreviewPageProps) {
-  const { previewUrl, category, loading, error, requestPreview, clearPreview } = usePreview();
+  const { previewUrl, rawBytes, category, loading, error, requestPreview, clearPreview } = usePreview();
 
   // 判断文件类别（usePreview 返回的 category 来自服务器，本地兜底）
   const localCategory = getFileCategory(fileExtension);
   const effectiveCategory = category !== 'unknown' ? category : localCategory;
+
+  // PDF 用新标签打开（Chrome 内置 PDF 阅读器全屏体验），防止 StrictMode 双触发
+  const pdfOpenedRef = useRef(false);
+  useEffect(() => {
+    if (effectiveCategory === 'pdf' && previewUrl && !pdfOpenedRef.current) {
+      pdfOpenedRef.current = true;
+      window.open(previewUrl, '_blank', 'noopener');
+      onClose();
+    }
+  }, [effectiveCategory, previewUrl, onClose]);
 
   // 请求预览（未知类型无需网络请求，直接展示 UnsupportedViewer）
   useEffect(() => {
@@ -135,11 +144,11 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
                   </button>
                 </div>
               </div>
-            ) : previewUrl ? (
+            ) : (previewUrl || rawBytes) ? (
               <div className="h-full">
-                {effectiveCategory === 'image' && <ImageViewer url={previewUrl} fileName={fileName} />}
-                {effectiveCategory === 'text' && <TextViewer url={previewUrl} fileName={fileName} />}
-                {effectiveCategory === 'pdf' && <PdfViewer url={previewUrl} fileName={fileName} />}
+                {effectiveCategory === 'image' && previewUrl && <ImageViewer url={previewUrl} fileName={fileName} />}
+                {effectiveCategory === 'text' && rawBytes && <TextViewer rawBytes={rawBytes} fileName={fileName} />}
+                {/* PDF: 由上方 useEffect 直接在新标签页打开，此处不渲染 */}
               </div>
             ) : null}
           </div>

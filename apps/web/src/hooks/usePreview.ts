@@ -8,6 +8,9 @@ import { RELAY_API_URL as RELAY_API_BASE } from '@/lib/env';
 // ===== 预览状态 =====
 interface PreviewState {
   previewUrl: string | null;
+  // 文本文件直接保存原始字节（避免 blob URL 在 StrictMode 二次 effect 时被吊销导致
+  // TextViewer fetch 失败）；非文本文件仍用 blob URL（ImageViewer/PdfViewer 需要 URL）
+  rawBytes: Uint8Array | null;
   fileName: string;
   fileSize: number;
   extension: string;
@@ -19,6 +22,7 @@ interface PreviewState {
 
 const INITIAL_STATE: PreviewState = {
   previewUrl: null,
+  rawBytes: null,
   fileName: '',
   fileSize: 0,
   extension: '',
@@ -29,18 +33,12 @@ const INITIAL_STATE: PreviewState = {
 };
 
 // ===== usePreview Hook =====
-// 发送 CMD_REQUEST_PREVIEW，监听 RESP_PREVIEW_READY/RESP_PREVIEW_ERROR
-// 返回预览 URL 和状态
 export function usePreview() {
   const { wsInstance, sessionId, accessToken } = useAppStore();
   const [previewState, setPreviewState] = useState<PreviewState>(INITIAL_STATE);
 
-  // 使用 ref 追踪当前请求 ID，防止旧响应污染
   const currentRequestIdRef = useRef<string | null>(null);
-  // 已创建的 blob URL，清理时必须 revoke 防内存泄漏
   const blobUrlRef = useRef<string | null>(null);
-  // 上一个未完成请求的清理函数（移除监听器 + 清除超时）。切换文件或卸载时调用，
-  // 避免监听器堆积，并防止其迟到的响应覆盖新请求的状态。
   const cleanupRef = useRef<(() => void) | null>(null);
 
   const revokeBlobUrl = () => {
@@ -50,27 +48,20 @@ export function usePreview() {
     }
   };
 
-  // 请求预览
   const requestPreview = useCallback((filePath: string) => {
-    // 取消上一个未完成请求的监听器和超时
     cleanupRef.current?.();
     cleanupRef.current = null;
 
     try {
       if (!wsInstance || wsInstance.readyState !== WebSocket.OPEN) {
         currentRequestIdRef.current = null;
-        setPreviewState(prev => ({
-          ...prev,
-          loading: false,
-          error: 'WebSocket 未连接',
-        }));
+        setPreviewState(prev => ({ ...prev, loading: false, error: 'WebSocket 未连接' }));
         return;
       }
 
       const requestId = crypto.randomUUID();
       currentRequestIdRef.current = requestId;
 
-      // 重置状态为加载中
       revokeBlobUrl();
       setPreviewState({ ...INITIAL_STATE, loading: true });
 
@@ -82,30 +73,24 @@ export function usePreview() {
         if (cleanupRef.current === cleanup) cleanupRef.current = null;
       };
 
-      // 监听响应消息
       const handleMessage = (event: MessageEvent) => {
         try {
           const message = JSON.parse(event.data);
-
-          // 忽略非当前请求的响应
           if (message.payload?.requestId !== requestId) return;
 
           if (message.type === WSMessageType.RESP_PREVIEW_READY) {
             const payload = message.payload as RespPreviewReadyPayload;
-            // 清理监听（异步加载前就可以摘掉了）
             cleanup();
 
-            // Host 返回它本机的 127.0.0.1 地址，浏览器与 Host 不同机时不可达，
-            // 改走 Relay 代理。代理要求 Authorization 头，而 <img>/<iframe> 这类
-            // src 加载带不了请求头 —— 必须 fetch 成 blob 再交给查看器。
             const needsProxy = payload.previewUrl.includes('127.0.0.1') ||
               payload.previewUrl.includes('localhost');
 
-            const applyReady = (url: string) => {
-              // 异步加载期间用户可能已切换到新的预览请求
+            // 非代理路径（直连可达）：直接使用 Host 返回的 URL
+            if (!needsProxy) {
               if (currentRequestIdRef.current !== requestId) return;
               setPreviewState({
-                previewUrl: url,
+                previewUrl: payload.previewUrl,
+                rawBytes: null,
                 fileName: payload.fileName,
                 fileSize: payload.fileSize,
                 extension: payload.extension,
@@ -114,26 +99,59 @@ export function usePreview() {
                 loading: false,
                 error: null,
               });
-            };
-
-            if (!needsProxy) {
-              applyReady(payload.previewUrl);
               return;
             }
 
             const proxyUrl = `${RELAY_API_BASE}/proxy/preview/${sessionId}?filePath=${encodeURIComponent(filePath)}`;
             const token = accessToken || localStorage.getItem('accessToken') || '';
+
             fetch(proxyUrl, { headers: { Authorization: `Bearer ${token}` } })
               .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.blob();
               })
-              .then(blob => {
-                // 异步期间已切换到新请求：丢弃该 blob，避免遗留未 revoke 的对象 URL
+              .then(async blob => {
                 if (currentRequestIdRef.current !== requestId) return;
-                const blobUrl = URL.createObjectURL(blob);
-                blobUrlRef.current = blobUrl;
-                applyReady(blobUrl);
+
+                if (payload.category === 'text') {
+                  // 文本文件：直接读取原始字节，不创建 blob URL。
+                  // 这样 TextViewer 无需二次 fetch blob URL（在 React StrictMode dev 模式下，
+                  // StrictMode 的 effect 双重触发会在第二次 effect 运行前吊销 blob URL，
+                  // 导致 TextViewer 的 fetch 抛出 "TypeError: Failed to fetch"）。
+                  const buf = await blob.arrayBuffer();
+                  if (currentRequestIdRef.current !== requestId) return;
+                  setPreviewState({
+                    previewUrl: null,
+                    rawBytes: new Uint8Array(buf),
+                    fileName: payload.fileName,
+                    fileSize: payload.fileSize,
+                    extension: payload.extension,
+                    category: 'text',
+                    expiresAt: payload.expiresAt,
+                    loading: false,
+                    error: null,
+                  });
+                } else {
+                  // 图片 / PDF：使用 blob URL（ImageViewer / PDF 新标签打开均需要 URL）
+                  const blobUrl = URL.createObjectURL(blob);
+                  blobUrlRef.current = blobUrl;
+                  if (currentRequestIdRef.current !== requestId) {
+                    URL.revokeObjectURL(blobUrl);
+                    blobUrlRef.current = null;
+                    return;
+                  }
+                  setPreviewState({
+                    previewUrl: blobUrl,
+                    rawBytes: null,
+                    fileName: payload.fileName,
+                    fileSize: payload.fileSize,
+                    extension: payload.extension,
+                    category: payload.category,
+                    expiresAt: payload.expiresAt,
+                    loading: false,
+                    error: null,
+                  });
+                }
               })
               .catch(err => {
                 if (currentRequestIdRef.current !== requestId) return;
@@ -143,8 +161,8 @@ export function usePreview() {
                   error: `加载预览内容失败: ${err.message || err}`,
                 }));
               });
+
           } else if (message.type === WSMessageType.RESP_PREVIEW_ERROR) {
-            // 忽略已被新请求取代的过期错误响应（与上方 ready 分支的守卫保持一致）
             if (currentRequestIdRef.current !== requestId) return;
             const payload = message.payload as RespPreviewErrorPayload;
             setPreviewState(prev => ({
@@ -155,47 +173,34 @@ export function usePreview() {
             cleanup();
           }
         } catch {
-          // 忽略非 JSON 消息
+          // 忽略非 JSON 消息（二进制帧等）
         }
       };
 
       wsInstance.addEventListener('message', handleMessage);
       cleanupRef.current = cleanup;
 
-      // 发送预览请求
       wsInstance.send(JSON.stringify({
         id: crypto.randomUUID(),
         type: WSMessageType.CMD_REQUEST_PREVIEW,
-        payload: {
-          filePath,
-          requestId,
-        },
+        payload: { filePath, requestId },
         timestamp: Date.now(),
         sessionId,
       }));
 
-      // 超时处理（15 秒）
       timeoutId = setTimeout(() => {
         if (currentRequestIdRef.current === requestId) {
-          setPreviewState(prev => ({
-            ...prev,
-            loading: false,
-            error: '预览请求超时',
-          }));
+          setPreviewState(prev => ({ ...prev, loading: false, error: '预览请求超时' }));
         }
         cleanup();
       }, 15000);
+
     } catch (err) {
       currentRequestIdRef.current = null;
-      setPreviewState(prev => ({
-        ...prev,
-        loading: false,
-        error: `预览请求异常: ${String(err)}`,
-      }));
+      setPreviewState(prev => ({ ...prev, loading: false, error: `预览请求异常: ${String(err)}` }));
     }
   }, [wsInstance, sessionId, accessToken]);
 
-  // 清除预览状态
   const clearPreview = useCallback(() => {
     cleanupRef.current?.();
     cleanupRef.current = null;
