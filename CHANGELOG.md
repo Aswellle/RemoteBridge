@@ -660,6 +660,15 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
   branches — was already covered by P0-8's test additions; the prior "Known issues" note
   claiming otherwise was stale.
 
+## [1.1.8] — 2026-06-22
+
+### Security
+
+- **httpOnly cookie token migration** (02a-S11): web client `accessToken`/`refreshToken`
+  moved from `localStorage` to `HttpOnly; SameSite=Strict` cookies, eliminating XSS token
+  exfiltration. WS auth now uses 30s single-use tickets (`GET /auth/ws-ticket`). See the
+  [Unreleased] Security section for the full implementation details.
+
 ## [1.1.7] — 2026-06-21
 
 ### Added / Fixed
