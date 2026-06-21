@@ -1,7 +1,7 @@
 // 必须最先加载 — 为 Electron 拦截 better-sqlite3 的 native 模块路径
 import './electron-binding';
 
-import { app, BrowserWindow, ipcMain, Notification } from 'electron';
+import { app, BrowserWindow, ipcMain, Notification, Menu } from 'electron';
 import * as nodeOs from 'os';
 import { createWindow, getMainWindow, setAppQuitting } from './window';
 import { initTray, updateTrayStatus } from './tray';
@@ -33,6 +33,9 @@ function getRelayApi(): string {
 
 // ===== 应用生命周期 =====
 app.whenReady().then(async () => {
+  // 移除 Electron 默认菜单栏（File/Edit/View/Window/Help），由应用内设置页替代
+  Menu.setApplicationMenu(null);
+
   // 初始化本地数据库表结构（显式调用，而非随 db/client 模块加载自动执行）
   initDatabase();
 

@@ -25,7 +25,23 @@ const CATEGORY_LABELS: Record<keyof UploadPaths, string> = {
   markdown: 'Markdown',
 };
 
+interface SysInfo {
+  appVersion: string;
+  electronVersion: string;
+  nodeVersion: string;
+  chromeVersion: string;
+  osVersion: string;
+  platform: string;
+  hostname: string;
+}
+
 export default function SettingsPage() {
+  const [sysInfo, setSysInfo] = useState<SysInfo | null>(null);
+
+  useEffect(() => {
+    window.electronAPI.getSystemInfo().then(setSysInfo).catch(() => {});
+  }, []);
+
   const [settings, setSettings] = useState<SettingsData>({
     relayUrl: 'ws://127.0.0.1:3001/ws',
     relayApiUrl: 'http://127.0.0.1:3001/api/v1',
@@ -314,6 +330,28 @@ export default function SettingsPage() {
           {pathsSaveStatus === 'error' && (
             <span className="text-sm text-destructive">✗ 保存失败</span>
           )}
+        </div>
+      </div>
+
+      {/* 关于 */}
+      <div className="bg-card rounded-xl p-6 border border-border/50 mb-4">
+        <h3 className="text-lg font-semibold mb-4">关于</h3>
+        <div className="space-y-2.5 text-sm">
+          {[
+            { label: '应用版本', value: sysInfo?.appVersion },
+            { label: 'Electron', value: sysInfo?.electronVersion },
+            { label: 'Node.js', value: sysInfo?.nodeVersion },
+            { label: 'Chromium', value: sysInfo?.chromeVersion },
+            { label: '系统', value: sysInfo?.osVersion },
+            { label: '主机名', value: sysInfo?.hostname },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex items-center justify-between">
+              <span className="text-muted-foreground">{label}</span>
+              <span className="font-mono text-xs bg-secondary px-2 py-0.5 rounded">
+                {value || '—'}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 

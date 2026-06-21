@@ -88,6 +88,19 @@ export function createWindow(): BrowserWindow {
     });
   }
 
+  // 菜单栏已移除；开发模式下通过 F12 / Ctrl+Shift+I 保留 DevTools 入口
+  if (devServerUrl) {
+    mainWindow.webContents.on('before-input-event', (_event, input) => {
+      if (
+        input.type === 'keyDown' &&
+        (input.key === 'F12' ||
+          (input.control && input.shift && input.key.toLowerCase() === 'i'))
+      ) {
+        mainWindow?.webContents.toggleDevTools();
+      }
+    });
+  }
+
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
   } else {
