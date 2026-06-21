@@ -210,6 +210,15 @@ export class WebSocketManager {
         toast.error('文件发送失败', { description: p.message });
         break;
       }
+
+      case WSMessageType.HOST_DIRS_UPDATED: {
+        // Host 目录/权限发生变更：若当前正在浏览根白名单列表则立即刷新，否则静默记录
+        const { currentPath, listAllowed } = this.store.getState();
+        if (currentPath === null) {
+          listAllowed();
+        }
+        break;
+      }
     }
   }
 

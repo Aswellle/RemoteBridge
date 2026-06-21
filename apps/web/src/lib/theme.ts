@@ -8,8 +8,9 @@ export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'theme';
 
 export function getSavedTheme(): Theme {
-  if (typeof window === 'undefined') return 'dark';
-  return localStorage.getItem(STORAGE_KEY) === 'light' ? 'light' : 'dark';
+  if (typeof window === 'undefined') return 'light';
+  const saved = localStorage.getItem(STORAGE_KEY);
+  return saved === 'dark' ? 'dark' : 'light';
 }
 
 export function applyTheme(theme: Theme): void {

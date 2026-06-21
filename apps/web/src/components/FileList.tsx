@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Folder, File, FileText, FileCode, FileImage, FileVideo, FileAudio, FileArchive, FileSpreadsheet, FileKey, FileType, FolderOpen } from 'lucide-react';
+import { Folder, File, FileText, FileCode, FileImage, FileVideo, FileAudio, FileArchive, FileSpreadsheet, FileKey, FileType, FolderOpen, Eye, Download } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { FileEntry } from '@remotebridge/shared';
 import { formatFileSize, formatRelativeTime, getFileCategory } from '@remotebridge/shared';
@@ -11,6 +11,8 @@ interface FileListProps {
   onDirClick: (path: string) => void;
   onFileClick: (entry: FileEntry) => void;
   loading?: boolean;
+  /** 当前展示的是白名单根目录列表（无 currentPath），用于显示权限徽章 */
+  isRootView?: boolean;
 }
 
 function getFileLucideIcon(extension?: string) {
@@ -37,7 +39,7 @@ function getFileLucideIcon(extension?: string) {
   return File;
 }
 
-export default function FileList({ entries, onDirClick, onFileClick, loading }: FileListProps) {
+export default function FileList({ entries, onDirClick, onFileClick, loading, isRootView }: FileListProps) {
   // 排序：目录在前，文件在后，各自按名称排序
   const sortedEntries = useMemo(() => [...entries].sort((a, b) => {
     if (a.type === 'dir' && b.type !== 'dir') return -1;
@@ -88,9 +90,10 @@ export default function FileList({ entries, onDirClick, onFileClick, loading }: 
   return (
     <div className="divide-y divide-border" role="list">
       <div className="grid grid-cols-12 gap-4 px-6 py-3 text-sm font-medium text-muted-foreground bg-card/80">
-        <div className="col-span-6">名称</div>
+        <div className={isRootView ? 'col-span-5' : 'col-span-6'}>名称</div>
+        {isRootView && <div className="col-span-2">权限</div>}
         <div className="col-span-2 text-right">大小</div>
-        <div className="col-span-2">类型</div>
+        <div className="col-span-1">类型</div>
         <div className="col-span-2 text-right">修改时间</div>
       </div>
 
@@ -101,6 +104,7 @@ export default function FileList({ entries, onDirClick, onFileClick, loading }: 
           entry={entry}
           onDirClick={onDirClick}
           onFileClick={onFileClick}
+          isRootView={isRootView}
         />
       ))}
     </div>
@@ -112,9 +116,10 @@ interface FileRowProps {
   entry: FileEntry;
   onDirClick: (path: string) => void;
   onFileClick: (entry: FileEntry) => void;
+  isRootView?: boolean;
 }
 
-function FileRow({ entry, onDirClick, onFileClick }: FileRowProps) {
+function FileRow({ entry, onDirClick, onFileClick, isRootView }: FileRowProps) {
   const isDir = entry.type === 'dir';
   const IconComponent = isDir ? Folder : getFileLucideIcon(entry.extension);
   const category = isDir ? null : getFileCategory(entry.extension);
@@ -147,12 +152,29 @@ function FileRow({ entry, onDirClick, onFileClick }: FileRowProps) {
       aria-label={isDir ? `文件夹: ${entry.name}` : `文件: ${entry.name}${entry.size ? `, ${formatFileSize(entry.size)}` : ''}`}
     >
       {/* 名称 */}
-      <div className="col-span-6 flex items-center min-w-0">
+      <div className={`${isRootView ? 'col-span-5' : 'col-span-6'} flex items-center min-w-0`}>
         <IconComponent className={`w-5 h-5 mr-3 flex-shrink-0 ${iconColor}`} />
         <span className={`truncate ${isDir ? 'text-primary hover:underline' : 'text-foreground'}`}>
           {entry.name}
         </span>
       </div>
+
+      {/* 权限徽章（仅白名单根列表） */}
+      {isRootView && (
+        <div className="col-span-2">
+          {entry.permission === 'download' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-success/15 text-success">
+              <Download className="w-3 h-3" />
+              可下载
+            </span>
+          ) : entry.permission === 'readonly' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-secondary text-muted-foreground">
+              <Eye className="w-3 h-3" />
+              只读
+            </span>
+          ) : null}
+        </div>
+      )}
 
       {/* 大小 */}
       <div className="col-span-2 text-right text-muted-foreground text-sm">
@@ -160,7 +182,7 @@ function FileRow({ entry, onDirClick, onFileClick }: FileRowProps) {
       </div>
 
       {/* 类型 */}
-      <div className="col-span-2 text-muted-foreground text-sm">
+      <div className="col-span-1 text-muted-foreground text-sm">
         {isDir ? '文件夹' : (entry.extension ? `.${entry.extension}` : '文件')}
       </div>
 

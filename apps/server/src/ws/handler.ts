@@ -11,6 +11,7 @@ import {
   relayMessage,
   relayToClient,
   notifyHost,
+  broadcastToHostClients,
 } from './relay';
 import {
   ConnectionMeta,
@@ -328,6 +329,17 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
       relayMessage(socket, message, meta);
       break;
     }
+
+    case WSMessageType.HOST_DIRS_UPDATED:
+      // Host 目录变更通知：广播给该 Host 的所有在线 Client
+      if (meta.hostId) {
+        broadcastToHostClients(meta.hostId, {
+          type: WSMessageType.HOST_DIRS_UPDATED,
+          payload: message.payload,
+          timestamp: Date.now(),
+        });
+      }
+      break;
 
     case WSMessageType.CMD_LIST_DIR:
     case WSMessageType.CMD_LIST_ALLOWED:

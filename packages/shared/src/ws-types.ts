@@ -47,6 +47,9 @@ export enum WSMessageType {
   RESP_UPLOAD_ACK = 'RESP_UPLOAD_ACK',
   RESP_UPLOAD_ERROR = 'RESP_UPLOAD_ERROR',
 
+  // 目录变更推送（Host → Relay → All Clients）
+  HOST_DIRS_UPDATED = 'HOST_DIRS_UPDATED',
+
   // 错误处理
   ERROR = 'ERROR',
   ACK = 'ACK',
@@ -72,6 +75,8 @@ export interface FileEntry {
   modifiedAt: number;
   extension: string;
   isPreviewable: boolean;
+  /** 仅在白名单根列表（CMD_LIST_ALLOWED 响应）中携带；普通目录/文件条目为 undefined */
+  permission?: 'readonly' | 'download';
 }
 
 // ===== 中继路由字段 =====

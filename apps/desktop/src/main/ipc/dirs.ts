@@ -1,7 +1,15 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron';
 import fs from 'fs';
+import { WSMessageType } from '@remotebridge/shared';
 import db from '../db/client';
 import { isSystemDirectory } from '../security/path-guard';
+import { getRelayClient } from '../ws-client/client';
+
+function pushDirsUpdated(): void {
+  const client = getRelayClient();
+  if (!client || !client.isConnected()) return;
+  client.send({ type: WSMessageType.HOST_DIRS_UPDATED, payload: { timestamp: Date.now() } });
+}
 
 // ===== 注册目录管理 IPC =====
 export function registerDirsHandlers(getMainWindow: () => BrowserWindow | null): void {
@@ -25,11 +33,13 @@ export function registerDirsHandlers(getMainWindow: () => BrowserWindow | null):
     }
 
     db.addAllowedDirectory(dirPath);
+    pushDirsUpdated();
     return { success: true };
   });
 
   ipcMain.handle('dirs:remove', (_, id: number) => {
     db.removeAllowedDirectory(id);
+    pushDirsUpdated();
     return { success: true };
   });
 
@@ -39,12 +49,14 @@ export function registerDirsHandlers(getMainWindow: () => BrowserWindow | null):
 
   ipcMain.handle('dirs:update-permission', (_, id: number, permission: string) => {
     db.updateDirectoryPermission(id, permission);
+    pushDirsUpdated();
     return { success: true };
   });
 
   ipcMain.handle('dirs:save-alias', (_, id: number, alias: string) => {
     try {
       db.updateDirectoryAlias(id, alias);
+      pushDirsUpdated();
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };

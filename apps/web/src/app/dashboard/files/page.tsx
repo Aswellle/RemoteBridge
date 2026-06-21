@@ -98,6 +98,7 @@ export default function FilesPage() {
                 entries={dirEntries}
                 onDirClick={handleDirClick}
                 onFileClick={handleFileClick}
+                isRootView={!currentPath}
               />
             )}
           </div>

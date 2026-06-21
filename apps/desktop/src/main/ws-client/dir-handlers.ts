@@ -58,6 +58,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
             modifiedAt,
             extension: '',
             isPreviewable: false,
+            permission: dir.permission as 'readonly' | 'download',
           };
         })
       );
