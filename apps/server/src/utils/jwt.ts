@@ -106,3 +106,26 @@ export function extractTokenFromHeader(authHeader: string | undefined): string |
   }
   return authHeader.slice(7);
 }
+
+// ===== 从请求中提取 Token（Authorization 头优先，其次 rb_access cookie）=====
+// 用于支持 httpOnly cookie 认证（02a-S11）的路由；Host/桌面端走 Bearer 头，
+// Web 客户端走 cookie，两条路径都能通过同一个函数提取。
+export function extractTokenFromRequest(headers: {
+  authorization?: string;
+  cookie?: string;
+}): string | null {
+  const fromHeader = extractTokenFromHeader(headers.authorization);
+  if (fromHeader) return fromHeader;
+  const cookieHeader = headers.cookie;
+  if (cookieHeader) {
+    const match = cookieHeader.match(/(?:^|;\s*)rb_access=([^;]*)/);
+    if (match) {
+      try {
+        return decodeURIComponent(match[1]);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}

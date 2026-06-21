@@ -4,7 +4,7 @@ import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { WSMessage, WSMessageType, RespUploadAckPayload, RespUploadErrorPayload } from '@remotebridge/shared';
 import { useAppStore } from '@/store/app-store';
-import { refreshAccessToken } from '@/lib/api';
+import api, { refreshAccessToken } from '@/lib/api';
 import { handleDownloadReady, handleDownloadError } from '@/lib/download-manager';
 import { logger } from '@/lib/logger';
 import { RELAY_WS_URL } from '@/lib/env';
@@ -24,7 +24,14 @@ export class WebSocketManager {
     private store: typeof useAppStore
   ) {}
 
-  connect(): void {
+  // 获取 30 秒一次性 WS 票据（02a-S11）
+  // api 实例已配置 withCredentials，rb_access cookie 自动携带
+  private async fetchWsTicket(): Promise<string> {
+    const response = await api.get('/auth/ws-ticket');
+    return (response.data.data as { ticket: string }).ticket;
+  }
+
+  async connect(): Promise<void> {
     // 已连接或正在连接时为幂等 no-op —— 这让 connect() 可以被
     // layout / 各页面 / online 事件随意调用而不会重复建连
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
@@ -36,17 +43,35 @@ export class WebSocketManager {
     }
     this.stopped = false;
 
-    // 每次（重）连接都读取最新 accessToken。
-    // localStorage 优先：REST 401 拦截器刷新 token 后先写 localStorage，
-    // 它才是跨模块的单一事实来源（store 同步可能滞后）。
-    const token = (typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null) ||
-      this.store.getState().accessToken;
-    if (!token) {
+    // 以 sessionId 在 localStorage 中的存在作为"已有会话"的判断依据
+    const sessionId = typeof window !== 'undefined' ? localStorage.getItem('sessionId') : null;
+    if (!sessionId) {
       this.store.getState().setConnectionStatus('disconnected');
       return;
     }
 
-    const wsUrl = `${this.url}?token=${token}&type=client`;
+    // 换取短生命期 WS 票据（服务端用 httpOnly cookie 中的 rb_access 验证身份）
+    let ticket: string;
+    try {
+      ticket = await this.fetchWsTicket();
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        // cookie 可能已过期，先刷新再重试
+        try {
+          await refreshAccessToken();
+          ticket = await this.fetchWsTicket();
+        } catch {
+          this.terminateSession('expired', '会话已过期，请重新连接');
+          return;
+        }
+      } else {
+        // 网络错误或服务端暂不可达 → 退避重连
+        this.scheduleReconnect();
+        return;
+      }
+    }
+
+    const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}&type=client`;
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
@@ -80,16 +105,12 @@ export class WebSocketManager {
       }
 
       if (event.code === 4001) {
-        // 认证失败：access token 大概率已过期，刷新后立即重连；
-        // 刷新也失败则会话彻底失效，回到连接页
-        refreshAccessToken()
-          .then(() => this.connect())
-          .catch(() => this.terminateSession('expired', '会话已过期，请重新连接'));
+        // 票据过期或 token 失效：直接重新 connect()，内部会重新换票并在必要时刷新 cookie
+        void this.connect();
         return;
       }
 
-      // 其他异常关闭：持续重连（指数退避、30s 封顶、不设次数上限——
-      // 之前 10 次后放弃，用户只能刷新页面才能恢复）
+      // 其他异常关闭：持续重连（指数退避、30s 封顶、不设次数上限）
       this.scheduleReconnect();
     };
 
@@ -248,7 +269,7 @@ export class WebSocketManager {
     logger.debug(`将在 ${this.reconnectDelay}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
 
     this.reconnectTimer = setTimeout(() => {
-      this.connect();
+      void this.connect();
     }, this.reconnectDelay);
   }
 
@@ -286,8 +307,8 @@ let sharedManager: WebSocketManager | null = null;
 // 网络恢复时立即重连，不等退避计时器走完
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
-    if (sharedManager && localStorage.getItem('accessToken')) {
-      sharedManager.connect();
+    if (sharedManager && localStorage.getItem('sessionId')) {
+      void sharedManager.connect();
     }
   });
 }
@@ -297,8 +318,8 @@ export function useWebSocket() {
   const store = useAppStore;
 
   const connect = useCallback(() => {
-    const { accessToken } = store.getState();
-    if (!accessToken) return;
+    const { sessionId } = store.getState();
+    if (!sessionId) return;
 
     // manager 可复用：connect() 对已连接/连接中的实例是 no-op，
     // 对断开的实例则重新建连（之前"已有 manager 就直接 return"——
@@ -306,7 +327,7 @@ export function useWebSocket() {
     if (!sharedManager) {
       sharedManager = new WebSocketManager(RELAY_WS_URL, store);
     }
-    sharedManager.connect();
+    void sharedManager.connect();
   }, [store]);
 
   const disconnect = useCallback(() => {

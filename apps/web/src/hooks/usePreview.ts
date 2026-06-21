@@ -34,7 +34,7 @@ const INITIAL_STATE: PreviewState = {
 
 // ===== usePreview Hook =====
 export function usePreview() {
-  const { wsInstance, sessionId, accessToken } = useAppStore();
+  const { wsInstance, sessionId } = useAppStore();
   const [previewState, setPreviewState] = useState<PreviewState>(INITIAL_STATE);
 
   const currentRequestIdRef = useRef<string | null>(null);
@@ -103,9 +103,9 @@ export function usePreview() {
             }
 
             const proxyUrl = `${RELAY_API_BASE}/proxy/preview/${sessionId}?filePath=${encodeURIComponent(filePath)}`;
-            const token = accessToken || localStorage.getItem('accessToken') || '';
 
-            fetch(proxyUrl, { headers: { Authorization: `Bearer ${token}` } })
+            // httpOnly cookie 认证（02a-S11）：withCredentials 自动携带 rb_access cookie
+            fetch(proxyUrl, { credentials: 'include' })
               .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.blob();
@@ -199,7 +199,7 @@ export function usePreview() {
       currentRequestIdRef.current = null;
       setPreviewState(prev => ({ ...prev, loading: false, error: `预览请求异常: ${String(err)}` }));
     }
-  }, [wsInstance, sessionId, accessToken]);
+  }, [wsInstance, sessionId]);
 
   const clearPreview = useCallback(() => {
     cleanupRef.current?.();

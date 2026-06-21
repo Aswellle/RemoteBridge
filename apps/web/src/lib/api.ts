@@ -8,41 +8,27 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // httpOnly cookie 认证（02a-S11）：每次请求自动携带 rb_access/rb_refresh cookie
+  withCredentials: true,
 });
 
-// ===== 刷新 Access Token =====
-// 供响应拦截器和 WebSocket 重连（4001 时）共用。
-// 刷新成功后必须同步 zustand store —— WS 重连优先读 store 里的 token，
-// 只写 localStorage 会让 store 中的旧 token 继续被使用。
-// （动态 import 避免 api.ts ↔ app-store.ts 的循环依赖）
-let refreshPromise: Promise<string> | null = null;
+// ===== 刷新 Access Token（02a-S11）=====
+// token 存在 httpOnly cookie 中，服务端读 rb_refresh cookie 后在 Set-Cookie 里
+// 写回新的 rb_access，客户端无需手动传递或存储 token 字符串。
+// 并发去重：多个 401 同时触发时只发一次刷新请求。
+let refreshPromise: Promise<void> | null = null;
 
-export function refreshAccessToken(): Promise<string> {
-  // 并发去重：多个 401/重连同时触发时只发一次刷新请求
+export function refreshAccessToken(): Promise<void> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) {
-      throw new Error('No refresh token');
-    }
-
-    const response = await axios.post(
+    // withCredentials 自动携带 rb_refresh cookie，无需在 body 传 token
+    await axios.post(
       `${api.defaults.baseURL}/auth/refresh`,
-      { refreshToken }
+      {},
+      { withCredentials: true }
     );
-
-    const { accessToken } = response.data.data;
-    localStorage.setItem('accessToken', accessToken);
-
-    try {
-      const { useAppStore } = await import('@/store/app-store');
-      useAppStore.setState({ accessToken });
-    } catch {
-      // store 尚未初始化（SSR 等场景）时忽略
-    }
-
-    return accessToken as string;
+    // 服务端已在响应 Set-Cookie 中更新 rb_access，下次请求自动生效
   })();
 
   refreshPromise.finally(() => {
@@ -53,20 +39,10 @@ export function refreshAccessToken(): Promise<string> {
 }
 
 // ===== 请求拦截器 =====
+// token 由 cookie 自动携带，无需手动注入 Authorization 头（02a-S11）
 api.interceptors.request.use(
-  (config) => {
-    // 从 localStorage 获取 access token
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('accessToken');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (config) => config,
+  (error) => Promise.reject(error)
 );
 
 // ===== 响应拦截器 =====
@@ -75,21 +51,24 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // 如果是 401 错误且未重试过，尝试刷新 token
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
       try {
-        const accessToken = await refreshAccessToken();
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+        await refreshAccessToken();
+        // cookie 已轮换，直接重试原请求（浏览器自动带上新 rb_access）
         return api(originalRequest);
       } catch (refreshError) {
-        // 刷新失败，清除本地存储并跳转到登录页
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('sessionId');
-        localStorage.removeItem('hostInfo');
-        window.location.href = '/?reason=expired';
+        // 刷新失败，清除本地会话数据并跳转到登录页
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('sessionId');
+          localStorage.removeItem('hostInfo');
+          // 尽力清除 httpOnly cookie（fire-and-forget）
+          axios
+            .post(`${api.defaults.baseURL}/auth/logout`, {}, { withCredentials: true })
+            .catch(() => {});
+          window.location.href = '/?reason=expired';
+        }
         return Promise.reject(refreshError);
       }
     }

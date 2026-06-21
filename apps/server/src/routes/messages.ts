@@ -3,7 +3,7 @@ import { nanoid } from 'nanoid';
 import { db } from '../db/client';
 import { messages, sessions } from '../db/schema';
 import { eq, and, desc, gt, isNull, inArray } from 'drizzle-orm';
-import { extractTokenFromHeader, verifyAccessToken } from '../utils/jwt';
+import { extractTokenFromRequest, verifyAccessToken } from '../utils/jwt';
 import { sendToClient, sendToHost } from '../ws/relay';
 import { WSMessageType } from '@remotebridge/shared';
 import type { ApiResponse, Message } from '@remotebridge/shared';
@@ -17,7 +17,7 @@ export async function messagesRoutes(fastify: FastifyInstance): Promise<void> {
     Querystring: { page?: string; limit?: string; since?: string };
   }>('/messages/:sessionId', async (request, reply) => {
     // 验证 JWT
-    const token = extractTokenFromHeader(request.headers.authorization);
+    const token = extractTokenFromRequest(request.headers);
     if (!token) {
       return reply.code(401).send({
         success: false,
@@ -129,7 +129,7 @@ export async function messagesRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{
     Querystring: { page?: string; limit?: string };
   }>('/messages/client/history', async (request, reply) => {
-    const token = extractTokenFromHeader(request.headers.authorization);
+    const token = extractTokenFromRequest(request.headers);
     if (!token) {
       return reply.code(401).send({
         success: false,
@@ -217,7 +217,7 @@ export async function messagesRoutes(fastify: FastifyInstance): Promise<void> {
     Body: { content: string; type?: string };
   }>('/messages/:sessionId', async (request, reply) => {
     // 验证 JWT
-    const token = extractTokenFromHeader(request.headers.authorization);
+    const token = extractTokenFromRequest(request.headers);
     if (!token) {
       return reply.code(401).send({
         success: false,

@@ -30,6 +30,7 @@ import {
 } from './connection-registry';
 import { resolvePendingRequest } from './pending-requests';
 import { resolveFileTunnelMessage, resolveFileTunnelBinaryFrame } from './file-tunnel';
+import { redeemTicket } from './tickets';
 import { decodeFileChunkFrame } from '@remotebridge/shared';
 import { logger } from '../utils/logger';
 
@@ -72,67 +73,84 @@ export function setupWebSocket(app: FastifyInstance): void {
 
     const url = new URL(req.url, `http://${req.headers.host}`);
     const token = url.searchParams.get('token');
+    const ticket = url.searchParams.get('ticket');
     const type = url.searchParams.get('type') as 'host' | 'client';
 
-    // 验证参数
-    if (!token || !type || !['host', 'client'].includes(type)) {
+    if (!type || !['host', 'client'].includes(type)) {
       socket.close(4001, 'Missing or invalid parameters');
       return;
     }
 
-    // 验证 JWT（refresh token 不可用于建立 WS 连接）
-    let payload: TokenPayload;
-    try {
-      payload = verifyToken(token);
-      if (payload.type !== type) {
-        throw new Error('Token type mismatch');
+    // 设置连接元数据（两条认证路径均填充到同一 meta 结构）
+    let meta: ConnectionMeta;
+
+    if (type === 'client' && ticket) {
+      // --- 新路径：一次性 WS 票据（web 客户端，02a-S11）---
+      const ticketData = redeemTicket(ticket);
+      if (!ticketData) {
+        app.log.warn('WebSocket 票据无效或已过期');
+        socket.close(4001, 'Invalid or expired ticket');
+        return;
       }
-      if ((payload as any).use === 'refresh') {
-        throw new Error('Refresh token not allowed');
+      meta = {
+        type: 'client',
+        id: ticketData.clientId,
+        sessionId: ticketData.sessionId,
+        hostId: ticketData.hostId,
+        lastPong: Date.now(),
+        connectedAt: Date.now(),
+      };
+    } else if (token) {
+      // --- 旧路径：直接 JWT（Host 桌面端，旧版 web 客户端过渡期）---
+      let payload: TokenPayload;
+      try {
+        payload = verifyToken(token);
+        if (payload.type !== type) throw new Error('Token type mismatch');
+        if ((payload as any).use === 'refresh') throw new Error('Refresh token not allowed');
+      } catch (err) {
+        app.log.warn('WebSocket 认证失败:', err as any);
+        socket.close(4001, 'Unauthorized');
+        return;
       }
-    } catch (err) {
-      app.log.warn('WebSocket 认证失败:', err as any);
-      socket.close(4001, 'Unauthorized');
+      meta = {
+        type,
+        id: payload.sub,
+        lastPong: Date.now(),
+      };
+      if (type === 'client') {
+        meta.sessionId = (payload as any).sessionId;
+        meta.hostId = (payload as any).hostId;
+        meta.connectedAt = Date.now();
+      }
+    } else {
+      socket.close(4001, 'Missing or invalid parameters');
       return;
-    }
-
-    // 设置连接元数据
-    const meta: ConnectionMeta = {
-      type,
-      id: payload.sub,
-      lastPong: Date.now(),
-    };
-
-    if (type === 'client') {
-      meta.sessionId = (payload as any).sessionId;
-      meta.hostId = (payload as any).hostId;
-      meta.connectedAt = Date.now();
     }
 
     setConnMeta(socket, meta);
 
-    // 注册到房间管理
+    // 注册到房间管理（meta.id = payload.sub 或 ticketData.clientId，两条路径均已填充）
     if (type === 'host') {
-      registerHost(payload.sub, socket);
-      app.log.info(`Host ${payload.sub} 已连接`);
+      registerHost(meta.id, socket);
+      app.log.info(`Host ${meta.id} 已连接`);
 
       // Host（重）上线：Host 掉线时 close 事件清空了房间映射，
       // 仍在线的 Client 的映射必须在这里重建，否则它们的 CMD_* 永远 PEER_OFFLINE；
       // 同时广播 HOST_ONLINE，让 Web 端解除"主机离线"状态
       forEachClient((clientId, clientWs) => {
         const clientMeta = getConnMeta(clientWs);
-        if (clientMeta?.hostId === payload.sub) {
-          rebindClientToHost(clientId, payload.sub);
+        if (clientMeta?.hostId === meta.id) {
+          rebindClientToHost(clientId, meta.id);
           sendWSMessage(clientWs, {
             type: WSMessageType.HOST_ONLINE,
-            payload: { hostId: payload.sub, timestamp: Date.now() },
+            payload: { hostId: meta.id, timestamp: Date.now() },
             timestamp: Date.now(),
           });
         }
       });
     } else {
-      registerClient(payload.sub, socket, meta.hostId);
-      app.log.info(`Client ${payload.sub} 已连接`);
+      registerClient(meta.id, socket, meta.hostId);
+      app.log.info(`Client ${meta.id} 已连接`);
 
       // 异步校验会话是否已被吊销（JWT 2h 内仍有效，但吊销必须立即生效），
       // 顺带取 clientLabel；校验通过后才通知 Host 有新 Client 加入

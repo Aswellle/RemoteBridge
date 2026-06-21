@@ -84,25 +84,22 @@ function getOrCreateClientId(): string {
   }
 }
 
-// ===== 从 localStorage 恢复会话（刷新页面后会话不丢失） =====
+// ===== 从 localStorage 恢复会话（刷新页面后会话不丢失）=====
+// token 已迁移至 httpOnly cookie（02a-S11），此处仅恢复非敏感会话元数据。
 function loadPersistedSession(): {
   sessionId: string | null;
-  accessToken: string | null;
-  refreshToken: string | null;
   hostInfo: HostInfo | null;
 } {
   if (typeof window === 'undefined') {
-    return { sessionId: null, accessToken: null, refreshToken: null, hostInfo: null };
+    return { sessionId: null, hostInfo: null };
   }
   try {
     return {
       sessionId: localStorage.getItem('sessionId'),
-      accessToken: localStorage.getItem('accessToken'),
-      refreshToken: localStorage.getItem('refreshToken'),
       hostInfo: JSON.parse(localStorage.getItem('hostInfo') || 'null'),
     };
   } catch {
-    return { sessionId: null, accessToken: null, refreshToken: null, hostInfo: null };
+    return { sessionId: null, hostInfo: null };
   }
 }
 
@@ -112,8 +109,7 @@ interface AppState {
   connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
   hostInfo: HostInfo | null;
   sessionId: string | null;
-  accessToken: string | null;
-  refreshToken: string | null;
+  // accessToken / refreshToken 已迁移至 httpOnly cookie（02a-S11），不再存于 JS 可访问的状态中
   wsInstance: WebSocket | null;
 
   // 文件系统
@@ -158,7 +154,7 @@ interface AppState {
   // Actions
   setConnectionStatus: (status: AppState['connectionStatus']) => void;
   setHostInfo: (info: HostInfo | null) => void;
-  setSession: (sessionId: string, accessToken: string, refreshToken: string) => void;
+  setSession: (sessionId: string) => void;
   clearSession: () => void;
   setWsInstance: (ws: WebSocket | null) => void;
   setCurrentPath: (path: string | null) => void;
@@ -202,29 +198,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 设置主机信息
   setHostInfo: (info) => set({ hostInfo: info }),
 
-  // 设置会话
-  setSession: (sessionId, accessToken, refreshToken) => {
-    // 保存到 localStorage
+  // 设置会话（仅存非敏感元数据；token 由服务端 Set-Cookie 写入 httpOnly cookie，02a-S11）
+  setSession: (sessionId) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('sessionId', sessionId);
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
     }
-    set({ sessionId, accessToken, refreshToken });
+    set({ sessionId });
   },
 
-  // 清除会话
+  // 清除会话（localStorage 非敏感项；httpOnly cookie 由 POST /auth/logout 清除）
   clearSession: () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('sessionId');
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
       localStorage.removeItem('hostInfo');
     }
     set({
       sessionId: null,
-      accessToken: null,
-      refreshToken: null,
       hostInfo: null,
       connectionStatus: 'disconnected',
     });
@@ -390,13 +379,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         clientLabel,
       });
 
-      const { sessionId, accessToken, refreshToken, hostInfo } = response.data.data;
+      // 服务端通过 Set-Cookie 写入 rb_access/rb_refresh（httpOnly，02a-S11）
+      // body 里的 accessToken/refreshToken 过渡期仍存在但客户端不再读取
+      const { sessionId, hostInfo } = response.data.data;
 
       // 2. 保存会话信息。
       // 状态保持 connecting：REST 认证成功只代表拿到了会话，
       // 'connected' 由 WS 真正建立时（useWebSocket onopen）置位——
       // 否则文件/消息页会在 WS 就绪前误判为可操作
-      get().setSession(sessionId, accessToken, refreshToken);
+      get().setSession(sessionId);
       set({ hostInfo });
 
       // 3. 保存 hostInfo
@@ -431,6 +422,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (wsInstance) {
       wsInstance.close();
     }
+    // 清除 httpOnly cookie（fire-and-forget，失败不影响本地清理）
+    api.post('/auth/logout').catch(() => {});
     get().clearSession();
     set({
       dirEntries: [],
@@ -538,13 +531,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   // 加载消息历史
   loadMessageHistory: async (sessionId, page = 1) => {
     try {
-      const { accessToken } = get();
-      if (!accessToken) return;
+      if (!get().sessionId) return;
 
-      // 跨会话聚合：服务端用 JWT 中的 clientId+hostId 查所有未吊销会话的消息
+      // 跨会话聚合：服务端用 cookie 里的 JWT（clientId+hostId）查所有未吊销会话的消息
       const response = await api.get('/messages/client/history', {
         params: { page, limit: 50 },
-        headers: { Authorization: `Bearer ${accessToken}` },
+        // withCredentials 已在 axios 实例上全局启用，cookie 自动携带
       });
 
       const historyMessages = response.data.data as Array<{

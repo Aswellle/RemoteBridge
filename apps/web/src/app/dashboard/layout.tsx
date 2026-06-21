@@ -157,7 +157,7 @@ function SidebarContent({
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { connectionStatus, accessToken, disconnect, unreadCount } = useAppStore();
+  const { connectionStatus, sessionId, disconnect, unreadCount } = useAppStore();
   const { connect: wsConnect, disconnect: wsDisconnect } = useWebSocket();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -167,13 +167,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, []);
 
   // 进入 dashboard 时若已有会话（含刷新页面后从 localStorage 恢复的会话）则建立 WS 连接
+  // sessionId 存在说明已认证（token 在 httpOnly cookie 中，无需 JS 可读，02a-S11）
   useEffect(() => {
-    if (accessToken && connectionStatus !== 'connected') {
+    if (sessionId && connectionStatus !== 'connected') {
       useAppStore.getState().setConnectionStatus('connecting');
       wsConnect();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken]);
+  }, [sessionId]);
 
   const handleDisconnect = () => {
     wsDisconnect();

@@ -11,6 +11,29 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
 
 ### Security
 
+- **httpOnly cookie tokens — localStorage XSS hardening** (02a-S11): `accessToken` and
+  `refreshToken` are no longer stored in `localStorage`. `POST /auth/connect` and
+  `POST /auth/refresh` now set `rb_access` (2h) and `rb_refresh` (30d) as
+  `HttpOnly; SameSite=Strict; Path=/` cookies (`Secure` added when `NODE_ENV=production`),
+  making them invisible to any XSS payload. A new `GET /auth/ws-ticket` endpoint
+  (rate-limited 20/min) authenticates via `rb_access` cookie (or `Authorization` header for
+  the desktop/legacy path) and returns a 30-second single-use ticket stored in a new
+  `apps/server/src/ws/tickets.ts` in-memory store (nanoid(32), auto-cleanup every 60s). The
+  web client's `WebSocketManager.connect()` is now `async`: it fetches the ticket first, handles
+  a `401` by calling `refreshAccessToken()` and retrying once, then builds a
+  `?ticket=<ticket>&type=client` WS URL. The server's WS handshake branches: client +
+  ticket → `redeemTicket()` → populate meta; token present → existing JWT path (desktop Host
+  / legacy). `apps/server/src/utils/jwt.ts` gains `extractTokenFromRequest()` (tries
+  `Authorization` header first, falls back to `rb_access` cookie) used in message-history
+  routes. `apps/web/src/lib/api.ts` is rewritten: `withCredentials: true` on the axios
+  instance (cookies auto-sent), `refreshAccessToken()` returns `Promise<void>` (no token
+  in body), and the 401 interceptor handles session expiry with `POST /auth/logout`. The web
+  store (`app-store.ts`) no longer holds or persists tokens — only `sessionId` + `hostInfo`
+  remain in localStorage. `apps/web/test/useWebSocket.test.ts` fully updated: mocks
+  `api.get` for ticket fetch, `sessionId`-based guards replace `accessToken` checks, and all
+  test assertions updated for the async ticket-based connect flow. Test environment upgraded
+  to `happy-dom` (added to `apps/web/package.json` devDependencies; configured via
+  `vitest.config.ts`) so localStorage and other browser globals are available.
 - **Host JWT rotation protocol** (02a-S13): `JWT_CONFIG.HOST_TOKEN_EXPIRY` shortened from
   `'365d'` to `'90d'`; `JWT_CONFIG.HOST_TOKEN_ROTATION_THRESHOLD_DAYS: 30` added to
   `packages/shared/src/security.ts`. New relay endpoint `POST /auth/host-token-refresh`
@@ -107,12 +130,8 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
   `downloadUpdate`, `installUpdate`, `onUpdateStatus` and the `UpdateStatus` type.
 - **httpOnly cookie token design doc** (02a-S11): `docs/httponly-cookie-token-design.md`
   documents the full migration path from localStorage to httpOnly cookies for
-  `accessToken`/`refreshToken`. Key elements: a new server-side `GET /auth/ws-ticket`
-  endpoint issues short-lived (30s) one-time WS tickets via cookie-authenticated REST;
-  clients exchange the ticket for the WS connection URL parameter (avoiding the token-in-URL
-  risk). The document covers Set-Cookie attributes (Secure, HttpOnly, SameSite=Strict),
-  CORS `credentials: true` requirements, a `ws/tickets.ts` in-memory ticket store, and a
-  7-file implementation checklist. Implementation deferred — see Known issues below.
+  `accessToken`/`refreshToken`. See the Security section entry for 02a-S11 for the full
+  implementation details. Status: **implemented**.
 - **Host audit-log ingestion endpoint** (P0-2 / P1-8): added `POST /api/v1/security-logs`,
   which validates the Host JWT and the `eventType` against a `VALID_EVENT_TYPES` allowlist
   before inserting into `security_logs`. Previously `apps/desktop/src/main/security/audit-logger.ts`
@@ -730,11 +749,6 @@ implicit "v0" protocol:
 Tracked from `.full-review/05-final-report.md`, in rough priority order. None of these are
 regressions introduced by the fixes above.
 
-- **02a-S11** — Web client stores `accessToken`/`refreshToken` in `localStorage`. A design
-  doc (`docs/httponly-cookie-token-design.md`) covering the httpOnly cookie migration and
-  WS ticket exchange is now written. Full implementation (7 files to change across server,
-  web, and desktop) is deferred — it's a cross-cutting change with CORS and WS handshake
-  implications.
 - **01a-M5** — Three divergent message-type shapes: server DB (`id, session_id, direction,
   content, type, sender_id, ...`), desktop DB (`local_messages`, slightly different columns),
   and web store (inline `{ id, content, direction, type, timestamp }` object). A shared
@@ -749,5 +763,5 @@ All P3/Low items from `.full-review/05-final-report.md` are addressed (P3-1 thro
 P3-18). All P1 items are addressed (P1-1 structured logging, P1-12 binary file-tunnel
 framing, P1-23 auto-update pipeline, and the rest in Fixed above). The "test/doc gaps"
 (#19) and relay room-state (P1-7) items are also done. All P2 items are fixed — Tracks
-A–F in Security/Fixed above plus 02a-S13 (Host JWT rotation). 02a-S11 (httpOnly cookie
-tokens) has a design doc; full implementation remains deferred.
+A–F in Security/Fixed above plus 02a-S13 (Host JWT rotation) and 02a-S11 (httpOnly cookie
+tokens, implemented in the Unreleased section above).

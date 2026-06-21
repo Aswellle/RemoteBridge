@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { useAppStore } from '@/store/app-store';
 
+// api mock：default export 提供 .get() 换票接口；refreshAccessToken 是具名导出
+vi.mock('@/lib/api', () => ({
+  default: { get: vi.fn() },
+  refreshAccessToken: vi.fn(),
+}));
 vi.mock('@/store/app-store', () => ({ useAppStore: {} }));
-vi.mock('@/lib/api', () => ({ refreshAccessToken: vi.fn() }));
 vi.mock('@/lib/download-manager', () => ({
   handleDownloadReady: vi.fn(),
   handleDownloadError: vi.fn(),
@@ -12,9 +16,10 @@ vi.mock('sonner', () => ({
 }));
 
 import { WebSocketManager } from '@/hooks/useWebSocket';
-import { refreshAccessToken } from '@/lib/api';
+import api, { refreshAccessToken } from '@/lib/api';
 import { toast } from 'sonner';
 
+// ===== MockWebSocket =====
 class MockWebSocket {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -45,16 +50,17 @@ function abnormalClose(ws: MockWebSocket, code: number, reason = ''): void {
   ws.onclose?.({ code, reason });
 }
 
+// ===== Mock store =====
 interface MockState {
-  accessToken: string | null;
+  sessionId: string | null;
   setConnectionStatus: ReturnType<typeof vi.fn>;
   setWsInstance: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
 }
 
-function createMockStore(accessToken: string | null = 'test-token') {
+function createMockStore(sessionId: string | null = 'test-session') {
   const state: MockState = {
-    accessToken,
+    sessionId,
     setConnectionStatus: vi.fn(),
     setWsInstance: vi.fn(),
     disconnect: vi.fn(),
@@ -62,81 +68,110 @@ function createMockStore(accessToken: string | null = 'test-token') {
   return { getState: () => state, state };
 }
 
-function createManager(accessToken: string | null = 'test-token') {
-  const store = createMockStore(accessToken);
+function createManager(sessionId: string | null = 'test-session') {
+  const store = createMockStore(sessionId);
   const manager = new WebSocketManager('ws://localhost:3001/ws', store as unknown as typeof useAppStore);
   return { manager, store };
+}
+
+// Helper: mock a successful ticket fetch
+function mockTicketSuccess(ticket = 'mock-ticket'): void {
+  vi.mocked(api.get).mockResolvedValueOnce({ data: { data: { ticket } } } as any);
+}
+
+// Helper: mock a ticket fetch that fails with 401
+function mockTicket401(): void {
+  const err: any = new Error('Unauthorized');
+  err.response = { status: 401 };
+  vi.mocked(api.get).mockRejectedValueOnce(err);
+}
+
+// Helper: mock a ticket fetch that fails with a network error
+function mockTicketNetworkError(): void {
+  vi.mocked(api.get).mockRejectedValueOnce(new Error('Network Error'));
 }
 
 describe('WebSocketManager', () => {
   beforeEach(() => {
     MockWebSocket.instances = [];
     vi.stubGlobal('WebSocket', MockWebSocket);
+    // 默认提供 sessionId — connect() 用 localStorage 检查是否已认证
+    localStorage.setItem('sessionId', 'test-session');
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    localStorage.clear();
   });
 
-  it('does not open a socket when there is no access token', () => {
+  it('does not open a socket when there is no sessionId in localStorage', async () => {
+    localStorage.removeItem('sessionId');
     const { manager, store } = createManager(null);
-    manager.connect();
+
+    await manager.connect();
 
     expect(MockWebSocket.instances).toHaveLength(0);
     expect(store.state.setConnectionStatus).toHaveBeenCalledWith('disconnected');
   });
 
-  it('opens a socket with the token and reports connected on open', () => {
-    const { manager, store } = createManager('abc123');
-    manager.connect();
+  it('opens a socket with a ticket and reports connected on open', async () => {
+    mockTicketSuccess('abc123');
+    const { manager, store } = createManager();
+
+    await manager.connect();
 
     expect(MockWebSocket.instances).toHaveLength(1);
     const ws = MockWebSocket.instances[0];
-    expect(ws.url).toBe('ws://localhost:3001/ws?token=abc123&type=client');
+    expect(ws.url).toContain('ticket=abc123');
+    expect(ws.url).toContain('type=client');
 
     ws.onopen?.();
     expect(store.state.setConnectionStatus).toHaveBeenCalledWith('connected');
     expect(store.state.setWsInstance).toHaveBeenCalledWith(ws);
   });
 
-  it('is idempotent while a connection is open or connecting', () => {
+  it('is idempotent while a connection is open or connecting', async () => {
+    mockTicketSuccess();
     const { manager } = createManager();
-    manager.connect();
+    await manager.connect();
     expect(MockWebSocket.instances).toHaveLength(1);
 
     // still CONNECTING -- no second socket
-    manager.connect();
+    await manager.connect();
     expect(MockWebSocket.instances).toHaveLength(1);
 
     MockWebSocket.instances[0].readyState = MockWebSocket.OPEN;
-    manager.connect();
+    await manager.connect();
     expect(MockWebSocket.instances).toHaveLength(1);
 
     MockWebSocket.instances[0].readyState = MockWebSocket.CLOSED;
-    manager.connect();
+    mockTicketSuccess();
+    await manager.connect();
     expect(MockWebSocket.instances).toHaveLength(2);
   });
 
-  it('does not reconnect on a normal close (code 1000)', () => {
+  it('does not reconnect on a normal close (code 1000)', async () => {
     vi.useFakeTimers();
+    mockTicketSuccess();
     const { manager, store } = createManager();
-    manager.connect();
+    await manager.connect();
     const ws = MockWebSocket.instances[0];
 
     abnormalClose(ws, 1000, 'normal');
     expect(store.state.setConnectionStatus).toHaveBeenCalledWith('disconnected');
     expect(store.state.setWsInstance).toHaveBeenCalledWith(null);
 
-    vi.advanceTimersByTime(60000);
+    await vi.advanceTimersByTimeAsync(60000);
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
-  it('terminates the session on a revoked close (code 4003)', () => {
+  it('terminates the session on a revoked close (code 4003)', async () => {
     vi.useFakeTimers();
+    mockTicketSuccess();
     const { manager, store } = createManager();
-    manager.connect();
+    await manager.connect();
     const ws = MockWebSocket.instances[0];
 
     abnormalClose(ws, 4003, 'revoked');
@@ -144,27 +179,51 @@ describe('WebSocketManager', () => {
     expect(toast.error).toHaveBeenCalledWith('连接已断开', { description: '会话已被主机吊销' });
     expect(store.state.disconnect).toHaveBeenCalled();
 
-    vi.advanceTimersByTime(60000);
+    await vi.advanceTimersByTimeAsync(60000);
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
-  it('refreshes the token and reconnects on an auth-expired close (code 4001)', async () => {
-    vi.mocked(refreshAccessToken).mockResolvedValueOnce('new-token');
+  it('retries connect directly on an auth-expired close (code 4001) when ticket succeeds', async () => {
+    mockTicketSuccess('ticket-1'); // initial connect
     const { manager, store } = createManager();
-    manager.connect();
+    await manager.connect();
     const ws = MockWebSocket.instances[0];
 
+    mockTicketSuccess('ticket-2'); // retry after 4001
     abnormalClose(ws, 4001, 'unauthorized');
 
     await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
     expect(store.state.disconnect).not.toHaveBeenCalled();
+    expect(refreshAccessToken).not.toHaveBeenCalled();
   });
 
-  it('terminates the session if token refresh fails after an auth-expired close', async () => {
-    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('refresh failed'));
+  it('refreshes the cookie and reconnects when ticket returns 401 after a 4001 close', async () => {
+    mockTicketSuccess('ticket-1'); // initial connect
     const { manager, store } = createManager();
-    manager.connect();
+    await manager.connect();
     const ws = MockWebSocket.instances[0];
+
+    // ticket fetch returns 401 → refresh → retry ticket succeeds
+    mockTicket401();
+    vi.mocked(refreshAccessToken).mockResolvedValueOnce(undefined);
+    mockTicketSuccess('ticket-2');
+
+    abnormalClose(ws, 4001, 'unauthorized');
+
+    await vi.waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
+    expect(refreshAccessToken).toHaveBeenCalledOnce();
+    expect(store.state.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('terminates the session if token refresh fails after a 4001 close', async () => {
+    mockTicketSuccess('ticket-1');
+    const { manager, store } = createManager();
+    await manager.connect();
+    const ws = MockWebSocket.instances[0];
+
+    // ticket fetch returns 401 → refresh fails
+    mockTicket401();
+    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('refresh failed'));
 
     abnormalClose(ws, 4001, 'unauthorized');
 
@@ -173,30 +232,34 @@ describe('WebSocketManager', () => {
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
-  it('reconnects with exponential backoff capped at 30s on abnormal closes', () => {
+  it('schedules reconnect with exponential backoff on abnormal socket closes', async () => {
     vi.useFakeTimers();
+    mockTicketSuccess(); // initial connect
     const { manager } = createManager();
-    manager.connect();
-    expect(MockWebSocket.instances).toHaveLength(1);
+    await manager.connect();
 
+    // reconnectDelay starts at 1000 and doubles each time (min(delay*2, 30000))
     const expectedDelays = [2000, 4000, 8000, 16000, 30000, 30000];
 
-    expectedDelays.forEach((delay, index) => {
+    for (let index = 0; index < expectedDelays.length; index++) {
       const ws = MockWebSocket.instances[index];
-      abnormalClose(ws, 1006, 'abnormal');
+      abnormalClose(ws, 1006, 'abnormal'); // triggers scheduleReconnect
 
-      vi.advanceTimersByTime(delay - 1);
-      expect(MockWebSocket.instances).toHaveLength(index + 1);
+      await vi.advanceTimersByTimeAsync(expectedDelays[index] - 1);
+      expect(MockWebSocket.instances).toHaveLength(index + 1); // not yet
 
-      vi.advanceTimersByTime(1);
+      mockTicketSuccess(); // ticket for reconnect attempt
+      await vi.advanceTimersByTimeAsync(1); // timer fires → connect() → new socket
+      // advanceTimersByTimeAsync internally flushes microtasks, so connect() chain completes
       expect(MockWebSocket.instances).toHaveLength(index + 2);
-    });
+    }
   });
 
-  it('stops reconnecting after disconnect()', () => {
+  it('stops reconnecting after disconnect()', async () => {
     vi.useFakeTimers();
+    mockTicketSuccess();
     const { manager } = createManager();
-    manager.connect();
+    await manager.connect();
     const ws = MockWebSocket.instances[0];
 
     manager.disconnect();
@@ -204,7 +267,7 @@ describe('WebSocketManager', () => {
     expect(ws.readyState).toBe(MockWebSocket.CLOSED);
     expect(ws.closeArgs).toEqual({ code: 1000, reason: 'User disconnected' });
 
-    vi.advanceTimersByTime(60000);
+    await vi.advanceTimersByTimeAsync(60000);
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 });

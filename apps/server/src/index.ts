@@ -12,6 +12,7 @@ import { messagesRoutes } from './routes/messages';
 import { securityLogsRoutes } from './routes/security-logs';
 import { proxyRoutes } from './routes/proxy';
 import { setupWebSocket } from './ws/handler';
+import { startTicketCleaner } from './ws/tickets';
 import { CORS_OPTIONS } from './utils/cors';
 
 // ===== 环境变量 =====
@@ -118,6 +119,9 @@ async function start() {
 
     // 启动数据保留清理任务（90 天，每天一次）
     startRetentionJob();
+
+    // 启动 WS 票据过期清理（60 秒一次，02a-S11）
+    startTicketCleaner().unref();
 
     // 注册插件和路由
     await registerPlugins();

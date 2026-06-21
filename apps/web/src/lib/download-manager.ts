@@ -34,12 +34,12 @@ export async function handleDownloadReady(payload: RespDownloadReadyPayload): Pr
 
   try {
     if (isHostLocalUrl) {
-      const { sessionId, accessToken } = store;
+      const { sessionId } = store;
       const proxyUrl = `${RELAY_API_BASE}/proxy/download/${sessionId}?filePath=${encodeURIComponent(download.filePath)}`;
       store.updateDownload(download.id, { downloadUrl: proxyUrl });
-      // 代理端点要求 Authorization 头，<a download> 带不了 —— 用 fetch 流式下载，
-      // 顺便拿到真实进度（之前的进度条是定时器模拟出来的假数据）
-      await streamDownload(proxyUrl, fileName, accessToken, payload.fileSize || 0, download.id);
+      // 代理端点通过 httpOnly cookie 鉴权（02a-S11），<a download> 带不了 cookie，
+      // 必须用 fetch credentials:'include' 流式下载，顺便拿到真实进度
+      await streamDownload(proxyUrl, fileName, payload.fileSize || 0, download.id);
     } else {
       // 直连可达的 URL（同机部署等场景）：交给浏览器原生下载
       store.updateDownload(download.id, { downloadUrl: payload.downloadUrl });
@@ -69,20 +69,15 @@ export function handleDownloadError(payload: RespDownloadErrorPayload): void {
   toast.error(`下载失败: ${download.fileName}`, { description: message });
 }
 
-// ===== 流式下载（带进度统计） =====
+// ===== 流式下载（带进度统计）=====
 async function streamDownload(
   url: string,
   fileName: string,
-  accessToken: string | null,
   expectedSize: number,
   downloadId: string,
 ): Promise<void> {
-  const token = accessToken ||
-    (typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null);
-
-  const response = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
+  // httpOnly cookie 认证（02a-S11）：credentials:'include' 自动携带 rb_access cookie
+  const response = await fetch(url, { credentials: 'include' });
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
