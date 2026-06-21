@@ -641,6 +641,21 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
   branches — was already covered by P0-8's test additions; the prior "Known issues" note
   claiming otherwise was stale.
 
+## [1.1.7] — 2026-06-21
+
+### Added / Fixed
+
+- **移除默认菜单栏**（`apps/desktop/src/main/index.ts`）：`Menu.setApplicationMenu(null)` 在启动时立即清除 Electron 附带的 File/Edit/View/Window/Help 菜单栏，使界面更简洁。Edit 菜单的剪切/复制/粘贴操作由 OS/Chromium 层的键盘快捷键原生支持，无需菜单；Window 最小化/关闭由标题栏按钮保留。
+- **开发模式 DevTools 快捷键保留**（`apps/desktop/src/main/window.ts`）：菜单栏移除后，开发模式下通过监听 `before-input-event` 拦截 F12 / Ctrl+Shift+I，保持调试入口可用，替代原 View → Developer Tools 菜单项。
+- **设置页新增「关于」区块**（`apps/desktop/src/renderer/pages/Settings.tsx`）：迁移原 Help 菜单的版本信息功能。通过 `getSystemInfo()` IPC 展示应用版本、Electron 版本、Node.js 版本、Chromium 版本、操作系统版本和主机名。
+- **生产环境 Docker 加固**（`docker-compose.yml`、`apps/server/Dockerfile`、`apps/web/Dockerfile`、`Caddyfile`、`apps/server/src/index.ts`、`apps/web/next.config.mjs`）：
+  - `trustProxy: true` + `bodyLimit: 1 MB`：修复限流按真实 IP 计数失效问题，防止大 payload；
+  - 两个 Dockerfile 均创建非 root 运行用户（uid 1001），减小容器被攻破时的爆炸半径；
+  - Web 容器新增 `HEALTHCHECK`，`docker-compose.yml` 的 `depends_on` 改为 `condition: service_healthy`，避免 Caddy 在 Next.js 就绪前转发请求；
+  - `deploy.resources.limits` 限制 CPU/内存，`security_opt: no-new-privileges:true`，日志驱动加 `max-size`/`max-file` 防磁盘撑满；
+  - `Caddyfile` 补全 HSTS、X-Content-Type-Options、X-Frame-Options、Referrer-Policy、Permissions-Policy 安全头，隐藏 Server 版本信息；
+  - `next.config.mjs` 补全 X-Content-Type-Options、X-Frame-Options、Referrer-Policy、Permissions-Policy，与 Caddy 形成双层防御。
+
 ## [1.1.6] — 2026-06-21
 
 ### Fixed / Improved
