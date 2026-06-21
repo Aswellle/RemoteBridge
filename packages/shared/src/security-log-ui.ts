@@ -18,12 +18,12 @@ export const EVENT_TYPE_LABELS = {
 // 依赖 apps/desktop 和 apps/web 共用的 CSS 变量调色板
 // (--destructive/--warning/--muted/--success，定义在各自的 globals.css)。
 export const EVENT_TYPE_COLORS = {
-  AUTH_FAIL: 'text-destructive bg-destructive/10',
-  BLOCKED_PATH: 'text-orange-400 bg-orange-400/10',
-  REVOKE: 'text-warning bg-yellow-400/10',
-  PIN_EXPIRED: 'text-muted-foreground bg-muted/10',
-  SESSION_CREATED: 'text-success bg-green-400/10',
-  ACCESS_DOWNLOAD: 'text-blue-400 bg-blue-400/10',
-  ACCESS_PREVIEW: 'text-blue-400 bg-blue-400/10',
-  ACCESS: 'text-blue-400 bg-blue-400/10',
+  AUTH_FAIL:       'text-red-700    bg-red-100    dark:text-red-400    dark:bg-red-900/30',
+  BLOCKED_PATH:    'text-orange-700 bg-orange-100 dark:text-orange-400 dark:bg-orange-900/30',
+  REVOKE:          'text-yellow-700 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/30',
+  PIN_EXPIRED:     'text-slate-600  bg-slate-100  dark:text-slate-400  dark:bg-slate-700/40',
+  SESSION_CREATED: 'text-green-700  bg-green-100  dark:text-green-400  dark:bg-green-900/30',
+  ACCESS_DOWNLOAD: 'text-blue-700   bg-blue-100   dark:text-blue-400   dark:bg-blue-900/30',
+  ACCESS_PREVIEW:  'text-violet-700 bg-violet-100 dark:text-violet-400 dark:bg-violet-900/30',
+  ACCESS:          'text-cyan-700   bg-cyan-100   dark:text-cyan-400   dark:bg-cyan-900/30',
 } satisfies Record<SecurityLog['eventType'], string>;

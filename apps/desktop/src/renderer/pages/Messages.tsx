@@ -282,7 +282,7 @@ export default function MessagesPage() {
         </div>
 
         {/* 输入框 */}
-        <div className="px-6 py-3 border-t border-border">
+        <div className="px-6 py-3">
           <form onSubmit={handleSend} className="flex space-x-3">
             <input
               type="text"
@@ -340,7 +340,7 @@ function MessageBubble({
           <p className="text-xs text-muted-foreground mb-1">{message.senderLabel}</p>
         )}
         <p className="text-sm">{message.content}</p>
-        <p className={`text-xs mt-1 ${isMe ? 'text-primary/70' : 'text-muted-foreground'}`}>
+        <p className={`text-xs mt-1 ${isMe ? 'text-white/60' : 'text-muted-foreground'}`}>
           {formatTime(message.createdAt)}
         </p>
       </div>

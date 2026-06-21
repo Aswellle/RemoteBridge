@@ -52,7 +52,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
+    <div className="p-6 max-w-2xl">
       <h1 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-2">
         <SettingsIcon className="w-6 h-6" />
         设置

@@ -139,7 +139,7 @@ export default function ClientsPage() {
             className={`px-4 py-2 rounded-lg text-sm transition-colors ${
               activeSection === 'clients'
                 ? 'bg-primary text-white'
-                : 'bg-secondary text-foreground hover:bg-secondary'
+                : 'bg-secondary text-foreground hover:bg-muted'
             }`}
           >
             客户端列表
@@ -152,7 +152,7 @@ export default function ClientsPage() {
             className={`px-4 py-2 rounded-lg text-sm transition-colors ${
               activeSection === 'logs'
                 ? 'bg-primary text-white'
-                : 'bg-secondary text-foreground hover:bg-secondary'
+                : 'bg-secondary text-foreground hover:bg-muted'
             }`}
           >
             活动日志
@@ -162,7 +162,7 @@ export default function ClientsPage() {
               loadClients();
               loadAccessLogs();
             }}
-            className="px-4 py-2 bg-secondary text-foreground hover:bg-secondary rounded-lg text-sm transition-colors"
+            className="px-4 py-2 bg-secondary text-foreground hover:bg-muted rounded-lg text-sm transition-colors"
           >
             🔄 刷新
           </button>
@@ -225,8 +225,8 @@ export default function ClientsPage() {
                       onClick={() => handleTrust(client.clientId, !client.isTrusted)}
                       className={`px-3 py-1.5 rounded-lg transition-colors text-sm ${
                         client.isTrusted
-                          ? 'bg-secondary text-muted-foreground hover:bg-secondary/70'
-                          : 'bg-success/20 text-success hover:bg-success/40'
+                          ? 'bg-secondary text-muted-foreground hover:bg-muted'
+                          : 'bg-success text-white hover:bg-success/90'
                       }`}
                     >
                       {client.isTrusted ? '取消信任' : '信任'}
@@ -235,7 +235,7 @@ export default function ClientsPage() {
                       onClick={() => handleRevoke(client)}
                       disabled={!client.sessionId}
                       title={client.sessionId ? '吊销该会话并立即断开连接' : 'Relay 不可达，暂时无法吊销'}
-                      className="px-3 py-1.5 bg-destructive/20 text-destructive hover:bg-destructive/40 rounded-lg transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 bg-destructive text-white hover:bg-destructive/90 rounded-lg transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       吊销
                     </button>

@@ -131,7 +131,7 @@ export default function MessagesPage() {
       </div>
 
       {/* 输入框 */}
-      <div className="px-6 py-4 border-t border-border">
+      <div className="px-6 py-4">
         {/* 隐藏文件 input */}
         <input
           ref={fileInputRef}
