@@ -172,6 +172,23 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
 
         log.info(`文件已保存: ${savePath}`);
 
+        // 落本地库：文件接收也要记一条消息，否则重新打开这个会话时文件发送
+        // 记录完全消失——此前只有 messages:send / MSG_TEXT 收发会落 local_messages，
+        // 文件上传分块只转发、组装、写盘，从未落库。用 uploadId 做主键（同一次
+        // 上传的多个分块共享这个 id，INSERT OR IGNORE 天然防重复）。
+        try {
+          db.insertMessage({
+            id: uploadId,
+            sessionId: transfer.sessionId,
+            direction: 'client_to_host',
+            content: transfer.fileName,
+            type: 'file',
+            senderId: transfer.clientId,
+          });
+        } catch (err) {
+          log.error('持久化文件接收消息失败:', err);
+        }
+
         // 通知 Relay 路由回 Client
         client.send({
           type: WSMessageType.RESP_UPLOAD_ACK,

@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { nanoid } from 'nanoid';
 import { db } from '../db/client';
 import { messages, sessions } from '../db/schema';
-import { eq, and, desc, gt, isNull, inArray } from 'drizzle-orm';
+import { eq, and, desc, gt, inArray } from 'drizzle-orm';
 import { extractTokenFromRequest, verifyAccessToken } from '../utils/jwt';
 import { sendToClient, sendToHost } from '../ws/relay';
 import { WSMessageType } from '@remotebridge/shared';
@@ -165,13 +165,16 @@ export async function messagesRoutes(fastify: FastifyInstance): Promise<void> {
     const page = Math.max(1, parseInt(request.query.page || '1', 10));
     const limit = Math.min(parseInt(request.query.limit || '50', 10), 200);
 
-    // 找出该 client↔host 对的所有未吊销会话
+    // 找出该 client↔host 对的所有会话（不按 revokedAt 过滤）。
+    // 吊销（revokedAt）杀的是这个会话 token 的鉴权能力，不代表对话内容本身
+    // 不再合法——之前过滤掉已吊销会话会导致：只要这个 client↔host 之间任意一次
+    // 历史会话被吊销过，那次会话里聊过的全部消息（双向）就从所有后续的聚合历史里
+    // 永久消失，造成"明明聊过却什么都看不到"的假象。
     const clientSessions = await db.select({ id: sessions.id })
       .from(sessions)
       .where(and(
         eq(sessions.clientId, clientId),
         eq(sessions.hostId, hostId),
-        isNull(sessions.revokedAt)
       ));
 
     if (clientSessions.length === 0) {

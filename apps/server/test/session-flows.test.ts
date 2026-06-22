@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import WebSocket from 'ws';
 import { encodeFileChunkFrame } from '@remotebridge/shared';
-import { API_BASE, openWs, post, createSession, wait, type TestSession } from './helpers';
+import { API_BASE, openWs, post, postWithCookies, createSession, wait, type TestSession } from './helpers';
 
 function buildTestFile(size: number): Buffer {
   const file = Buffer.alloc(size);
@@ -320,6 +320,37 @@ describe('会话内多场景验证 (P1-14)', () => {
     });
   });
 
+  describe('文件上传消息持久化 (问题 A/B 修复)', () => {
+    it('RESP_UPLOAD_ACK 被 Relay 持久化为 type:file 消息，content 为文件名，方向为 client_to_host', async () => {
+      const uploadId = 'upload-' + Date.now();
+      hostWs.send(
+        JSON.stringify({
+          id: 'ack-' + Date.now(),
+          type: 'RESP_UPLOAD_ACK',
+          payload: {
+            uploadId,
+            fileName: 'report.pdf',
+            savedPath: 'C:/fake/report.pdf',
+            fileSize: 12345,
+            clientId: session.clientId,
+            sessionId: session.sessionId,
+          },
+          timestamp: Date.now(),
+        }),
+      );
+      await wait(400);
+
+      const histResp = await fetch(`${API_BASE}/messages/${session.sessionId}?limit=50`, {
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      }).then((r) => r.json());
+      const row = (histResp.data || []).find((m: any) => m.id === uploadId);
+      expect(row).toBeTruthy();
+      expect(row.type).toBe('file');
+      expect(row.content).toBe('report.pdf');
+      expect(row.direction).toBe('client_to_host');
+    });
+  });
+
   describe('REST 回退路由字段注入 (移植自 manual-rest-fallback-routing.mjs)', () => {
     const hostReceived: any[] = [];
     const clientReceived: any[] = [];
@@ -424,6 +455,65 @@ describe('会话内多场景验证 (P1-14)', () => {
       expect(clientEvents).not.toContain('ERROR');
       expect(hostCmds.length).toBeGreaterThan(0);
       expect(hostCmds[0].payload.clientId).toBe(session.clientId);
+    });
+  });
+
+  describe('GET /messages/client/history 跨会话聚合不应被吊销会话过滤 (问题 B 修复)', () => {
+    // 复用本文件已注册的 session.hostToken/hostId——不再额外调用 /auth/register-host，
+    // 否则会和 createSession('flow') 以及 relay-roundtrip.test.ts 一起超出 5/分钟/IP 限流
+    // （见本文件顶部注释）。用一个全新 clientId 在同一个 host 下走两次 PIN 连接，
+    // 不影响本文件其它场景依赖的 session.clientId。
+    it('client↔host 之间一个更早会话被吊销后，该会话里的消息仍出现在聚合历史里', async () => {
+      const clientId = 'revoke-hist-client-' + Date.now();
+
+      // 1. 生成 PIN1，用固定 clientId 连接同一个 host → session1
+      const pin1 = await post('/auth/generate-pin', { expiresIn: 300 }, { Authorization: `Bearer ${session.hostToken}` });
+      const { data: conn1, accessToken: accessToken1 } = await postWithCookies('/auth/connect', {
+        pin: pin1.data.pin,
+        clientId,
+        clientLabel: 'revoke-hist',
+      });
+      const sessionId1 = conn1.data.sessionId;
+
+      // 2. 在 session1 里发一条 client_to_host 消息（走真实 WS，确保走真实持久化路径）
+      const clientWs1 = await openWs(accessToken1, 'client');
+      await wait(200);
+      const msgId = 'old-msg-' + Date.now();
+      clientWs1.send(
+        JSON.stringify({
+          id: msgId,
+          type: 'MSG_TEXT',
+          payload: { content: '吊销前发的消息' },
+          timestamp: Date.now(),
+          sessionId: sessionId1,
+        }),
+      );
+      await wait(300);
+      clientWs1.close();
+
+      // 3. 吊销 session1
+      const revokeRes = await fetch(`${API_BASE}/auth/revoke/${sessionId1}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.hostToken}` },
+      }).then((r) => r.json());
+      expect(revokeRes.success).toBe(true);
+
+      // 4. 同一个 clientId 用新 PIN 再连一次（同一个 host）→ session2
+      const pin2 = await post('/auth/generate-pin', { expiresIn: 300 }, { Authorization: `Bearer ${session.hostToken}` });
+      const { accessToken: accessToken2 } = await postWithCookies('/auth/connect', {
+        pin: pin2.data.pin,
+        clientId,
+        clientLabel: 'revoke-hist',
+      });
+
+      // 5. 用 session2 的 token 拉跨会话历史——session1 已吊销，但里面的消息应该仍然可见
+      const histResp = await fetch(`${API_BASE}/messages/client/history?limit=200`, {
+        headers: { Authorization: `Bearer ${accessToken2}` },
+      }).then((r) => r.json());
+      const row = (histResp.data || []).find((m: any) => m.id === msgId);
+      expect(row).toBeTruthy();
+      expect(row.direction).toBe('client_to_host');
+      expect(row.sessionId).toBe(sessionId1);
     });
   });
 });

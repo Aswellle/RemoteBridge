@@ -96,7 +96,7 @@ export interface Message {
   sessionId: string;
   direction: 'host_to_client' | 'client_to_host';
   content: string;
-  type: 'text' | 'system' | 'notification';
+  type: 'text' | 'system' | 'notification' | 'file';
   createdAt: number;
   readAt?: number;
 }

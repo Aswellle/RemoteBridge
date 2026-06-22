@@ -384,6 +384,30 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
     case WSMessageType.RESP_UPLOAD_ACK:
     case WSMessageType.RESP_UPLOAD_ERROR:
     case WSMessageType.MSG_NOTIFICATION:
+      // 文件上传成功：persist 一条 type:'file' 的消息，否则这次文件发送在
+      // messages 表里完全没有痕迹——CMD_UPLOAD_FILE_CHUNK 本身只是分块转发
+      // （见上面的 case），从未写库；不补这条的话 Web 端跨 session 拉历史、
+      // 桌面端重新打开会话都看不到任何文件发送记录。用 uploadId 做主键（同一次
+      // 上传的多个分块共享这个 id，天然防止 RESP_UPLOAD_ACK 重复处理时重复插入）。
+      if (message.type === WSMessageType.RESP_UPLOAD_ACK) {
+        try {
+          const uploadPayload = message.payload as { uploadId?: string; fileName?: string; sessionId?: string };
+          const now = Math.floor(Date.now() / 1000);
+          const sessionId = message.sessionId || uploadPayload.sessionId || '';
+          if (sessionId && uploadPayload.fileName && uploadPayload.uploadId) {
+            await db.insert(messages).values({
+              id: uploadPayload.uploadId,
+              sessionId,
+              direction: 'client_to_host',
+              content: uploadPayload.fileName,
+              type: 'file',
+              createdAt: now,
+            }).onConflictDoNothing();
+          }
+        } catch (err) {
+          logger.error({ err }, '持久化文件上传消息失败');
+        }
+      }
       // 先检查是否为服务端（代理）发起的请求 —— 命中则消费，不向 Client 中继
       if (resolvePendingRequest(message)) {
         break;

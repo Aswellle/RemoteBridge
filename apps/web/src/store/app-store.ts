@@ -543,7 +543,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: string;
         content: string;
         direction: 'host_to_client' | 'client_to_host';
-        type: 'text' | 'system' | 'notification';
+        type: 'text' | 'system' | 'notification' | 'file';
         createdAt: number;
       }>;
 
@@ -561,6 +561,11 @@ export const useAppStore = create<AppState>((set, get) => ({
               // 服务端 createdAt 是 Unix 秒，统一归一为毫秒
               //（实时消息走 WS 顶层 timestamp，本就是毫秒）
               timestamp: m.createdAt < 1e12 ? m.createdAt * 1000 : m.createdAt,
+              // 文件消息：content 字段存的就是 fileName（见服务端持久化逻辑），
+              // MessageBubble 渲染 type==='file' 时单独取 fileName 属性，
+              // 不回填的话历史里的文件气泡会显示文件图标但文件名是空的。
+              // uploadStatus 标记为 completed——持久化的前提就是上传已成功。
+              ...(m.type === 'file' ? { fileName: m.content, uploadStatus: 'completed' as const } : {}),
             }))
             .sort((a, b) => a.timestamp - b.timestamp);
 

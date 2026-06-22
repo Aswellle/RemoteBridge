@@ -112,6 +112,41 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
   `false` (rare — headless / no keychain), values are stored plaintext as before.
   `hostId` is not encrypted (non-secret identifier). No new dependency —
   `safeStorage` is built into Electron 28.
+- **02a-S11 review follow-up: body-token removal, proxy cookie fix, `/auth/refresh` rate
+  limit**: a multi-reviewer code review of the httpOnly cookie migration found three issues
+  fixed immediately:
+  1. `POST /auth/connect` was still returning `accessToken`/`refreshToken` in the JSON body
+  alongside setting the `httpOnly` cookie — an XSS payload could read the response before
+  `app-store.ts` processed it, exfiltrating the 30-day refresh token. Body now returns only
+  `{ sessionId, hostInfo }`; `ConnectResponse` in `packages/shared` shrunk to match. The web
+  client already destructured only `sessionId`/`hostInfo`, so no web change was needed.
+  Server test suite (`helpers.ts`, `e2e.test.ts`, `messages-auth.test.ts`,
+  `security-logs.test.ts`) now reads tokens from `Set-Cookie` instead of the body, and the
+  `e2e` connect test asserts cookie attributes (HttpOnly, SameSite=Strict, Max-Age).
+  2. `apps/server/src/routes/proxy.ts::authenticateClient()` was still `extractTokenFromHeader`
+  (Bearer-only) post-migration — the web client switched to `credentials:'include'` with no
+  `Authorization` header, so remote proxy downloads/previews silently 401'd for any non-local
+  deployment. Switched to `extractTokenFromRequest` (header-first, `rb_access` cookie fallback),
+  with a new cookie-auth proxy test in `session-flows.test.ts`.
+  3. `POST /auth/refresh` had no rate limit — the only auth route without one, despite minting
+  fresh tokens from a 30-day credential. Added the same per-IP limit as every other auth route.
+- **`apps/server/src/routes/security-logs.ts`: GET routes switched to cookie-compatible
+  extraction**: `GET /security-logs`, `/security-logs/events`, and `/access-logs` used
+  `extractTokenFromHeader` (Bearer-only), but all three explicitly accept client tokens via
+  `resolveScopedHostId()`. Post-02a-S11 the web client has no JS-readable token to set as an
+  `Authorization` header, so the security audit page always got 401 "缺少认证令牌". Switched
+  to `extractTokenFromRequest` (header-first, `rb_access` cookie fallback) on these three
+  GET routes; `POST /security-logs` left on Bearer-only (structurally Host-exclusive, verify
+  by `verifyHostToken`). Covered by a new cookie-auth test in `security-logs.test.ts`.
+- **`useWebSocket.ts`: concurrent `connect()` calls now collapse into a single connection**:
+  `WebSocketManager.connect()`'s re-entrancy guard only checked `this.ws`, which isn't
+  assigned until *after* `await this.fetchWsTicket()` resolves. React StrictMode
+  (`next.config.mjs`, `reactStrictMode: true`) deliberately double-invokes mount effects
+  in dev, so two `connect()` calls raced past the guard, each fetching its own ticket and
+  opening its own WebSocket — the Host received two `CLIENT_JOINED` notifications per
+  connect, producing double desktop OS notifications. Added an in-flight `connectPromise`
+  so concurrent calls await the same attempt. Covered by a new regression test that fires
+  two un-awaited `connect()` calls and asserts only one `api.get` and one WebSocket instance.
 
 ### Added
 
@@ -185,6 +220,31 @@ Fixes from the 2026-06 comprehensive code review, in the order they were applied
   be used as a JSX component"). Both are now pinned to exact `18.2.0`, matching `apps/web`.
 
 ### Fixed
+
+- **File uploads now persist in message history on both ends**: previously `CMD_UPLOAD_FILE_CHUNK`
+  was pure relay with no write to the server `messages` table; the desktop Host saved the file
+  to disk but never called `db.insertMessage()`. File transfers left zero trace in either
+  persistence layer — neither end's message center ever showed a file-send record.
+  `apps/server/src/ws/handler.ts` now persists a `type: 'file'` row (keyed by `uploadId`,
+  `direction: 'client_to_host', content: fileName`) on every `RESP_UPLOAD_ACK`, and
+  `apps/desktop/src/main/ws-client/handlers.ts` does the same into its local `local_messages`
+  table right after the file write succeeds. `apps/server/src/db/schema.ts` and
+  `packages/shared/src/api-types.ts` widen the `messages.type` union to include `'file'`
+  (no DDL change — the raw SQLite `CREATE TABLE` had no CHECK constraint, only Drizzle's
+  TS-level enum did). `apps/web/src/store/app-store.ts::loadMessageHistory()` backfills
+  `fileName`/`uploadStatus: 'completed'` for `type: 'file'` history rows so reloaded file
+  bubbles show the filename. Covered by `session-flows.test.ts`.
+- **`GET /messages/client/history` no longer hides messages from revoked sessions**: the
+  aggregation query previously filtered sessions by `isNull(sessions.revokedAt)`, so revoking
+  any session in a client↔host pair permanently erased that session's entire message history
+  from every future view. Revocation kills a token's ability to authenticate — it doesn't mean
+  the conversation during that session stops being real. Filter removed. Confirmed with the
+  live DB: a revoked session's 3 messages were missing from the endpoint's response, now
+  restored. Covered by a new cross-session revocation test in `session-flows.test.ts`.
+- **Web message bubble: client-to-host timestamp text was invisible**:
+  `apps/web/src/app/dashboard/messages/page.tsx` — the `isMe` bubble background is solid
+  `bg-primary`; the timestamp used `text-primary/70` (same hue, just translucent) instead
+  of `text-white/70` (matching the message body's `text-white`). Changed to `text-white/70`.
 
 - **Desktop packaged app: `Cannot find module 'conf'` at runtime** (build-infra): pnpm's
   virtual-store junction structure (`node_modules/.pnpm/…`) is not followed correctly by

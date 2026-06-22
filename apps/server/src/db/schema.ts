@@ -44,7 +44,7 @@ export const messages = sqliteTable('messages', {
     .references(() => sessions.id),
   direction: text('direction', { enum: ['host_to_client', 'client_to_host'] }).notNull(),
   content: text('content').notNull(),
-  type: text('type', { enum: ['text', 'system', 'notification'] })
+  type: text('type', { enum: ['text', 'system', 'notification', 'file'] })
     .notNull()
     .default('text'),
   createdAt: integer('created_at')

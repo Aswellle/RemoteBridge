@@ -273,7 +273,11 @@ function MessageBubble({ message }: MessageBubbleProps) {
         }`}
       >
         <p className="text-sm">{message.content}</p>
-        <p className={`text-xs mt-1 ${isMe ? 'text-primary/70' : 'text-muted-foreground'}`}>
+        {/* isMe 气泡背景是纯色 bg-primary，正文靠外层 text-white 撑出对比度——
+            时间戳之前用 text-primary/70（primary 色叠加透明度）盖在同色背景上，
+            几乎不可读；改成 text-white/70，和正文同一套白字配色，仅降低透明度
+            做层级区分 */}
+        <p className={`text-xs mt-1 ${isMe ? 'text-white/70' : 'text-muted-foreground'}`}>
           {formatRelativeTime(message.timestamp)}
         </p>
       </div>
