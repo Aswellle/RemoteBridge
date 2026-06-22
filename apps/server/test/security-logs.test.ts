@@ -137,6 +137,18 @@ describe('POST/GET /security-logs, GET /access-logs (P0-2)', () => {
     expect(res.data.error?.code).toBe('INVALID_TOKEN');
   });
 
+  it('GET /security-logs：rb_access cookie 鉴权同样可用，无需 Authorization 头（02a-S11 后 Web 端安全审计页的实际调用方式）', async () => {
+    const res = await request(
+      'GET',
+      `/security-logs?eventType=ACCESS&clientId=${testClientId}`,
+      undefined,
+      { Cookie: `rb_access=${accessToken}` },
+    );
+    expect(res.status).toBe(200);
+    expect(res.data.success).toBe(true);
+    expect(res.data.data.logs.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('GET /security-logs 可查询到上报的 ACCESS 事件', async () => {
     const res = await request(
       'GET',

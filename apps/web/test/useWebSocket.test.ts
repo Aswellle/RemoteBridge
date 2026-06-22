@@ -152,6 +152,29 @@ describe('WebSocketManager', () => {
     expect(MockWebSocket.instances).toHaveLength(2);
   });
 
+  it('collapses concurrent connect() calls into a single socket (StrictMode double-effect / layout+page both calling connect)', async () => {
+    // 不能用 mockTicketSuccess() 两次——两次并发调用如果各自换票，会各产生
+    // 一个 pending promise，必须用同一个 deferred 来模拟"票据请求还在飞"的窗口
+    let resolveTicket: (value: any) => void;
+    vi.mocked(api.get).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveTicket = resolve;
+      }),
+    );
+    const { manager } = createManager();
+
+    // 两次调用都不 await 第一个——模拟 this.ws 赋值前的并发窗口
+    const p1 = manager.connect();
+    const p2 = manager.connect();
+
+    expect(api.get).toHaveBeenCalledTimes(1); // 第二次调用必须复用同一个 in-flight 票据请求，不能再换一张票
+    resolveTicket!({ data: { data: { ticket: 'shared-ticket' } } });
+    await Promise.all([p1, p2]);
+
+    expect(MockWebSocket.instances).toHaveLength(1); // 两次 connect() 只能建一条连接
+    expect(MockWebSocket.instances[0].url).toContain('ticket=shared-ticket');
+  });
+
   it('does not reconnect on a normal close (code 1000)', async () => {
     vi.useFakeTimers();
     mockTicketSuccess();

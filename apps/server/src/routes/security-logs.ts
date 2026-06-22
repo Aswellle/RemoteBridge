@@ -8,7 +8,7 @@ import { nanoid } from 'nanoid';
 import { db } from '../db/client';
 import { securityLogs } from '../db/schema';
 import { eq, and, or, desc, like, gte, lte, count, sql } from 'drizzle-orm';
-import { verifyAccessToken, verifyHostToken, extractTokenFromHeader } from '../utils/jwt';
+import { verifyAccessToken, verifyHostToken, extractTokenFromHeader, extractTokenFromRequest } from '../utils/jwt';
 import type { ApiResponse, SecurityLog, AccessLog } from '@remotebridge/shared';
 
 // ===== POST /security-logs 合法事件类型 =====
@@ -73,13 +73,17 @@ interface SecurityLogEntry {
 // ===== 安全审计日志路由 =====
 export async function securityLogsRoutes(fastify: FastifyInstance): Promise<void> {
   // --- GET /security-logs ---
-  // 查询安全审计日志（需要 Host JWT 认证）
+  // 查询安全审计日志（Host 或 Client token 均可，按各自归属的 hostId 限定范围）。
+  // Web 端的安全审计页面以 client token 调用此接口——02a-S11 之后 client token
+  // 只在 rb_access cookie 里，没有可读字符串可设 Authorization 头，必须用
+  // extractTokenFromRequest（header 优先，cookie 兜底）而非仅认 header 的
+  // extractTokenFromHeader，否则 Web 端这个请求永远 401 缺少认证令牌。
   fastify.get<{ Querystring: SecurityLogsQuery }>(
     '/security-logs',
     async (request: FastifyRequest<{ Querystring: SecurityLogsQuery }>, reply: FastifyReply) => {
       try {
-        // 1. 验证 Host JWT
-        const token = extractTokenFromHeader(request.headers.authorization);
+        // 1. 验证 Host 或 Client JWT
+        const token = extractTokenFromRequest(request.headers);
         if (!token) {
           return reply.code(401).send({
             success: false,
@@ -256,8 +260,8 @@ export async function securityLogsRoutes(fastify: FastifyInstance): Promise<void
   // 获取所有事件类型列表（用于筛选下拉）
   fastify.get('/security-logs/events', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      // 验证 Host JWT
-      const token = extractTokenFromHeader(request.headers.authorization);
+      // 验证 Host 或 Client JWT（同上，client token 走 rb_access cookie）
+      const token = extractTokenFromRequest(request.headers);
       if (!token) {
         return reply.code(401).send({
           success: false,
@@ -307,7 +311,8 @@ export async function securityLogsRoutes(fastify: FastifyInstance): Promise<void
   fastify.get<{
     Querystring: { page?: string; limit?: string };
   }>('/access-logs', async (request, reply) => {
-    const token = extractTokenFromHeader(request.headers.authorization);
+    // 验证 Host 或 Client JWT（同上，client token 走 rb_access cookie）
+    const token = extractTokenFromRequest(request.headers);
     if (!token) {
       return reply.code(401).send({
         success: false,

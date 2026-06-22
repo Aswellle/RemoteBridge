@@ -18,6 +18,13 @@ export class WebSocketManager {
   private reconnectAttempts = 0;
   // 主动断开（用户操作/会话终结）后置位，阻止任何后续自动重连
   private stopped = false;
+  // 防止 connect() 被并发重入：this.ws 只在换票+建连完成后才赋值，
+  // 期间（尤其是 await fetchWsTicket() 那段）第二次 connect() 调用会绕过
+  // 上面那个"已连接/正在连接"判断（this.ws 此时仍是 null），各自换一张票据、
+  // 各建一条 WS——React StrictMode 的双重 effect、或 layout 与某个页面各自调用
+  // 一次 connect() 都会触发，结果是同一个 clientId 建两条连接，Host 端收到两次
+  // CLIENT_JOINED 通知。用这个字段把并发调用收敛到同一个 in-flight Promise 上。
+  private connectPromise: Promise<void> | null = null;
 
   constructor(
     private url: string,
@@ -37,6 +44,18 @@ export class WebSocketManager {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    // 已有一次 connect() 在途（还没到给 this.ws 赋值那一步）：复用同一个
+    // Promise，而不是各自换票各建一条连接
+    if (this.connectPromise) {
+      return this.connectPromise;
+    }
+    this.connectPromise = this.doConnect().finally(() => {
+      this.connectPromise = null;
+    });
+    return this.connectPromise;
+  }
+
+  private async doConnect(): Promise<void> {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
