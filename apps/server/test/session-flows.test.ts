@@ -153,6 +153,16 @@ describe('会话内多场景验证 (P1-14)', () => {
       expect(res.headers.get('content-disposition') || '').toContain('attachment');
     });
 
+    it('rb_access cookie 鉴权同样可用，无需 Authorization 头（02a-S11 后 Web 端的实际调用方式）', async () => {
+      const res = await fetch(
+        `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent('/data/test.bin')}`,
+        { headers: { Cookie: `rb_access=${session.accessToken}` } },
+      );
+      expect(res.status).toBe(200);
+      const body = Buffer.from(await res.arrayBuffer());
+      expect(body.equals(FILE)).toBe(true);
+    });
+
     it('Range 下载：206 + Content-Range + 字节切片一致', async () => {
       const res = await fetch(
         `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent('/data/test.bin')}`,

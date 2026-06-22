@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { WebSocket } from 'ws';
-import { verifyAccessToken, extractTokenFromHeader, ClientTokenPayload } from '../utils/jwt';
+import { verifyAccessToken, extractTokenFromRequest, ClientTokenPayload } from '../utils/jwt';
 import { db } from '../db/client';
 import { sessions, securityLogs } from '../db/schema';
 import { eq, and, isNull } from 'drizzle-orm';
@@ -138,8 +138,10 @@ function tunnelFromHost(
 }
 
 // ===== 验证 Client JWT =====
+// 02a-S11 之后 Web 端走 rb_access cookie，不再有可读的 Authorization 头 —— 必须支持两条路径，
+// 否则任何非本机部署（Web 必经此代理）的下载/预览都会 401。
 function authenticateClient(request: FastifyRequest, reply: FastifyReply): ClientTokenPayload | null {
-  const token = extractTokenFromHeader(request.headers.authorization);
+  const token = extractTokenFromRequest(request.headers);
   if (!token) {
     reply.code(401).send({
       success: false,

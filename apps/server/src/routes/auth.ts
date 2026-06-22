@@ -286,15 +286,16 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       createdAt: now,
     });
 
-    // 将 token 写入 httpOnly cookie（02a-S11）；body 里保留以兼容过渡期旧客户端
+    // 将 token 写入 httpOnly cookie（02a-S11）。曾在 body 中同时回显两个 token 以兼容
+    // 过渡期旧客户端，但 body 是 JS 可读的——任何 XSS 都能在响应到达 app-store.ts 之前
+    // 拦截 axios 响应读走它们，这恰好抵消了迁移到 httpOnly cookie 的意义。Web 端早已只
+    // 解构 { sessionId, hostInfo }（从未读过 body 里的 token），故直接移除，不再回显。
     setCookies(reply, accessToken, refreshToken);
 
     const response: ApiResponse<ConnectResponse> = {
       success: true,
       data: {
         sessionId,
-        accessToken,
-        refreshToken,
         hostInfo: {
           hostId: matchedHost.id,
           name: matchedHost.name,
@@ -311,7 +312,16 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   // --- POST /auth/refresh ---
   // 刷新 Access Token；优先从 rb_refresh cookie 读（02a-S11），兼容 body 传参（旧客户端/测试）
-  fastify.post('/auth/refresh', async (request, reply) => {
+  // 限流：这是唯一未限流的认证端点，而它直接消费 30 天有效期的 refresh token 签发新 token，
+  // 不加限制会是最便宜的滥用面（JWT 验证 + DB 读 + 两次签名 + DB 写，无需任何凭据即可反复触发）
+  fastify.post('/auth/refresh', {
+    config: {
+      rateLimit: {
+        max: RATE_LIMIT_CONFIG.AUTH_MAX,
+        timeWindow: RATE_LIMIT_CONFIG.WINDOW_MS,
+      },
+    },
+  }, async (request, reply) => {
     const cookieRefresh = parseCookieValue(request.headers.cookie, 'rb_refresh');
     const { refreshToken: bodyRefreshToken } = (request.body as any) || {};
     const refreshToken = cookieRefresh || bodyRefreshToken;

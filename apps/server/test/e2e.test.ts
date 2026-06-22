@@ -37,7 +37,7 @@ function request(
   path: string,
   body?: Record<string, unknown>,
   headers: Record<string, string> = {},
-): Promise<{ status: number; data: any }> {
+): Promise<{ status: number; data: any; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const fullUrl = API_BASE + path;
     const parsed = new URL(fullUrl);
@@ -57,9 +57,9 @@ function request(
       res.on('data', (chunk: Buffer) => (data += chunk));
       res.on('end', () => {
         try {
-          resolve({ status: res.statusCode!, data: JSON.parse(data) });
+          resolve({ status: res.statusCode!, data: JSON.parse(data), headers: res.headers });
         } catch {
-          resolve({ status: res.statusCode!, data });
+          resolve({ status: res.statusCode!, data, headers: res.headers });
         }
       });
     });
@@ -68,6 +68,14 @@ function request(
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
+}
+
+// 从 Set-Cookie 中取指定 cookie 的值（02a-S11 之后 /auth/connect 不再在 body 回显 token）
+function extractCookie(setCookie: string | string[] | undefined, name: string): string {
+  const headers = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+  const header = headers.find((c) => c.startsWith(`${name}=`));
+  if (!header) throw new Error(`Set-Cookie 中未找到 ${name}`);
+  return decodeURIComponent(header.split(';')[0].slice(name.length + 1));
 }
 
 // ===== WebSocket 工具 =====
@@ -176,7 +184,7 @@ describe('RemoteBridge 核心业务逻辑', () => {
       pin = res.data.data.pin;
     });
 
-    it('PIN 连接 → 获取 session + tokens', async () => {
+    it('PIN 连接 → 获取 session + httpOnly cookie tokens', async () => {
       clientId = 'test-client-' + Date.now();
       const res = await request('POST', '/auth/connect', {
         pin,
@@ -185,11 +193,24 @@ describe('RemoteBridge 核心业务逻辑', () => {
       });
       expect(res.data.success).toBe(true);
       expect(res.data.data.sessionId).toBeTruthy();
-      expect(res.data.data.accessToken).toBeTruthy();
-      expect(res.data.data.refreshToken).toBeTruthy();
       expect(res.data.data.hostInfo.hostId).toBe(hostId);
-      clientToken = res.data.data.accessToken;
-      refreshToken = res.data.data.refreshToken;
+      // token 不再在 body 中回显（02a-S11）——直接断言 body 没有它们，
+      // 同时校验 Set-Cookie 把两个 token 当 httpOnly cookie 签发，属性正确
+      expect(res.data.data.accessToken).toBeUndefined();
+      expect(res.data.data.refreshToken).toBeUndefined();
+      const setCookie = res.headers['set-cookie'] || [];
+      const accessCookie = setCookie.find((c) => c.startsWith('rb_access='));
+      const refreshCookie = setCookie.find((c) => c.startsWith('rb_refresh='));
+      expect(accessCookie).toBeTruthy();
+      expect(refreshCookie).toBeTruthy();
+      expect(accessCookie).toContain('HttpOnly');
+      expect(accessCookie).toContain('SameSite=Strict');
+      expect(accessCookie).toContain('Max-Age=7200');
+      expect(refreshCookie).toContain('HttpOnly');
+      expect(refreshCookie).toContain('SameSite=Strict');
+      expect(refreshCookie).toContain('Max-Age=2592000');
+      clientToken = extractCookie(setCookie, 'rb_access');
+      refreshToken = extractCookie(setCookie, 'rb_refresh');
       sessionId = res.data.data.sessionId;
     });
 

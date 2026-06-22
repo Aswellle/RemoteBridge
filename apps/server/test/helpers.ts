@@ -16,6 +16,34 @@ export function post(
   }).then((r) => r.json());
 }
 
+// 从 Set-Cookie 中取指定 cookie 的值；用于 02a-S11 之后 /auth/connect 不再在 body 回显 token 的场景
+function extractCookie(setCookies: string[], name: string): string {
+  const header = setCookies.find((c) => c.startsWith(`${name}=`));
+  if (!header) throw new Error(`Set-Cookie 中未找到 ${name}`);
+  return decodeURIComponent(header.split(';')[0].slice(name.length + 1));
+}
+
+// 同 post()，但同时返回 Set-Cookie 中的 rb_access/rb_refresh —— /auth/connect、/auth/refresh
+// 的 cookie 路径用这个而不是 post()，因为 token 不再出现在 body 里
+export async function postWithCookies(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<{ data: any; accessToken: string; refreshToken: string }> {
+  const res = await fetch(API_BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  const setCookies = res.headers.getSetCookie();
+  const data = await res.json();
+  return {
+    data,
+    accessToken: extractCookie(setCookies, 'rb_access'),
+    refreshToken: extractCookie(setCookies, 'rb_refresh'),
+  };
+}
+
 export function openWs(token: string, type: 'host' | 'client'): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${WS_BASE}?token=${token}&type=${type}`);
@@ -53,8 +81,11 @@ export async function createSession(namePrefix: string): Promise<TestSession> {
     { Authorization: `Bearer ${hostToken}` },
   );
   const clientId = `${namePrefix}-client-${Date.now()}`;
-  const conn = await post('/auth/connect', { pin: pinResp.data.pin, clientId, clientLabel: namePrefix });
-  const { sessionId, accessToken, refreshToken } = conn.data;
+  const { data: conn, accessToken, refreshToken } = await postWithCookies(
+    '/auth/connect',
+    { pin: pinResp.data.pin, clientId, clientLabel: namePrefix },
+  );
+  const { sessionId } = conn.data;
 
   return { hostId, hostToken, clientId, sessionId, accessToken, refreshToken };
 }

@@ -46,8 +46,6 @@ export interface ConnectRequest {
 
 export interface ConnectResponse {
   sessionId: string;
-  accessToken: string;
-  refreshToken: string;
   hostInfo: HostInfo;
 }
 

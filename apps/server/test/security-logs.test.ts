@@ -17,7 +17,7 @@ function request(
   path: string,
   body?: Record<string, unknown>,
   headers: Record<string, string> = {},
-): Promise<{ status: number; data: any }> {
+): Promise<{ status: number; data: any; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const fullUrl = API_BASE + path;
     const parsed = new URL(fullUrl);
@@ -37,9 +37,9 @@ function request(
       res.on('data', (chunk: Buffer) => (data += chunk));
       res.on('end', () => {
         try {
-          resolve({ status: res.statusCode!, data: JSON.parse(data) });
+          resolve({ status: res.statusCode!, data: JSON.parse(data), headers: res.headers });
         } catch {
-          resolve({ status: res.statusCode!, data });
+          resolve({ status: res.statusCode!, data, headers: res.headers });
         }
       });
     });
@@ -48,6 +48,14 @@ function request(
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
+}
+
+// 从 Set-Cookie 中取指定 cookie 的值（02a-S11 之后 /auth/connect 不再在 body 回显 token）
+function extractCookie(setCookie: string | string[] | undefined, name: string): string {
+  const headers = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+  const header = headers.find((c) => c.startsWith(`${name}=`));
+  if (!header) throw new Error(`Set-Cookie 中未找到 ${name}`);
+  return decodeURIComponent(header.split(';')[0].slice(name.length + 1));
 }
 
 describe('POST/GET /security-logs, GET /access-logs (P0-2)', () => {
@@ -76,7 +84,7 @@ describe('POST/GET /security-logs, GET /access-logs (P0-2)', () => {
       clientId: testClientId,
       clientLabel: 'Security Logs Test',
     });
-    accessToken = connectRes.data.data.accessToken;
+    accessToken = extractCookie(connectRes.headers['set-cookie'], 'rb_access');
   });
 
   it('Host 可上报 ACCESS 事件（正常访问）', async () => {
