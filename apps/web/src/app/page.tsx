@@ -85,7 +85,7 @@ export default function HomePage() {
     <div className="min-h-screen flex bg-gradient-to-br from-background to-secondary/40">
 
       {/* ===== 左侧：设备历史面板 ===== */}
-      <div className="w-72 xl:w-80 flex-shrink-0 border-r border-border/50 bg-card/60 flex flex-col p-6">
+      <div className="hidden lg:flex w-72 xl:w-80 flex-shrink-0 border-r border-border/50 bg-card/60 flex-col p-6">
         {/* 品牌标识 */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-primary">RemoteBridge</h1>
