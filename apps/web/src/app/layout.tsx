@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
       {/* 阻塞式内联脚本：在 React 水合前从 localStorage 读取主题并写入 <html> class，
           消除从默认色 → 持久化主题的视觉闪烁 */}
       <head>
