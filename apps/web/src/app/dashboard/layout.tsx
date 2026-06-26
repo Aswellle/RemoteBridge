@@ -51,7 +51,7 @@ function SidebarContent({
       {/* Logo */}
       <div className="p-4 border-b border-border flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-primary">RemoteBridge</h1>
+          <h1 className="text-xl font-bold text-primary font-system">RemoteBridge</h1>
           <p className="text-xs text-muted-foreground mt-1">Web Client</p>
         </div>
         {/* Close button - mobile only */}
