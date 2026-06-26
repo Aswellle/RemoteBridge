@@ -144,6 +144,12 @@ export default function HomePage() {
       {/* ===== 右侧：连接表单 ===== */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-sm">
+          {/* 移动端品牌标识 — 侧边栏隐藏时显示 */}
+          <div className="lg:hidden text-center mb-6">
+            <p className="text-xl font-bold text-primary">RemoteBridge</p>
+            <p className="text-xs text-muted-foreground mt-0.5">远程文件桥接系统</p>
+          </div>
+
           <motion.div
             className="text-center mb-8"
             initial={{ opacity: 0, y: -16 }}
