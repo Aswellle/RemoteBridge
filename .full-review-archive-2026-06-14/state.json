@@ -1,0 +1,16 @@
+{
+  "target": "Whole monorepo: apps/server, apps/web, apps/desktop, packages/shared (+ apps/server/test)",
+  "status": "complete",
+  "flags": {
+    "security_focus": false,
+    "performance_critical": false,
+    "strict_mode": false,
+    "framework": "TypeScript / pnpm + Turborepo monorepo (Fastify relay server, Next.js 14 web client, Electron desktop host)"
+  },
+  "current_step": 5,
+  "current_phase": 5,
+  "completed_steps": ["0", "1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B", "5"],
+  "files_created": ["00-scope.md", "01a-code-quality.md", "01b-architecture.md", "01-quality-architecture.md", "02a-security.md", "02b-performance.md", "02-security-performance.md", "03a-testing.md", "03b-documentation.md", "03-testing-documentation.md", "04a-best-practices.md", "04b-cicd-devops.md", "04-best-practices.md", "05-final-report.md"],
+  "started_at": "2026-06-13T12:00:00Z",
+  "last_updated": "2026-06-13T19:30:00Z"
+}
