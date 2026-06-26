@@ -285,11 +285,13 @@ export class WebSocketManager {
       this.maxReconnectDelay
     );
 
-    logger.debug(`将在 ${this.reconnectDelay}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
+    // PM4: 加 0-1000ms 随机抖动，防止服务重启时大量客户端同步重连
+    const delay = this.reconnectDelay + Math.random() * 1000;
+    logger.debug(`将在 ${Math.round(delay)}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
 
     this.reconnectTimer = setTimeout(() => {
       void this.connect();
-    }, this.reconnectDelay);
+    }, delay);
   }
 
   send(message: Partial<WSMessage>): void {

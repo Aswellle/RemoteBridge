@@ -46,18 +46,19 @@ describe('relay startup — JWT secret validation (P0-6)', () => {
   }, 45000);
 
   it('starts successfully with two independent, sufficiently-long secrets', async () => {
+    // 用 14096 而非 3096：Windows Hyper-V 把 3043-3142 纳入排除区间，导致 EACCES
     const proc = spawnRelay({
       NODE_ENV: 'production',
       JWT_SECRET: 'a'.repeat(32),
       JWT_REFRESH_SECRET: 'b'.repeat(32),
-      RELAY_PORT: '3096',
+      RELAY_PORT: '14096',
     });
 
     let healthy = false;
     try {
       for (let i = 0; i < 100; i++) {
         try {
-          const res = await fetch('http://localhost:3096/health');
+          const res = await fetch('http://localhost:14096/health');
           if (res.ok) { healthy = true; break; }
         } catch { /* 尚未就绪 */ }
         await new Promise((r) => setTimeout(r, 200));

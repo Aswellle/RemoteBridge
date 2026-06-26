@@ -257,6 +257,8 @@ describe('WebSocketManager', () => {
 
   it('schedules reconnect with exponential backoff on abnormal socket closes', async () => {
     vi.useFakeTimers();
+    // PM4: mock Math.random to 0 so jitter = 0 and delays stay deterministic
+    const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
     mockTicketSuccess(); // initial connect
     const { manager } = createManager();
     await manager.connect();
@@ -276,6 +278,8 @@ describe('WebSocketManager', () => {
       // advanceTimersByTimeAsync internally flushes microtasks, so connect() chain completes
       expect(MockWebSocket.instances).toHaveLength(index + 2);
     }
+
+    mathRandomSpy.mockRestore();
   });
 
   it('stops reconnecting after disconnect()', async () => {

@@ -169,24 +169,27 @@ function authenticateClient(request: FastifyRequest, reply: FastifyReply): Clien
   }
 }
 
-// ===== 验证会话 =====
-async function validateSession(sessionId: string, reply: FastifyReply): Promise<boolean> {
-  const session = await db.select()
+// ===== 验证会话（返回行以避免二次查询，PM2） =====
+async function validateSession(
+  sessionId: string,
+  reply: FastifyReply,
+): Promise<{ hostId: string } | null> {
+  const rows = await db.select()
     .from(sessions)
     .where(and(eq(sessions.id, sessionId), isNull(sessions.revokedAt)))
     .limit(1);
 
-  if (!session.length) {
+  if (!rows.length) {
     reply.code(404).send({
       success: false,
       data: null,
       error: { code: 'SESSION_NOT_FOUND', message: '会话不存在或已被吊销' },
       timestamp: Date.now(),
     });
-    return false;
+    return null;
   }
 
-  return true;
+  return { hostId: rows[0].hostId };
 }
 
 // ===== 代理路由 =====
@@ -203,7 +206,18 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
       const payload = authenticateClient(request, reply);
       if (!payload) return;
 
-      // 2. 验证 filePath
+      // 2. SH4: 确保 JWT 中的 sessionId 与 URL 参数一致，防止持有已吊销会话 token 的
+      //    Client 借用其他活跃会话绕过吊销检查
+      if (payload.sessionId !== sessionId) {
+        return reply.code(403).send({
+          success: false,
+          data: null,
+          error: { code: 'SESSION_MISMATCH', message: '令牌会话与请求会话不匹配' },
+          timestamp: Date.now(),
+        });
+      }
+
+      // 3. 验证 filePath
       if (!filePath) {
         return reply.code(400).send({
           success: false,
@@ -213,16 +227,12 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      // 3. 验证会话
-      if (!(await validateSession(sessionId, reply))) return;
+      // 4. 验证会话（同时取 hostId，避免二次查询）
+      const sessionRow = await validateSession(sessionId, reply);
+      if (!sessionRow) return;
 
-      // 4. 查找 Host WebSocket
-      const session = await db.select()
-        .from(sessions)
-        .where(eq(sessions.id, sessionId))
-        .limit(1);
-
-      const hostId = session[0].hostId;
+      // 5. 查找 Host WebSocket
+      const hostId = sessionRow.hostId;
       const hostWs = getHostSocket(hostId);
 
       if (!hostWs) {
@@ -303,7 +313,17 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
       const payload = authenticateClient(request, reply);
       if (!payload) return;
 
-      // 2. 验证 filePath
+      // 2. SH4: 确保 JWT 中的 sessionId 与 URL 参数一致
+      if (payload.sessionId !== sessionId) {
+        return reply.code(403).send({
+          success: false,
+          data: null,
+          error: { code: 'SESSION_MISMATCH', message: '令牌会话与请求会话不匹配' },
+          timestamp: Date.now(),
+        });
+      }
+
+      // 3. 验证 filePath
       if (!filePath) {
         return reply.code(400).send({
           success: false,
@@ -313,16 +333,12 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      // 3. 验证会话
-      if (!(await validateSession(sessionId, reply))) return;
+      // 4. 验证会话（同时取 hostId，避免二次查询）
+      const sessionRow = await validateSession(sessionId, reply);
+      if (!sessionRow) return;
 
-      // 4. 查找 Host WebSocket
-      const session = await db.select()
-        .from(sessions)
-        .where(eq(sessions.id, sessionId))
-        .limit(1);
-
-      const hostId = session[0].hostId;
+      // 5. 查找 Host WebSocket
+      const hostId = sessionRow.hostId;
       const hostWs = getHostSocket(hostId);
 
       if (!hostWs) {

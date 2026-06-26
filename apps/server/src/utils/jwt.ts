@@ -7,7 +7,8 @@ import { JWT_CONFIG } from '@remotebridge/shared';
 export const DEFAULT_JWT_SECRET = 'remotebridge-dev-secret-change-in-production';
 const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 // refresh token 使用独立密钥：即使 access 密钥泄露，30 天长效凭证也不受影响（反之亦然）
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || `${JWT_SECRET}-refresh`;
+// SM1: 独立的 refresh 密钥回退值，不从 access 密钥派生，防止 access 泄露同时暴露 refresh
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'remotebridge-refresh-dev-secret-change-in-production';
 
 // ===== Token Payload 接口 =====
 export interface HostTokenPayload {

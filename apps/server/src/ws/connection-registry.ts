@@ -29,6 +29,8 @@ export function setConnMeta(ws: WebSocket, meta: ConnectionMeta): void {
 const hostSockets = new Map<string, WebSocket>();    // hostId -> WebSocket
 const clientSockets = new Map<string, WebSocket>();  // clientId -> WebSocket
 const sessionRooms = new Map<string, string>();       // clientId -> hostId
+// PM1: hostId -> Set<clientId> 反向索引，将 getHostClients/forEachClientOfHost 从 O(n) 降为 O(1)
+const hostClients = new Map<string, Set<string>>();  // hostId -> Set<clientId>
 
 // ===== Host =====
 export function registerHost(hostId: string, ws: WebSocket): void {
@@ -60,13 +62,20 @@ export function registerClient(clientId: string, ws: WebSocket, hostId?: string)
   clientSockets.set(clientId, ws);
   if (hostId) {
     sessionRooms.set(clientId, hostId);
+    if (!hostClients.has(hostId)) hostClients.set(hostId, new Set());
+    hostClients.get(hostId)!.add(clientId);
   }
 }
 
 export function unregisterClient(clientId: string, expected: WebSocket): boolean {
   if (clientSockets.get(clientId) !== expected) return false;
   clientSockets.delete(clientId);
+  const hostId = sessionRooms.get(clientId);
   sessionRooms.delete(clientId);
+  if (hostId) {
+    hostClients.get(hostId)?.delete(clientId);
+    if (hostClients.get(hostId)?.size === 0) hostClients.delete(hostId);
+  }
   return true;
 }
 
@@ -88,16 +97,19 @@ export function getClientHost(clientId: string): string | null {
 }
 
 export function getHostClients(hostId: string): string[] {
-  const clients: string[] = [];
-  sessionRooms.forEach((hId, clientId) => {
-    if (hId === hostId) clients.push(clientId);
-  });
-  return clients;
+  return Array.from(hostClients.get(hostId) ?? []);
 }
 
 // Host（重）上线时，为其已连接的 Client 重建房间映射
 export function rebindClientToHost(clientId: string, hostId: string): void {
+  const oldHostId = sessionRooms.get(clientId);
+  if (oldHostId && oldHostId !== hostId) {
+    hostClients.get(oldHostId)?.delete(clientId);
+    if (hostClients.get(oldHostId)?.size === 0) hostClients.delete(oldHostId);
+  }
   sessionRooms.set(clientId, hostId);
+  if (!hostClients.has(hostId)) hostClients.set(hostId, new Set());
+  hostClients.get(hostId)!.add(clientId);
 }
 
 export function forEachClientOfHost(hostId: string, fn: (clientId: string, ws: WebSocket) => void): void {
@@ -111,6 +123,7 @@ export function forEachClientOfHost(hostId: string, fn: (clientId: string, ws: W
 export function clearHostClients(hostId: string): string[] {
   const clients = getHostClients(hostId);
   clients.forEach((clientId) => sessionRooms.delete(clientId));
+  hostClients.delete(hostId);
   return clients;
 }
 
@@ -119,6 +132,7 @@ export function clearAll(): void {
   hostSockets.clear();
   clientSockets.clear();
   sessionRooms.clear();
+  hostClients.clear();
 }
 
 // ===== 房间信息（聚合 Host 名称 + 已连接 Client 列表） =====

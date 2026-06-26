@@ -23,7 +23,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('auth:generate-pin', expiresIn),
 
   // === Host 信息 ===
-  getHostToken: () => ipcRenderer.invoke('host:get-token'),
   getRelayUrl: () => ipcRenderer.invoke('host:get-relay-url'),
 
   // === 客户端管理 ===
@@ -106,9 +105,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('event:update-status', (_, status) => callback(status));
   },
 
-  // === 清理事件监听器 ===
+  // === 清理事件监听器（SL3：限白名单频道，防止渲染层静默安全通知频道） ===
   removeAllListeners: (channel: string) => {
-    ipcRenderer.removeAllListeners(channel);
+    const SAFE_CHANNELS = [
+      'event:client-joined', 'event:client-left', 'event:connection-status',
+      'event:new-message', 'event:session-revoked', 'event:file-received',
+      'event:update-status',
+    ];
+    if (SAFE_CHANNELS.includes(channel)) {
+      ipcRenderer.removeAllListeners(channel);
+    }
   },
 });
 
@@ -160,7 +166,6 @@ export interface ElectronAPI {
   disconnectRelay: () => Promise<{ success: boolean }>;
   getRelayStatus: () => Promise<{ connected: boolean }>;
   generatePin: (expiresIn: number) => Promise<{ success: boolean; data?: { pin: string; expiresAt: number }; error?: string }>;
-  getHostToken: () => Promise<string>;
   getRelayUrl: () => Promise<string>;
   listClients: () => Promise<Array<{
     clientId: string;

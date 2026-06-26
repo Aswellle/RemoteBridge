@@ -141,11 +141,13 @@ export class RelayClient {
       this.maxReconnectDelay
     );
 
-    log.debug(`将在 ${this.reconnectDelay}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
+    // PM4: 加 0-1000ms 随机抖动，防止服务重启时大量客户端同步重连
+    const delay = this.reconnectDelay + Math.random() * 1000;
+    log.debug(`将在 ${Math.round(delay)}ms 后重连 (第 ${this.reconnectAttempts} 次)`);
 
     this.reconnectTimer = setTimeout(() => {
       this.connect();
-    }, this.reconnectDelay);
+    }, delay);
   }
 
   // ===== 发送消息 =====

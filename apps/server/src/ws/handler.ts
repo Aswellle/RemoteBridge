@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
 import { nanoid } from 'nanoid';
 import { verifyToken, TokenPayload } from '../utils/jwt';
-import { db } from '../db/client';
+import { db, isSessionRevoked } from '../db/client';
 import { sessions, messages } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { WSMessage, WSMessageType } from '@remotebridge/shared';
@@ -149,11 +149,15 @@ export function setupWebSocket(app: FastifyInstance): void {
         }
       });
     } else {
+      // SM6: 在注册消息处理器之前同步检查会话吊销状态（消除 ~10ms 异步窗口）
+      if (!meta.sessionId || isSessionRevoked(meta.sessionId)) {
+        app.log.warn(`Client ${meta.id} 会话已吊销，拒绝连接`);
+        socket.close(4003, 'Session revoked');
+        return;
+      }
       registerClient(meta.id, socket, meta.hostId);
       app.log.info(`Client ${meta.id} 已连接`);
-
-      // 异步校验会话是否已被吊销（JWT 2h 内仍有效，但吊销必须立即生效），
-      // 顺带取 clientLabel；校验通过后才通知 Host 有新 Client 加入
+      // 异步部分：取 clientLabel 并通知 Host
       validateClientSession(socket, meta, app);
     }
 

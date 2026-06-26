@@ -22,12 +22,22 @@ interface UploadTransfer {
 }
 const uploadBuffer = new Map<string, UploadTransfer>();
 
+// PH1: 并发上传上限与内存配额
+const MAX_CONCURRENT_UPLOADS = 5;
+const MAX_TOTAL_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
+let totalBufferedBytes = 0;
+
+// SL4: 合法分类枚举
+const VALID_CATEGORIES: FileCategory[] = ['images', 'videos', 'documents', 'archives', 'markdown'];
+
 // 上传目录路径不存在时自动创建，并将重名文件改名（追加序号）
+// P0-1: 内部强制取 basename，防止 fileName 含 ../ 导致路径穿越
 async function getUniqueSavePath(dir: string, fileName: string): Promise<string> {
+  const safeName = path.basename(fileName); // strip any directory components
   await fs.mkdir(dir, { recursive: true });
-  const ext = path.extname(fileName);
-  const base = path.basename(fileName, ext);
-  let candidate = path.join(dir, fileName);
+  const ext = path.extname(safeName);
+  const base = path.basename(safeName, ext);
+  let candidate = path.join(dir, safeName);
   let i = 1;
   while (true) {
     try {
@@ -35,7 +45,13 @@ async function getUniqueSavePath(dir: string, fileName: string): Promise<string>
       candidate = path.join(dir, `${base} (${i})${ext}`);
       i++;
     } catch {
-      return candidate;
+      // 兜底：确保结果路径在 dir 范围内（双重防御）
+      const resolved = path.resolve(candidate);
+      const resolvedDir = path.resolve(dir);
+      if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
+        throw new Error(`路径穿越检测: ${resolved}`);
+      }
+      return resolved;
     }
   }
 }
@@ -124,13 +140,41 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
       return;
     }
 
+    // SL4: 校验 category 合法性（拒绝未知分类，防止绕过路径选择逻辑）
+    if (!VALID_CATEGORIES.includes(category)) {
+      log.warn('文件上传：非法分类:', category);
+      client.send({
+        type: WSMessageType.RESP_UPLOAD_ERROR,
+        payload: { uploadId, code: 'INVALID_CATEGORY', message: `无效的文件分类: ${category}`, clientId, sessionId },
+      });
+      return;
+    }
+
     // 初始化缓冲区（首个分块到达时）
     if (!uploadBuffer.has(uploadId)) {
-      // 5 分钟超时自动清理未完成的传输
+      // PH1: 并发上传数量与总内存配额检查
+      if (uploadBuffer.size >= MAX_CONCURRENT_UPLOADS || totalBufferedBytes + totalSize > MAX_TOTAL_UPLOAD_BYTES) {
+        log.warn('文件上传：配额已满，拒绝 uploadId:', uploadId);
+        client.send({
+          type: WSMessageType.RESP_UPLOAD_ERROR,
+          payload: { uploadId, code: 'QUOTA_EXCEEDED', message: '上传配额已满，请稍后重试', clientId, sessionId },
+        });
+        return;
+      }
+
+      totalBufferedBytes += totalSize;
+
+      // PM5: 超时计时器在每个分块到达时重置，支持大文件慢速上传
       const timer = setTimeout(() => {
-        if (uploadBuffer.has(uploadId)) {
+        const t = uploadBuffer.get(uploadId);
+        if (t) {
           log.warn('文件上传超时，丢弃 uploadId:', uploadId);
+          totalBufferedBytes -= t.totalSize;
           uploadBuffer.delete(uploadId);
+          client.send({
+            type: WSMessageType.RESP_UPLOAD_ERROR,
+            payload: { uploadId, code: 'TIMEOUT', message: '上传超时', clientId: t.clientId, sessionId: t.sessionId },
+          });
         }
       }, 5 * 60 * 1000);
 
@@ -154,9 +198,25 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
       transfer.received++;
     }
 
+    // PM5: 每个分块到达后重置超时（已在缓冲区内）
+    clearTimeout(transfer.timer);
+    transfer.timer = setTimeout(() => {
+      const t = uploadBuffer.get(uploadId);
+      if (t) {
+        log.warn('文件上传超时，丢弃 uploadId:', uploadId);
+        totalBufferedBytes -= t.totalSize;
+        uploadBuffer.delete(uploadId);
+        client.send({
+          type: WSMessageType.RESP_UPLOAD_ERROR,
+          payload: { uploadId, code: 'TIMEOUT', message: '上传超时', clientId: t.clientId, sessionId: t.sessionId },
+        });
+      }
+    }, 5 * 60 * 1000);
+
     // 所有分块已到齐 → 组装并写盘
     if (transfer.received === totalChunks) {
       clearTimeout(transfer.timer);
+      totalBufferedBytes -= transfer.totalSize;
       uploadBuffer.delete(uploadId);
 
       try {

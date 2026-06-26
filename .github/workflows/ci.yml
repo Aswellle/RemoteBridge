@@ -22,11 +22,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # P3-17 (04b-DC9): report-only dependency audit — pnpm audit can have false
-      # positives on dev-only deps, so this doesn't fail the build, just surfaces
-      # known vulnerabilities in the job log for manual review.
-      - name: Audit dependencies (report-only)
-        run: pnpm audit --prod || true
+      # CH1: audit 改为 --audit-level=high，高危/严重漏洞时中断构建；
+      # 低/中危误报通过 .auditrc / overrides 处理，不再全局静默。
+      - name: Audit dependencies
+        run: pnpm audit --prod --audit-level=high
 
       # apps/server, apps/web and apps/desktop all import @remotebridge/shared
       # from its compiled dist/, so it must be built before anything else.
@@ -35,6 +34,10 @@ jobs:
 
       - name: Build all packages
         run: pnpm build
+
+      # CH2: 明确构建 desktop 包，确保 electron-vite 打包错误在 CI 中可见
+      - name: Build desktop package
+        run: pnpm --filter @remotebridge/desktop build
 
       - name: Lint web
         run: pnpm --filter @remotebridge/web lint

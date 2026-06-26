@@ -33,7 +33,9 @@ function clearCookies(reply: FastifyReply): void {
 
 function parseCookieValue(cookieHeader: string | undefined, name: string): string | undefined {
   if (!cookieHeader) return undefined;
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  // SL1: 转义 name 中的 RegExp 特殊字符，防止恶意 cookie 名触发 ReDoS
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${escapedName}=([^;]*)`));
   if (!match) return undefined;
   try {
     return decodeURIComponent(match[1]);
@@ -148,8 +150,11 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
     // 解析过期时间（缺省 5 分钟；PIN 是一次性入口凭证，不允许永不过期）
     const { expiresIn } = (request.body as any) || {};
+    const MAX_PIN_EXPIRES_IN = 24 * 60 * 60; // SM5: 上限 24 小时，防止签发永久有效的 PIN
     const effectiveExpiresIn =
-      typeof expiresIn === 'number' && expiresIn > 0 ? expiresIn : PIN_DEFAULT_EXPIRES_IN;
+      typeof expiresIn === 'number' && expiresIn > 0
+        ? Math.min(expiresIn, MAX_PIN_EXPIRES_IN)
+        : PIN_DEFAULT_EXPIRES_IN;
     const pinExpiresAt = Math.floor(Date.now() / 1000) + effectiveExpiresIn;
 
     // 生成 PIN
@@ -611,6 +616,22 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         success: false,
         data: null,
         error: { code: 'INVALID_TOKEN', message: 'Host token 无效或已过期' },
+        timestamp: Date.now(),
+      });
+    }
+
+    // SM3: 检查主机是否已被封禁（verifyHostToken 只验证签名，不检查 DB 状态）
+    // 仅当主机记录存在且 is_banned=1 时拒绝；不在 DB 中的主机不阻断（JWT 本身已验证）
+    const hostRow = await db.select({ isBanned: hosts.isBanned })
+      .from(hosts)
+      .where(eq(hosts.id, payload.sub))
+      .limit(1);
+
+    if (hostRow.length && hostRow[0].isBanned) {
+      return reply.code(403).send({
+        success: false,
+        data: null,
+        error: { code: 'HOST_BANNED', message: '主机已被封禁' },
         timestamp: Date.now(),
       });
     }
