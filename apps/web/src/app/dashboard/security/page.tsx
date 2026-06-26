@@ -129,7 +129,7 @@ export default function SecurityPage() {
           <select
             value={filterEventType}
             onChange={(e) => setFilterEventType(e.target.value)}
-            className="px-3 py-1.5 bg-secondary border border-border rounded text-sm"
+            className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm"
           >
             <option value="">全部</option>
             {Object.entries(EVENT_TYPE_LABELS).map(([value, label]) => (
@@ -145,7 +145,7 @@ export default function SecurityPage() {
             value={filterClientId}
             onChange={(e) => setFilterClientId(e.target.value)}
             placeholder="筛选客户端"
-            className="px-3 py-1.5 bg-secondary border border-border rounded text-sm w-48"
+            className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm w-48"
           />
         </div>
 
