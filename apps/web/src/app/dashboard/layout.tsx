@@ -253,7 +253,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </AnimatePresence>
 
       {/* 主内容区 */}
-      <main className="flex-1 overflow-auto">{children}</main>
+      <main className="flex-1 min-w-0 overflow-auto">{children}</main>
     </div>
   );
 }
