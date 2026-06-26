@@ -88,7 +88,7 @@ export default function HomePage() {
       <div className="hidden lg:flex w-72 xl:w-80 flex-shrink-0 border-r border-border/50 bg-card/60 flex-col p-6">
         {/* 品牌标识 */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-primary">RemoteBridge</h1>
+          <h1 className="text-lg font-bold text-primary">RemoteBridge</h1>
           <p className="text-xs text-muted-foreground mt-1">远程文件桥接系统</p>
         </div>
 
