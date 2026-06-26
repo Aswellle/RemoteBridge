@@ -42,6 +42,8 @@ release/
 
 # Internal review artifacts and project documentation (not for public repo)
 .full-review/
+.full-review-archive-*/
+.design-audit/
 docs/
 CHANGELOG.md
 CLAUDE.md
