@@ -55,7 +55,7 @@ module.exports = {
         arch: ['arm64'],   // macos-latest runner is Apple Silicon (arm64)
       },
     ],
-    icon: 'resources/icon.icns',
+    icon: 'resources/icon.png',  // electron-builder auto-converts PNG→ICNS on macOS runner
   },
   linux: {
     target: [
