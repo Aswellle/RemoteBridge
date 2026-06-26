@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Loader2, ClipboardList } from 'lucide-react';
+import { Loader2, ClipboardList, AlertCircle, RefreshCw } from 'lucide-react';
 import { EVENT_TYPE_LABELS, EVENT_TYPE_COLORS } from '@remotebridge/shared';
 
 // ===== 安全日志条目类型 =====
@@ -147,8 +147,18 @@ export default function SecurityLogs() {
 
       {/* 错误提示 */}
       {error && (
-        <div className="bg-destructive/10 border border-destructive rounded-lg p-4 mb-6 text-destructive">
-          ⚠️ {error}
+        <div className="bg-secondary border border-border rounded-lg p-4 mb-6 flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2 min-w-0">
+            <AlertCircle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-foreground">{error}</p>
+          </div>
+          <button
+            onClick={() => fetchLogs(1)}
+            className="flex items-center gap-1 px-3 py-1 bg-primary hover:bg-primary/90 text-white text-xs rounded-lg transition-colors flex-shrink-0"
+          >
+            <RefreshCw className="w-3 h-3" />
+            重试
+          </button>
         </div>
       )}
 

@@ -164,7 +164,20 @@ function registerIpcHandlers(): void {
         });
         return { success: true, data: response.data.data };
       } catch (error: any) {
-        const msg = error?.response?.data?.error?.message || error.message;
+        const code: string = error?.code ?? '';
+        const httpStatus: number = error?.response?.status ?? 0;
+        let msg: string;
+        if (code === 'ECONNREFUSED') {
+          msg = `无法连接到中继服务器（${getRelayApi()}），请确认服务器是否正在运行`;
+        } else if (code === 'ENOTFOUND') {
+          msg = `无法解析中继服务器地址（${getRelayApi()}），请检查域名或 IP 配置`;
+        } else if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
+          msg = '连接中继服务器超时，请稍后重试';
+        } else if (httpStatus === 401) {
+          msg = '身份验证失败，请在设置中重新注册主机';
+        } else {
+          msg = error?.response?.data?.error?.message ?? error.message;
+        }
         log.error('获取安全日志失败:', msg);
         return { success: false, error: msg };
       }

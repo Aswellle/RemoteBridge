@@ -63,7 +63,15 @@ export function registerClientsHandlers(getRelayApi: () => string): void {
       });
       return { success: true };
     } catch (error: any) {
-      const msg = error?.response?.data?.error?.message || error.message;
+      const code: string = error?.code ?? '';
+      let msg: string;
+      if (code === 'ECONNREFUSED' || code === 'ENOTFOUND') {
+        msg = '无法连接到中继服务器，吊销操作需要服务器在线';
+      } else if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
+        msg = '连接中继服务器超时，请稍后重试';
+      } else {
+        msg = error?.response?.data?.error?.message ?? error.message;
+      }
       return { success: false, error: msg };
     }
   });
