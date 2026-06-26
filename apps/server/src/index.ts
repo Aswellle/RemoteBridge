@@ -20,7 +20,15 @@ const PORT = parseInt(process.env.RELAY_PORT || '3002', 10);
 const HOST = process.env.RELAY_HOST || '0.0.0.0';
 
 // ===== 应用版本（来自 package.json，避免 /health 硬编码版本号与实际不一致） =====
-const APP_VERSION = JSON.parse(readFileSync(join(__dirname, '../package.json'), 'utf-8')).version as string;
+// 先尝试 monorepo 路径（dist/../package.json = apps/server/package.json），
+// 打包为 bundle.js 时 __dirname = resources/relay/，回退到同级 package.json（由 bundle-relay.mjs 写入）
+function loadVersion(): string {
+  for (const rel of ['../package.json', 'package.json']) {
+    try { return (JSON.parse(readFileSync(join(__dirname, rel), 'utf-8')).version as string) || 'unknown'; } catch {}
+  }
+  return 'unknown';
+}
+const APP_VERSION = loadVersion();
 
 // ===== 创建 Fastify 实例 =====
 // 日志级别与 utils/logger.ts 的独立 pino 实例共用同一环境变量，保持两者一致

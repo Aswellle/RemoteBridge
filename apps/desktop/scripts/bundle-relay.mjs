@@ -4,7 +4,7 @@
  * Dependencies: esbuild (devDep), pre-built apps/server/dist/
  */
 import { build } from 'esbuild';
-import { cpSync, copyFileSync, mkdirSync, existsSync, writeFileSync } from 'fs';
+import { cpSync, copyFileSync, mkdirSync, existsSync, writeFileSync, readFileSync } from 'fs';
 import { resolve, join, sep, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -71,5 +71,12 @@ copyFileSync(
   join(outDir, 'wrapper.js')
 );
 console.log('  ✓ wrapper.js');
+
+// Write a minimal package.json into the relay dir so bundle.js can resolve its version
+// (bundle's __dirname = resources/relay/, server reads join(__dirname, '../package.json')
+//  which fails when packaged; fallback reads join(__dirname, 'package.json') = this file)
+const { version: relayVersion } = JSON.parse(readFileSync(join(serverRoot, 'package.json'), 'utf-8'));
+writeFileSync(join(outDir, 'package.json'), JSON.stringify({ name: 'relay-server', version: relayVersion }, null, 2));
+console.log(`  ✓ package.json (v${relayVersion})`);
 
 console.log('\nRelay bundle ready at:', outDir);
