@@ -64,6 +64,15 @@ jobs:
           console.log('Copied',f.statSync(dst).size,'bytes to',dst);
           "
 
+      # 构建 Relay 服务器（bundle-relay.mjs 需要 apps/server/dist/）
+      - name: Build relay server
+        run: pnpm --filter @remotebridge/server build
+
+      # 将 Relay 打包成单文件嵌入桌面端安装包
+      - name: Bundle relay for desktop
+        working-directory: apps/desktop
+        run: node scripts/bundle-relay.mjs
+
       # electron-vite build 生成 dist/main、dist/preload、dist/renderer
       - name: Build Vite bundles
         run: pnpm --filter @remotebridge/desktop exec electron-vite build

@@ -42,6 +42,8 @@ RemoteBridge 采用**中继服务器架构**：运行在你电脑上的 Electron
 - **实时消息** —— 持久化消息历史，WebSocket 不可用时自动回退到 REST 接口
 - **会话管理** —— 在桌面应用中即时吊销任意客户端会话
 - **安全审计日志** —— 所有文件访问尝试（允许与拒绝）均记录并可在浏览器中查看
+- **本地中继服务器 GUI 管理** —— 桌面应用内置一键启动/停止 Relay 的图形界面，JWT 密钥自动生成，安装后无需打开终端
+- **文件上传（浏览器 → Host）** —— 网页端拖拽或选择文件，分块传输到 Host 端指定目录，按文件类型自动分类存储
 - **自动更新** —— 桌面应用启动时检查 GitHub Releases 中的新版本
 - **完全自托管** —— 一条命令完成 Docker Compose 部署，支持自有域名和 Caddy 自动 TLS
 
@@ -86,6 +88,7 @@ sequenceDiagram
 - 每次文件操作前，路径均经过**用户配置的白名单**和**系统敏感目录黑名单**双重校验
 - 下载令牌为一次性 UUID，绑定请求方的 `clientId`，30 分钟后过期
 - 访问令牌（2 h）与刷新令牌（30 d）使用独立签名密钥；刷新令牌携带 `use: 'refresh'` 声明，WebSocket 连接时会被拒绝
+- 网页客户端令牌存储在 **httpOnly Cookie**（`SameSite=Strict`，生产环境附加 `Secure`），JavaScript 不可读，有效防御 XSS 窃取凭据
 - Electron 渲染进程以 `sandbox: true` 运行并配置严格 CSP；PDF 预览使用无 `allow-same-origin` 的沙盒 iframe
 
 ## 快速开始
@@ -218,6 +221,8 @@ pnpm --filter @remotebridge/desktop package:mac    # macOS DMG
 pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 ```
 
+> **内置本地 Relay**：打包脚本会自动执行 `scripts/bundle-relay.mjs`，将 Relay 服务器 esbuild 打包成单文件并嵌入安装包。安装后在桌面应用 Settings 页面即可一键启动/停止本地 Relay，无需单独部署，也不需要用户安装 Node.js。
+
 ## CI / CD
 
 每次推送和 Pull Request 都会触发完整 CI 流水线（构建 → 类型检查 → Lint → 测试），由 `.github/workflows/ci.yml` 定义。
@@ -225,11 +230,11 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 推送版本 tag 触发发布流水线：
 
 ```sh
-git tag v1.2.3
-git push origin v1.2.3
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
-GitHub Actions 并行构建 Windows、macOS（x64）和 Linux 安装包，发布到 GitHub Releases。桌面应用启动时会自动检查此 Release 源获取更新。
+GitHub Actions 并行构建 Windows、macOS 和 Linux 安装包（每个平台先执行 `bundle:relay` 将 Relay 服务器打包进安装包，再执行 electron-builder），发布到 GitHub Releases。桌面应用启动时会自动检查此 Release 源获取更新。
 
 ## 贡献指南
 
