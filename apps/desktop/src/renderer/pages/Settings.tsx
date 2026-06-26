@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Moon, Sun, Check, X as XIcon } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Moon, Sun, Check, X as XIcon, Play, Square, AlertCircle, Loader2 } from 'lucide-react';
 import { applyTheme } from '../theme';
 
 interface SettingsData {
@@ -54,6 +54,92 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState('');
+
+  // === 本地 Relay 状态 ===
+  const [lrStatus, setLrStatus] = useState<'stopped' | 'starting' | 'running' | 'error'>('stopped');
+  const [lrPort, setLrPort] = useState(3002);
+  const [lrAutoStart, setLrAutoStart] = useState(false);
+  const [lrError, setLrError] = useState('');
+  const [lrLogs, setLrLogs] = useState<string[]>([]);
+  const [lrLoading, setLrLoading] = useState(false);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  // 加载本地 Relay 初始状态
+  useEffect(() => {
+    Promise.all([
+      window.electronAPI.localRelayGetState(),
+      window.electronAPI.localRelayGetConfig(),
+    ]).then(([state, cfg]) => {
+      setLrStatus(state.status as any);
+      setLrError(state.error);
+      setLrLogs(state.logs);
+      setLrPort(cfg.port);
+      setLrAutoStart(cfg.autoStart);
+    }).catch(() => {});
+  }, []);
+
+  // 订阅主进程推送
+  useEffect(() => {
+    window.electronAPI.onLocalRelayStatus(({ status, error }) => {
+      setLrStatus(status as any);
+      setLrError(error || '');
+      setLrLoading(false);
+    });
+    window.electronAPI.onLocalRelayLog((line) => {
+      setLrLogs((prev) => {
+        const next = [...prev, line];
+        return next.length > 200 ? next.slice(next.length - 200) : next;
+      });
+    });
+    return () => {
+      window.electronAPI.removeAllListeners('event:local-relay-status');
+      window.electronAPI.removeAllListeners('event:local-relay-log');
+    };
+  }, []);
+
+  // 日志区自动滚动到底
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [lrLogs]);
+
+  const handleLrStart = async () => {
+    setLrLoading(true);
+    const res = await window.electronAPI.localRelayStart(lrPort);
+    if (!res.success) { setLrError(res.error || ''); setLrLoading(false); }
+  };
+
+  const handleLrStop = async () => {
+    setLrLoading(true);
+    await window.electronAPI.localRelayStop();
+    setLrLoading(false);
+  };
+
+  const handleLrAutoStart = async (val: boolean) => {
+    setLrAutoStart(val);
+    await window.electronAPI.localRelaySetConfig({ autoStart: val });
+  };
+
+  const handleLrPortSave = async () => {
+    await window.electronAPI.localRelaySetConfig({ port: lrPort });
+  };
+
+  const handleFillLocalRelayUrls = () => {
+    setSettings((prev) => ({
+      ...prev,
+      relayUrl: `ws://127.0.0.1:${lrPort}/ws`,
+      relayApiUrl: `http://127.0.0.1:${lrPort}/api/v1`,
+    }));
+  };
+
+  const lrStatusDot: Record<string, string> = {
+    stopped: 'bg-muted-foreground',
+    starting: 'bg-yellow-400 animate-pulse',
+    running: 'bg-green-500',
+    error: 'bg-destructive',
+  };
+  const lrStatusLabel: Record<string, string> = {
+    stopped: '未运行', starting: '启动中…', running: '已运行', error: '错误',
+  };
 
   const [uploadPaths, setUploadPaths] = useState<UploadPaths>({
     images: '',
@@ -229,6 +315,101 @@ export default function SettingsPage() {
               className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary font-mono"
               placeholder="http://localhost:3001/api/v1"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* 本地中继服务器 */}
+      <div className="bg-card rounded-xl p-6 border border-border/50 mb-4">
+        <h3 className="text-lg font-semibold mb-1">本地中继服务器</h3>
+        <p className="text-xs text-muted-foreground mb-4">
+          在此机器上直接运行 Relay，无需单独部署或打开终端。
+        </p>
+
+        {/* 状态行 */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${lrStatusDot[lrStatus]}`} />
+            <span className="text-sm font-medium">{lrStatusLabel[lrStatus]}</span>
+            {lrStatus === 'running' && (
+              <span className="text-xs text-muted-foreground font-mono">:{ lrPort }</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {lrStatus === 'running' && (
+              <button
+                onClick={handleFillLocalRelayUrls}
+                className="px-3 py-1.5 text-xs bg-secondary hover:border-primary/60 hover:text-primary border border-border rounded-lg transition-colors"
+                title="将上方 Relay 地址栏填充为本地地址"
+              >
+                填充到地址栏
+              </button>
+            )}
+            {(lrStatus === 'stopped' || lrStatus === 'error') ? (
+              <button
+                onClick={handleLrStart}
+                disabled={lrLoading}
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+              >
+                {lrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                启动
+              </button>
+            ) : (
+              <button
+                onClick={handleLrStop}
+                disabled={lrLoading || lrStatus === 'starting'}
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-secondary hover:bg-destructive/20 hover:text-destructive border border-border text-sm rounded-lg transition-colors disabled:opacity-50"
+              >
+                {lrLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+                停止
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 错误提示 */}
+        {lrStatus === 'error' && lrError && (
+          <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 mb-4 text-sm text-destructive">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{lrError}</span>
+          </div>
+        )}
+
+        <div className="border-t border-border pt-4 space-y-3">
+          {/* 端口 */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-muted-foreground w-12 flex-shrink-0">端口</label>
+            <input
+              type="number"
+              min={1024}
+              max={65535}
+              value={lrPort}
+              onChange={(e) => setLrPort(Number(e.target.value))}
+              onBlur={handleLrPortSave}
+              className="w-28 px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <span className="text-xs text-muted-foreground">修改后重启 Relay 生效</span>
+          </div>
+
+          {/* 随桌面端启动 */}
+          <Toggle
+            checked={lrAutoStart}
+            onChange={handleLrAutoStart}
+            label="随桌面端启动"
+            description="打开应用时自动启动本地 Relay"
+          />
+        </div>
+
+        {/* 日志 */}
+        <div className="border-t border-border mt-4 pt-3">
+          <p className="text-xs text-muted-foreground mb-2">运行日志（最近 200 行）</p>
+          <div className="h-36 overflow-y-auto bg-secondary/50 rounded-lg p-2 font-mono text-xs text-muted-foreground space-y-0.5">
+            {lrLogs.length === 0 ? (
+              <span className="text-muted-foreground/50">暂无日志</span>
+            ) : (
+              lrLogs.map((line, i) => <div key={i}>{line}</div>)
+            )}
+            <div ref={logEndRef} />
           </div>
         </div>
       </div>

@@ -25,11 +25,17 @@ module.exports = {
 
   // 打包后 __dirname 从 app.asar/dist/main 向上遍历跨越 ASAR 边界到 resources/，
   // 此处将 .cache/better_sqlite3.electron.node 放入 resources/.cache/ 供 hook 找到。
+  // relay/ 目录是本地 Relay 的 esbuild 包（bundle.js + wrapper.js + native deps）。
   extraResources: [
     {
       // 绝对路径：避免 electron-builder 不跟随 ../../ 相对路径到项目目录之外
       from: path.resolve(__dirname, '..', '..', '.cache', 'better_sqlite3.electron.node'),
       to: '.cache/better_sqlite3.electron.node',
+    },
+    {
+      // 本地 Relay bundle（由 scripts/bundle-relay.mjs 生成，package:* 前自动运行）
+      from: path.resolve(__dirname, 'resources', 'relay'),
+      to: 'relay',
     },
   ],
 

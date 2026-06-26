@@ -21,6 +21,7 @@ import { registerDirsHandlers } from './ipc/dirs';
 import { registerClientsHandlers } from './ipc/clients';
 import { registerMessagesHandlers } from './ipc/messages';
 import { registerSettingsHandlers } from './ipc/settings';
+import { registerLocalRelayHandlers, stopLocalRelay } from './local-relay';
 
 // ===== Relay 配置（从 config store 加载） =====
 function getRelayUrl(): string {
@@ -92,6 +93,7 @@ app.on('before-quit', () => {
 
 app.on('window-all-closed', async () => {
   stopTokenRotator();
+  stopLocalRelay();
   await stopFileServer();
   if (process.platform !== 'darwin') {
     app.quit();
@@ -196,4 +198,5 @@ function registerIpcHandlers(): void {
   registerClientsHandlers(getRelayApi);
   registerMessagesHandlers();
   registerSettingsHandlers(getMainWindow, getRelayApi, getRelayUrl);
+  registerLocalRelayHandlers(getMainWindow);
 }

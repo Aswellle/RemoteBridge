@@ -95,6 +95,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // === Host token 轮换 ===
   getHostTokenExpiryDays: () => ipcRenderer.invoke('host:get-token-expiry-days'),
 
+  // === 本地中继服务器 ===
+  localRelayStart: (port?: number) => ipcRenderer.invoke('relay-local:start', port),
+  localRelayStop: () => ipcRenderer.invoke('relay-local:stop'),
+  localRelayGetState: () => ipcRenderer.invoke('relay-local:state'),
+  localRelayGetConfig: () => ipcRenderer.invoke('relay-local:get-config'),
+  localRelaySetConfig: (cfg: { port?: number; autoStart?: boolean }) =>
+    ipcRenderer.invoke('relay-local:set-config', cfg),
+  onLocalRelayStatus: (callback: (data: { status: string; error: string }) => void) => {
+    ipcRenderer.removeAllListeners('event:local-relay-status');
+    ipcRenderer.on('event:local-relay-status', (_, data) => callback(data));
+  },
+  onLocalRelayLog: (callback: (line: string) => void) => {
+    ipcRenderer.removeAllListeners('event:local-relay-log');
+    ipcRenderer.on('event:local-relay-log', (_, line) => callback(line));
+  },
+
   // === 自动更新 ===
   getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
@@ -110,7 +126,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const SAFE_CHANNELS = [
       'event:client-joined', 'event:client-left', 'event:connection-status',
       'event:new-message', 'event:session-revoked', 'event:file-received',
-      'event:update-status',
+      'event:update-status', 'event:local-relay-status', 'event:local-relay-log',
     ];
     if (SAFE_CHANNELS.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
@@ -226,6 +242,13 @@ export interface ElectronAPI {
   getUploadPaths: () => Promise<{ success: boolean; data?: UploadPaths; error?: string }>;
   setUploadPaths: (paths: UploadPaths) => Promise<{ success: boolean; error?: string }>;
   getHostTokenExpiryDays: () => Promise<number | null>;
+  localRelayStart: (port?: number) => Promise<{ success: boolean; error?: string }>;
+  localRelayStop: () => Promise<void>;
+  localRelayGetState: () => Promise<{ status: string; port: number; pid: number | null; error: string; logs: string[] }>;
+  localRelayGetConfig: () => Promise<{ port: number; autoStart: boolean }>;
+  localRelaySetConfig: (cfg: { port?: number; autoStart?: boolean }) => Promise<void>;
+  onLocalRelayStatus: (callback: (data: { status: string; error: string }) => void) => void;
+  onLocalRelayLog: (callback: (line: string) => void) => void;
   getUpdateStatus: () => Promise<UpdateStatus>;
   checkForUpdates: () => Promise<void>;
   downloadUpdate: () => Promise<void>;

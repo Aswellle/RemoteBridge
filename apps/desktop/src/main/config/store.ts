@@ -25,6 +25,10 @@ interface ConfigSchema {
   minimizeToTray: boolean;
   theme: 'light' | 'dark';
   uploadPaths: UploadPaths | null;
+  localRelayPort: number;
+  localRelayAutoStart: boolean;
+  localRelayJwtSecret: string;
+  localRelayJwtRefreshSecret: string;
 }
 
 // ===== 默认值 =====
@@ -41,6 +45,10 @@ const defaults: ConfigSchema = {
   minimizeToTray: true,
   theme: 'dark',
   uploadPaths: null,
+  localRelayPort: 3002,
+  localRelayAutoStart: false,
+  localRelayJwtSecret: '',
+  localRelayJwtRefreshSecret: '',
 };
 
 // ===== safeStorage 加密工具 =====
@@ -109,6 +117,16 @@ export const config = {
   // Upload Paths
   getUploadPaths: (): UploadPaths | null => (configStore.get('uploadPaths', null) as UploadPaths | null),
   setUploadPaths: (value: UploadPaths): void => { configStore.set('uploadPaths', value); },
+
+  // Local Relay
+  getLocalRelayPort: (): number => configStore.get('localRelayPort', defaults.localRelayPort),
+  setLocalRelayPort: (value: number): void => { configStore.set('localRelayPort', value); },
+  getLocalRelayAutoStart: (): boolean => configStore.get('localRelayAutoStart', defaults.localRelayAutoStart),
+  setLocalRelayAutoStart: (value: boolean): void => { configStore.set('localRelayAutoStart', value); },
+  getLocalRelayJwtSecret: (): string => decryptField(configStore.get('localRelayJwtSecret', '')),
+  setLocalRelayJwtSecret: (value: string): void => { configStore.set('localRelayJwtSecret', encryptField(value)); },
+  getLocalRelayJwtRefreshSecret: (): string => decryptField(configStore.get('localRelayJwtRefreshSecret', '')),
+  setLocalRelayJwtRefreshSecret: (value: string): void => { configStore.set('localRelayJwtRefreshSecret', encryptField(value)); },
 
   // 批量获取所有配置
   getAll: (): ConfigSchema => configStore.store,
