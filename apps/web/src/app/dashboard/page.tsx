@@ -211,10 +211,10 @@ export default function DashboardPage() {
             <Link
               href="/dashboard/security"
               aria-label="安全审计"
-              className="group block bg-card rounded-xl p-5 border border-border/50 hover:border-destructive/50 transition-all"
+              className="group block bg-card rounded-xl p-5 border border-border/50 hover:border-indigo-500/50 transition-all"
             >
-              <div className="w-10 h-10 rounded-lg bg-destructive/20 flex items-center justify-center mb-3 group-hover:bg-destructive/30 transition-colors">
-                <ShieldCheck className="w-5 h-5 text-destructive" />
+              <div className="w-10 h-10 rounded-lg bg-indigo-600/20 flex items-center justify-center mb-3 group-hover:bg-indigo-600/30 transition-colors">
+                <ShieldCheck className="w-5 h-5 text-indigo-400" />
               </div>
               <p className="font-medium text-foreground">安全审计</p>
               <p className="text-sm text-muted-foreground mt-1">查看安全事件日志</p>
