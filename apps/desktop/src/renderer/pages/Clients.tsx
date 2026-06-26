@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { X, Users, ClipboardList, CheckCircle2, RefreshCw, Loader2 } from 'lucide-react';
 import { ElectronAPI } from '../../preload/index';
 
 declare global {
@@ -162,9 +163,10 @@ export default function ClientsPage() {
               loadClients();
               loadAccessLogs();
             }}
-            className="px-4 py-2 bg-secondary text-foreground hover:bg-muted rounded-lg text-sm transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-foreground hover:bg-muted rounded-lg text-sm transition-colors"
           >
-            🔄 刷新
+            <RefreshCw className="w-3.5 h-3.5" />
+            刷新
           </button>
         </div>
       </div>
@@ -173,7 +175,7 @@ export default function ClientsPage() {
       {actionError && (
         <div className="mb-4 px-4 py-2.5 bg-destructive/15 border border-destructive/40 text-destructive text-sm rounded-lg flex items-center justify-between">
           <span>{actionError}</span>
-          <button onClick={() => setActionError('')} className="ml-3 hover:opacity-70">✕</button>
+          <button onClick={() => setActionError('')} className="ml-3 hover:opacity-70 flex-shrink-0"><X className="w-4 h-4" /></button>
         </div>
       )}
 
@@ -181,14 +183,17 @@ export default function ClientsPage() {
       {activeSection === 'clients' && (
         <div>
           {isLoading ? (
-            <div className="text-center text-muted-foreground py-12">
-              <p>加载中...</p>
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="animate-spin h-7 w-7 text-primary mr-3" />
+              <span className="text-muted-foreground">加载中...</span>
             </div>
           ) : clients.length === 0 ? (
-            <div className="text-center text-muted-foreground py-12">
-              <p className="text-lg mb-2">👥</p>
-              <p>暂无已注册客户端</p>
-              <p className="text-sm mt-1">客户端通过 PIN 码连接后会出现在此列表</p>
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                <Users className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="text-base font-semibold text-foreground mb-1">暂无已注册客户端</p>
+              <p className="text-sm text-muted-foreground">客户端通过 PIN 码连接后会出现在此列表</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -213,7 +218,7 @@ export default function ClientsPage() {
                         <span>ID: {client.clientId.slice(0, 12)}...</span>
                         <span>最后活跃: {formatTime(client.lastSeenAt)}</span>
                         {client.isTrusted && (
-                          <span className="text-success">✅ 已信任</span>
+                          <span className="flex items-center gap-1 text-success"><CheckCircle2 className="w-3 h-3" />已信任</span>
                         )}
                       </div>
                     </div>
@@ -251,9 +256,12 @@ export default function ClientsPage() {
       {activeSection === 'logs' && (
         <div>
           {accessLogs.length === 0 ? (
-            <div className="text-center text-muted-foreground py-12">
-              <p className="text-lg mb-2">📋</p>
-              <p>暂无活动日志</p>
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                <ClipboardList className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="text-base font-semibold text-foreground mb-1">暂无活动日志</p>
+              <p className="text-sm text-muted-foreground">文件访问操作会自动记录到此处</p>
             </div>
           ) : (
             <div className="bg-card rounded-lg overflow-hidden">
@@ -281,7 +289,7 @@ export default function ClientsPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs ${
+                          className={`px-2 py-0.5 rounded-lg text-xs ${
                             log.action === 'LIST_DIR'
                               ? 'bg-primary/20 text-primary'
                               : log.action === 'DOWNLOAD'

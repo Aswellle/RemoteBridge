@@ -4,6 +4,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { MessageSquare } from 'lucide-react';
 import { ElectronAPI } from '../../preload/index';
 
 declare global {
@@ -268,10 +269,12 @@ export default function MessagesPage() {
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
           {filteredMessages.length === 0 ? (
-            <div className="text-center text-muted-foreground py-12">
-              <p className="text-lg mb-2">💬</p>
-              <p>暂无消息</p>
-              <p className="text-sm mt-1">选择客户端后发送消息开始通信</p>
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                <MessageSquare className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="text-base font-semibold text-foreground mb-1">暂无消息</p>
+              <p className="text-sm text-muted-foreground">选择左侧客户端后发送消息开始通信</p>
             </div>
           ) : (
             filteredMessages.map((msg) => (

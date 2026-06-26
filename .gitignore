@@ -49,3 +49,4 @@ CLAUDE.md
 
 # Claude Code / oh-my-claudecode tool state (session replays, checkpoints, agent state)
 .omc/
+.gstack/

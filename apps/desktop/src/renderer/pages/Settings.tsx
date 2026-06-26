@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Moon, Sun, Check, X as XIcon } from 'lucide-react';
 import { applyTheme } from '../theme';
 
 interface SettingsData {
@@ -265,7 +266,7 @@ export default function SettingsPage() {
                     : 'bg-secondary text-muted-foreground hover:bg-secondary'
                 }`}
               >
-                🌙 暗色
+                <Moon className="w-3.5 h-3.5 inline mr-1" />暗色
               </button>
               <button
                 onClick={() => { setSettings({ ...settings, theme: 'light' }); applyTheme('light'); }}
@@ -275,7 +276,7 @@ export default function SettingsPage() {
                     : 'bg-secondary text-muted-foreground hover:bg-secondary'
                 }`}
               >
-                ☀️ 亮色
+                <Sun className="w-3.5 h-3.5 inline mr-1" />亮色
               </button>
             </div>
           </div>
@@ -325,10 +326,10 @@ export default function SettingsPage() {
             {isSavingPaths ? '保存中...' : '保存路径'}
           </button>
           {pathsSaveStatus === 'success' && (
-            <span className="text-sm text-success">✓ 已保存</span>
+            <span className="flex items-center gap-1 text-sm text-success"><Check className="w-4 h-4" />已保存</span>
           )}
           {pathsSaveStatus === 'error' && (
-            <span className="text-sm text-destructive">✗ 保存失败</span>
+            <span className="flex items-center gap-1 text-sm text-destructive"><XIcon className="w-4 h-4" />保存失败</span>
           )}
         </div>
       </div>
@@ -370,10 +371,10 @@ export default function SettingsPage() {
         </button>
 
         {saveStatus === 'success' && (
-          <span className="text-sm text-success">✓ {statusMessage || '已保存'}</span>
+          <span className="flex items-center gap-1 text-sm text-success"><Check className="w-4 h-4" />{statusMessage || '已保存'}</span>
         )}
         {saveStatus === 'error' && (
-          <span className="text-sm text-destructive">✗ {statusMessage || '保存失败'}</span>
+          <span className="flex items-center gap-1 text-sm text-destructive"><XIcon className="w-4 h-4" />{statusMessage || '保存失败'}</span>
         )}
       </div>
     </div>

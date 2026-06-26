@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Loader2, ClipboardList } from 'lucide-react';
 import { EVENT_TYPE_LABELS, EVENT_TYPE_COLORS } from '@remotebridge/shared';
 
 // ===== 安全日志条目类型 =====
@@ -112,7 +113,7 @@ export default function SecurityLogs() {
           <select
             value={filterEventType}
             onChange={(e) => setFilterEventType(e.target.value)}
-            className="px-3 py-1.5 bg-secondary border border-border rounded text-sm"
+            className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm"
           >
             <option value="">全部</option>
             {Object.entries(EVENT_TYPE_LABELS).map(([value, label]) => (
@@ -134,7 +135,7 @@ export default function SecurityLogs() {
 
         <button
           onClick={() => fetchLogs(1)}
-          className="px-4 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm rounded transition-colors"
+          className="px-4 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm rounded-lg transition-colors"
         >
           刷新
         </button>
@@ -155,16 +156,16 @@ export default function SecurityLogs() {
       <div className="bg-card rounded-lg shadow-lg overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <svg className="animate-spin h-8 w-8 text-primary mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
+            <Loader2 className="animate-spin h-8 w-8 text-primary mr-3" />
             <span className="text-muted-foreground">加载中...</span>
           </div>
         ) : logs.length === 0 ? (
-          <div className="text-center text-muted-foreground py-12">
-            <p className="text-lg mb-2">📋</p>
-            <p>暂无安全日志</p>
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+              <ClipboardList className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <p className="text-base font-semibold text-foreground mb-1">暂无安全日志</p>
+            <p className="text-sm text-muted-foreground">安全事件发生后会自动记录到此处</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -220,28 +221,28 @@ export default function SecurityLogs() {
             <button
               onClick={() => fetchLogs(1)}
               disabled={page <= 1}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               首页
             </button>
             <button
               onClick={() => fetchLogs(page - 1)}
               disabled={page <= 1}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               上一页
             </button>
             <button
               onClick={() => fetchLogs(page + 1)}
               disabled={page >= totalPages}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               下一页
             </button>
             <button
               onClick={() => fetchLogs(totalPages)}
               disabled={page >= totalPages}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               末页
             </button>

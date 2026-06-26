@@ -428,7 +428,7 @@ export default function App() {
         {/* Logo + 版本号 */}
         <div className="p-4 border-b border-border">
           <h1 className="text-xl font-bold text-primary">RemoteBridge</h1>
-          <p className="text-xs text-muted-foreground mt-1">Host 模式 · v1.0.0</p>
+          <p className="text-xs text-muted-foreground mt-1">Host 模式{systemInfo?.appVersion ? ` · v${systemInfo.appVersion}` : ''}</p>
         </div>
 
         {/* 导航 */}
