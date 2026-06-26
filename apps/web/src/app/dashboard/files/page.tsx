@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { FolderOpen } from 'lucide-react';
 import FilePreview from '@/components/previews/FilePreview';
 import DownloadPanel from '@/components/DownloadPanel';
 import FileList from '@/components/FileList';
 import Breadcrumb from '@/components/Breadcrumb';
+import NotConnected from '@/components/ui/NotConnected';
 import { useAppStore } from '@/store/app-store';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { FileEntry } from '@remotebridge/shared';
@@ -61,16 +63,8 @@ export default function FilesPage() {
     ...buildBreadcrumbs(currentPath),
   ];
 
-  // 未连接时显示提示（layout 已处理侧边栏，这里只渲染内容区）
   if (connectionStatus !== 'connected') {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <p className="text-xl text-muted-foreground mb-4">未连接到远程主机</p>
-          <a href="/" className="text-primary hover:underline">返回连接页面</a>
-        </div>
-      </div>
-    );
+    return <NotConnected icon={FolderOpen} description="连接后可浏览远程主机的共享目录和文件" />;
   }
 
   return (

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { MessageSquare, ArrowUp, Paperclip, File, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import NotConnected from '@/components/ui/NotConnected';
 import { useAppStore } from '@/store/app-store';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { formatRelativeTime } from '@remotebridge/shared';
@@ -84,14 +85,7 @@ export default function MessagesPage() {
   };
 
   if (connectionStatus !== 'connected') {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center">
-          <p className="text-xl text-muted-foreground mb-4">未连接到远程主机</p>
-          <a href="/" className="text-primary hover:underline">返回连接页面</a>
-        </div>
-      </div>
-    );
+    return <NotConnected icon={MessageSquare} description="连接后可与远程主机实时发送消息和传输文件" />;
   }
 
   return (
