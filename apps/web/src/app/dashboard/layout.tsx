@@ -31,6 +31,7 @@ function SidebarContent({
   unreadCount,
   onNavClick,
   onDisconnect,
+  onReturnToConnect,
   onClose,
 }: {
   indicatorId: string;
@@ -39,8 +40,14 @@ function SidebarContent({
   unreadCount: number;
   onNavClick: () => void;
   onDisconnect: () => void;
+  onReturnToConnect: () => void;
   onClose: () => void;
 }) {
+  const [confirmingReturn, setConfirmingReturn] = useState(false);
+
+  // 连接状态变化时重置确认步骤（避免重连后还留着确认框）
+  useEffect(() => { setConfirmingReturn(false); }, [connectionStatus]);
+
   const isActive = (item: (typeof NAV_ITEMS)[0]) => {
     if (item.exact) return pathname === item.href;
     return pathname.startsWith(item.href);
@@ -131,7 +138,7 @@ function SidebarContent({
           </span>
         </div>
 
-        {connectionStatus === 'connected' && (
+        {connectionStatus === 'connected' && !confirmingReturn && (
           <button
             onClick={onDisconnect}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-destructive/20 hover:bg-destructive/40 text-destructive text-sm rounded-lg transition-colors"
@@ -141,13 +148,33 @@ function SidebarContent({
           </button>
         )}
 
-        {connectionStatus !== 'connected' && (
-          <Link
-            href="/"
-            className="block w-full px-3 py-2 bg-primary/20 hover:bg-primary/40 text-primary text-sm rounded-lg transition-colors text-center"
+        {confirmingReturn ? (
+          <div className="space-y-2 mt-2">
+            <p className="text-xs text-muted-foreground text-center">断开当前连接并切换设备？</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmingReturn(false)}
+                className="flex-1 px-2 py-1.5 text-xs rounded-lg bg-secondary hover:bg-secondary/80 text-foreground transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={onReturnToConnect}
+                className="flex-1 px-2 py-1.5 text-xs rounded-lg bg-primary hover:bg-primary/90 text-white transition-colors"
+              >
+                确认
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => connectionStatus === 'connected' ? setConfirmingReturn(true) : onReturnToConnect()}
+            className={`mt-2 w-full px-3 py-2 text-primary text-sm rounded-lg transition-colors ${
+              connectionStatus === 'connected' ? 'bg-primary/10 hover:bg-primary/20' : 'bg-primary/20 hover:bg-primary/40'
+            }`}
           >
             返回连接页
-          </Link>
+          </button>
         )}
       </div>
     </>
@@ -201,6 +228,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           unreadCount={unreadCount}
           onNavClick={handleNavClick}
           onDisconnect={handleDisconnect}
+          onReturnToConnect={handleDisconnect}
           onClose={() => setSidebarOpen(false)}
         />
       </aside>
@@ -245,6 +273,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 unreadCount={unreadCount}
                 onNavClick={handleNavClick}
                 onDisconnect={handleDisconnect}
+                onReturnToConnect={handleDisconnect}
                 onClose={() => setSidebarOpen(false)}
               />
             </motion.aside>
