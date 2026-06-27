@@ -79,8 +79,17 @@ describe('setupFileTunnelHandler / CMD_FETCH_FILE backpressure', () => {
     setupFileTunnelHandler();
   });
 
-  afterAll(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
+  afterAll(async () => {
+    // Windows keeps file handles open briefly after tests complete; retry to
+    // avoid ENOTEMPTY on CI windows-latest runner.
+    for (let i = 0; i < 5; i++) {
+      try {
+        fs.rmSync(testDir, { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
   });
 
   beforeEach(() => {

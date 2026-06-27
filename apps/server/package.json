@@ -19,7 +19,7 @@
     "@node-rs/bcrypt": "^1.10.7",
     "@remotebridge/shared": "workspace:*",
     "better-sqlite3": "^9.6.0",
-    "drizzle-orm": "^0.40.1",
+    "drizzle-orm": "^0.45.2",
     "fastify": "^4.28.0",
     "jsonwebtoken": "^9.0.2",
     "pino": "^9.14.0",

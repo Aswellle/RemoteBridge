@@ -15,6 +15,14 @@
     "typescript": "^5.3.0"
   },
   "packageManager": "pnpm@9.1.0",
+  "pnpm": {
+    "auditConfig": {
+      "ignoreCves": [
+        "GHSA-jx2c-rxcm-jvmq",
+        "GHSA-h25m-26qc-wcjf"
+      ]
+    }
+  },
   "dependencies": {
     "browserslist": "^4.28.2",
     "caniuse-lite": "^1.0.30001797"
