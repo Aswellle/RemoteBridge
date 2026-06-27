@@ -42,14 +42,12 @@ describe('POST /auth/refresh — cookie vs. Bearer 路径 (TST-C1 / SEC-C1)', ()
     expect(setCookies.some((c: string) => c.startsWith('rb_access='))).toBe(true);
   });
 
-  it('Bearer-path: body.data.accessToken 包含真实 JWT（桌面端兼容路径不受影响）', async () => {
+  it('body-path: body.data.accessToken 包含真实 JWT（桌面端/旧客户端兼容路径不受影响）', async () => {
+    // 非 cookie 路径：刷新令牌放在请求体里（Host 端 / Legacy 客户端的向后兼容路径）
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${refreshToken}`,
-      },
-      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
     });
 
     expect(res.status).toBe(200);

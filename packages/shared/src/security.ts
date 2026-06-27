@@ -155,11 +155,13 @@ export const JWT_CONFIG = {
 } as const;
 
 // ===== Rate Limiting 配置 =====
+// 各字段支持通过 RL_* 环境变量覆盖，仅用于集成测试环境（提高主机注册上限避免并发测试文件触发 429）。
+// 生产环境不传这些环境变量，使用下方安全默认值。
 export const RATE_LIMIT_CONFIG = {
-  AUTH_MAX: 10,          // 每 IP 每分钟最多 10 次认证请求
-  PIN_GENERATE_MAX: 5,   // 每 Host 每分钟最多 5 次 PIN 生成
-  REGISTER_HOST_MAX: 5,  // 每 IP 每分钟最多 5 次主机注册（防止无限制创建主机行的 DB 增长 DoS）
-  WINDOW_MS: 60000,      // 1 分钟窗口
+  AUTH_MAX: parseInt(process.env.RL_AUTH_MAX ?? '10', 10),
+  PIN_GENERATE_MAX: parseInt(process.env.RL_PIN_MAX ?? '5', 10),
+  REGISTER_HOST_MAX: parseInt(process.env.RL_REGISTER_MAX ?? '5', 10),
+  WINDOW_MS: parseInt(process.env.RL_WINDOW_MS ?? '60000', 10),
 };
 
 // ===== 下载令牌配置 =====

@@ -61,6 +61,10 @@ export async function setup(): Promise<void> {
       ...process.env,
       RELAY_PORT: PORT,
       RB_DATA_DIR: tempDataDir,
+      // 测试环境提高注册/认证速率上限，避免并发测试文件集体超过 REGISTER_HOST_MAX=5 触发 429。
+      // rate-limit.test.ts 使用独立 relay（不传这些变量），仍以真实默认值测试限流行为。
+      RL_REGISTER_MAX: '100',
+      RL_AUTH_MAX: '100',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
