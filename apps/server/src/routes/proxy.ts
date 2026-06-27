@@ -15,6 +15,8 @@ import { randomUUID } from 'node:crypto';
 // 否则浏览器拦截代理下载/预览（curl/Node 不校验 CORS，API 级测试无感）
 import { corsHeadersFor } from '../utils/cors';
 
+type ProxyRequest = FastifyRequest<{ Params: { sessionId: string }; Querystring: { filePath: string } }>;
+
 // ===== Range 头解析（仅支持 bytes=start-end? 形式，与 Host 文件服务器一致） =====
 function parseRange(rangeHeader: string | undefined): { start: number; end?: number } | null {
   if (!rangeHeader) return null;
@@ -192,217 +194,120 @@ async function validateSession(
   return { hostId: rows[0].hostId };
 }
 
-// ===== 代理路由 =====
-export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
+// ===== CQ-H1: 提取公共代理逻辑，消除 download/preview 路由的 ~85% 重复代码 =====
+async function proxyFileRequest(
+  request: ProxyRequest,
+  reply: FastifyReply,
+  mode: 'download' | 'preview',
+): Promise<void> {
+  const { sessionId } = request.params;
+  const { filePath } = request.query;
 
-  // --- GET /proxy/download/:sessionId ---
-  fastify.get<{ Params: { sessionId: string }; Querystring: { filePath: string } }>(
-    '/proxy/download/:sessionId',
-    async (request, reply) => {
-      const { sessionId } = request.params;
-      const { filePath } = request.query;
+  // 1. 验证 Client JWT
+  const payload = authenticateClient(request, reply);
+  if (!payload) return;
 
-      // 1. 验证 Client JWT
-      const payload = authenticateClient(request, reply);
-      if (!payload) return;
+  // 2. SH4: 确保 JWT 中的 sessionId 与 URL 参数一致，防止持有已吊销会话 token 的
+  //    Client 借用其他活跃会话绕过吊销检查
+  if (payload.sessionId !== sessionId) {
+    return reply.code(403).send({
+      success: false,
+      data: null,
+      error: { code: 'SESSION_MISMATCH', message: '令牌会话与请求会话不匹配' },
+      timestamp: Date.now(),
+    });
+  }
 
-      // 2. SH4: 确保 JWT 中的 sessionId 与 URL 参数一致，防止持有已吊销会话 token 的
-      //    Client 借用其他活跃会话绕过吊销检查
-      if (payload.sessionId !== sessionId) {
-        return reply.code(403).send({
-          success: false,
-          data: null,
-          error: { code: 'SESSION_MISMATCH', message: '令牌会话与请求会话不匹配' },
-          timestamp: Date.now(),
-        });
-      }
+  // 3. 验证 filePath
+  if (!filePath) {
+    return reply.code(400).send({
+      success: false,
+      data: null,
+      error: { code: 'MISSING_FILE_PATH', message: '缺少 filePath 参数' },
+      timestamp: Date.now(),
+    });
+  }
 
-      // 3. 验证 filePath
-      if (!filePath) {
-        return reply.code(400).send({
-          success: false,
-          data: null,
-          error: { code: 'MISSING_FILE_PATH', message: '缺少 filePath 参数' },
-          timestamp: Date.now(),
-        });
-      }
+  // 4. 验证会话（同时取 hostId，避免二次查询）
+  const sessionRow = await validateSession(sessionId, reply);
+  if (!sessionRow) return;
 
-      // 4. 验证会话（同时取 hostId，避免二次查询）
-      const sessionRow = await validateSession(sessionId, reply);
-      if (!sessionRow) return;
+  // 5. 查找 Host WebSocket
+  const { hostId } = sessionRow;
+  const hostWs = getHostSocket(hostId);
+  if (!hostWs) {
+    return reply.code(502).send({
+      success: false,
+      data: null,
+      error: { code: 'HOST_OFFLINE', message: '目标主机不在线' },
+      timestamp: Date.now(),
+    });
+  }
 
-      // 5. 查找 Host WebSocket
-      const hostId = sessionRow.hostId;
-      const hostWs = getHostSocket(hostId);
+  // 6. 注册等待（必须先于发送，避免响应先到）→ 向 Host 发送 CMD_REQUEST_*
+  const isDownload = mode === 'download';
+  const requestId = randomUUID();
+  const respPromise = waitForHostResponse(
+    requestId,
+    isDownload ? WSMessageType.RESP_DOWNLOAD_READY : WSMessageType.RESP_PREVIEW_READY,
+    isDownload ? [WSMessageType.RESP_DOWNLOAD_ERROR] : [WSMessageType.RESP_PREVIEW_ERROR],
+    10000,
+  );
+  sendWSMessage(hostWs, {
+    type: isDownload ? WSMessageType.CMD_REQUEST_DOWNLOAD : WSMessageType.CMD_REQUEST_PREVIEW,
+    payload: { filePath, requestId, clientId: payload.sub, sessionId },
+    timestamp: Date.now(),
+    sessionId,
+  });
 
-      if (!hostWs) {
-        return reply.code(502).send({
-          success: false,
-          data: null,
-          error: { code: 'HOST_OFFLINE', message: '目标主机不在线' },
-          timestamp: Date.now(),
-        });
-      }
+  // 7. 等待 Host 签发令牌，写访问日志，经 WS 隧道流式传输
+  try {
+    const resp = (await respPromise) as any;
 
-      // 5. 注册等待（必须先于发送，避免响应先到）→ 向 Host 发送 CMD_REQUEST_DOWNLOAD
-      const requestId = randomUUID();
-      const respPromise = waitForHostResponse(
-        requestId,
-        WSMessageType.RESP_DOWNLOAD_READY,
-        [WSMessageType.RESP_DOWNLOAD_ERROR],
-        10000,
-      );
-      sendWSMessage(hostWs, {
-        type: WSMessageType.CMD_REQUEST_DOWNLOAD,
-        payload: {
-          filePath,
-          requestId,
-          clientId: payload.sub,
-          sessionId,
-        },
-        timestamp: Date.now(),
-        sessionId,
+    try {
+      await db.insert(securityLogs).values({
+        id: randomUUID(),
+        hostId,
+        clientId: payload.sub,
+        eventType: isDownload ? 'ACCESS_DOWNLOAD' : 'ACCESS_PREVIEW',
+        detail: JSON.stringify({ action: isDownload ? 'proxy_download' : 'proxy_preview', filePath, sessionId }),
+        ipAddress: request.ip || 'unknown',
+        createdAt: Math.floor(Date.now() / 1000),
       });
+    } catch {
+      // 日志写入失败不影响主流程
+    }
 
-      // 6. 等待 Host 签发令牌，然后经 WS 隧道流式传输
-      try {
-        const resp = (await respPromise) as any;
-
-        const fileName = resp.fileName || filePath.split('/').pop() || 'download';
-
-        // 7. 写访问日志（隧道接管响应前落库，传输结果不影响审计记录的存在）
-        try {
-          await db.insert(securityLogs).values({
-            id: randomUUID(),
-            hostId,
-            clientId: payload.sub,
-            eventType: 'ACCESS_DOWNLOAD',
-            detail: JSON.stringify({ action: 'proxy_download', filePath, sessionId }),
-            ipAddress: request.ip || 'unknown',
-            createdAt: Math.floor(Date.now() / 1000),
-          });
-        } catch {
-          // 日志写入失败不影响主流程
-        }
-
-        // 8. 经 Host 的 WS 连接分块拉取文件（接管响应，之后不得再操作 reply）
-        await tunnelFromHost(hostWs, resp.downloadUrl, request.headers.range, request.headers.origin, reply, {
+    const fileUrl = isDownload ? resp.downloadUrl : resp.previewUrl;
+    const fileName = resp.fileName || filePath.split('/').pop() || 'download';
+    const extraHeaders: Record<string, string> = isDownload
+      ? {
           'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
           'Content-Type': 'application/octet-stream',
-        }, payload.sub);
-      } catch (err: any) {
-        request.log.error({ err }, '代理下载失败');
-        return reply.code(502).send({
-          success: false,
-          data: null,
-          error: { code: 'PROXY_ERROR', message: '代理下载失败' },
-          timestamp: Date.now(),
-        });
-      }
-    },
+        }
+      : { 'Cache-Control': 'no-store' };
+
+    await tunnelFromHost(hostWs, fileUrl, request.headers.range, request.headers.origin, reply, extraHeaders, payload.sub);
+  } catch (err: any) {
+    request.log.error({ err }, isDownload ? '代理下载失败' : '代理预览失败');
+    return reply.code(502).send({
+      success: false,
+      data: null,
+      error: { code: 'PROXY_ERROR', message: isDownload ? '代理下载失败' : '代理预览失败' },
+      timestamp: Date.now(),
+    });
+  }
+}
+
+// ===== 代理路由 =====
+export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
+  fastify.get<{ Params: { sessionId: string }; Querystring: { filePath: string } }>(
+    '/proxy/download/:sessionId',
+    (request, reply) => proxyFileRequest(request, reply, 'download'),
   );
 
-  // --- GET /proxy/preview/:sessionId ---
   fastify.get<{ Params: { sessionId: string }; Querystring: { filePath: string } }>(
     '/proxy/preview/:sessionId',
-    async (request, reply) => {
-      const { sessionId } = request.params;
-      const { filePath } = request.query;
-
-      // 1. 验证 Client JWT
-      const payload = authenticateClient(request, reply);
-      if (!payload) return;
-
-      // 2. SH4: 确保 JWT 中的 sessionId 与 URL 参数一致
-      if (payload.sessionId !== sessionId) {
-        return reply.code(403).send({
-          success: false,
-          data: null,
-          error: { code: 'SESSION_MISMATCH', message: '令牌会话与请求会话不匹配' },
-          timestamp: Date.now(),
-        });
-      }
-
-      // 3. 验证 filePath
-      if (!filePath) {
-        return reply.code(400).send({
-          success: false,
-          data: null,
-          error: { code: 'MISSING_FILE_PATH', message: '缺少 filePath 参数' },
-          timestamp: Date.now(),
-        });
-      }
-
-      // 4. 验证会话（同时取 hostId，避免二次查询）
-      const sessionRow = await validateSession(sessionId, reply);
-      if (!sessionRow) return;
-
-      // 5. 查找 Host WebSocket
-      const hostId = sessionRow.hostId;
-      const hostWs = getHostSocket(hostId);
-
-      if (!hostWs) {
-        return reply.code(502).send({
-          success: false,
-          data: null,
-          error: { code: 'HOST_OFFLINE', message: '目标主机不在线' },
-          timestamp: Date.now(),
-        });
-      }
-
-      // 5. 注册等待（必须先于发送，避免响应先到）→ 向 Host 发送 CMD_REQUEST_PREVIEW
-      const requestId = randomUUID();
-      const respPromise = waitForHostResponse(
-        requestId,
-        WSMessageType.RESP_PREVIEW_READY,
-        [WSMessageType.RESP_PREVIEW_ERROR],
-        10000,
-      );
-      sendWSMessage(hostWs, {
-        type: WSMessageType.CMD_REQUEST_PREVIEW,
-        payload: {
-          filePath,
-          requestId,
-          clientId: payload.sub,
-          sessionId,
-        },
-        timestamp: Date.now(),
-        sessionId,
-      });
-
-      // 6. 等待 Host 签发令牌，然后经 WS 隧道流式传输
-      try {
-        const resp = (await respPromise) as any;
-
-        // 7. 写访问日志
-        try {
-          await db.insert(securityLogs).values({
-            id: randomUUID(),
-            hostId,
-            clientId: payload.sub,
-            eventType: 'ACCESS_PREVIEW',
-            detail: JSON.stringify({ action: 'proxy_preview', filePath, sessionId }),
-            ipAddress: request.ip || 'unknown',
-            createdAt: Math.floor(Date.now() / 1000),
-          });
-        } catch {
-          // 日志写入失败不影响主流程
-        }
-
-        // 8. 经 Host 的 WS 连接分块拉取文件
-        // （预览不强制下载、Content-Type 用 Host 报告的真实 MIME，Cache-Control 防缓存）
-        await tunnelFromHost(hostWs, resp.previewUrl, request.headers.range, request.headers.origin, reply, {
-          'Cache-Control': 'no-store',
-        }, payload.sub);
-      } catch (err: any) {
-        request.log.error({ err }, '代理预览失败');
-        return reply.code(502).send({
-          success: false,
-          data: null,
-          error: { code: 'PROXY_ERROR', message: '代理预览失败' },
-          timestamp: Date.now(),
-        });
-      }
-    },
+    (request, reply) => proxyFileRequest(request, reply, 'preview'),
   );
 }
