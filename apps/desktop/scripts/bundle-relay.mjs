@@ -4,7 +4,7 @@
  * Dependencies: esbuild (devDep), pre-built apps/server/dist/
  */
 import { build } from 'esbuild';
-import { cpSync, copyFileSync, mkdirSync, existsSync, writeFileSync, readFileSync } from 'fs';
+import { cpSync, copyFileSync, mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync } from 'fs';
 import { resolve, join, sep, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -31,7 +31,10 @@ await build({
   target: 'node20',
   format: 'cjs',
   outfile: join(outDir, 'bundle.js'),
-  external: ['better-sqlite3'],
+  // @node-rs/bcrypt uses napi-rs (N-API stable ABI — no Electron rebuild needed).
+  // Mark all platform packages external so esbuild doesn't try to load .node binaries;
+  // they are copied below alongside the main @node-rs/bcrypt package.
+  external: ['better-sqlite3', '@node-rs/bcrypt', '@node-rs/bcrypt-*'],
   logLevel: 'warning',
 });
 console.log('  ✓ bundle.js');
@@ -64,6 +67,25 @@ console.log('  ✓ node_modules/bindings');
 const futpSrc = join(pnpmDir, 'file-uri-to-path@1.0.0/node_modules/file-uri-to-path');
 cpSync(futpSrc, join(outDir, 'node_modules/file-uri-to-path'), { recursive: true });
 console.log('  ✓ node_modules/file-uri-to-path');
+
+// Copy @node-rs/bcrypt (main package) and its platform-specific binary package.
+// binding.js does require('@node-rs/bcrypt-{platform}') at runtime; both packages
+// must live under relay/node_modules/@node-rs/ so Node.js can resolve them.
+mkdirSync(join(outDir, 'node_modules/@node-rs'), { recursive: true });
+for (const pkgDir of readdirSync(pnpmDir).filter(d => d.startsWith('@node-rs+bcrypt'))) {
+  const scopeDir = join(pnpmDir, pkgDir, 'node_modules', '@node-rs');
+  if (!existsSync(scopeDir)) continue;
+  for (const name of readdirSync(scopeDir)) {
+    if (!name.startsWith('bcrypt')) continue;
+    const src = join(scopeDir, name);
+    const dst = join(outDir, 'node_modules', '@node-rs', name);
+    if (!existsSync(dst)) {
+      mkdirSync(dst, { recursive: true });
+      cpSync(src, dst, { recursive: true });
+      console.log(`  ✓ node_modules/@node-rs/${name}`);
+    }
+  }
+}
 
 // Copy wrapper.js (production entry point for utilityProcess.fork)
 copyFileSync(
