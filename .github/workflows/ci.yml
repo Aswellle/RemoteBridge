@@ -49,8 +49,10 @@ jobs:
           pnpm --filter @remotebridge/desktop exec tsc --noEmit
           pnpm --filter @remotebridge/web exec tsc --noEmit
 
-      - name: Test shared
-        run: pnpm --filter @remotebridge/shared test
+      # CD-H1: coverage threshold gate — statements ≥70%, branches ≥60%, etc.
+      # Thresholds are configured in packages/shared/vitest.config.ts.
+      - name: Test shared (with coverage)
+        run: pnpm --filter @remotebridge/shared exec vitest run --coverage
 
       # P1-15: vitest globalSetup spawns its own relay on :3099, so this
       # works standalone with no live relay required.
@@ -62,3 +64,28 @@ jobs:
 
       - name: Test web
         run: pnpm --filter @remotebridge/web test
+
+  # CD-M1: Windows runner validates Windows-specific path blacklists
+  # (path-guard.ts has OS-specific blocked dirs) and exercises the
+  # desktop test suite end-to-end on the target deployment platform.
+  test-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @remotebridge/shared build
+
+      - name: Test desktop (Windows)
+        run: pnpm --filter @remotebridge/desktop test

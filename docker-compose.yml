@@ -27,6 +27,9 @@ services:
       retries: 3
       start_period: 15s
     deploy:
+      # ADR-005: 会话房间状态驻留内存，不支持水平扩展——多实例会导致
+      # Client 与 Host 落在不同实例上而无法路由。需扩容时纵向升配或拆分 hostId 分片。
+      replicas: 1
       resources:
         limits:
           cpus: '1.0'

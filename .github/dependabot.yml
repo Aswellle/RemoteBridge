@@ -1,0 +1,37 @@
+version: 2
+updates:
+  # pnpm monorepo — covers all workspace packages
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      # Batch minor/patch updates to reduce PR noise; majors get individual PRs
+      non-breaking:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # drizzle-orm major bumps need query compatibility testing (BP-H3)
+      - dependency-name: drizzle-orm
+        update-types: ["version-update:semver-major"]
+      # electron major bumps need native module rebuilds and extensive testing
+      - dependency-name: electron
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+
+  # Docker base images
+  - package-ecosystem: docker
+    directory: /apps/server
+    schedule:
+      interval: monthly
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: monthly
