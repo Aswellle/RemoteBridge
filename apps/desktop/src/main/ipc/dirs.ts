@@ -4,8 +4,10 @@ import { WSMessageType } from '@remotebridge/shared';
 import db from '../db/client';
 import { isSystemDirectory } from '../security/path-guard';
 import { getRelayClient } from '../ws-client/client';
+import { invalidateAllowedDirsCache } from '../ws-client/dir-handlers';
 
 function pushDirsUpdated(): void {
+  invalidateAllowedDirsCache();
   const client = getRelayClient();
   if (!client || !client.isConnected()) return;
   client.send({ type: WSMessageType.HOST_DIRS_UPDATED, payload: { timestamp: Date.now() } });

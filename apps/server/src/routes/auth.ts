@@ -158,12 +158,13 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     const pinExpiresAt = Math.floor(Date.now() / 1000) + effectiveExpiresIn;
 
     // 生成 PIN
-    const { pin, hash } = await generatePinWithHash(8);
+    const { pin, hash, hmac } = await generatePinWithHash(8);
 
     // 更新主机记录
     await db.update(hosts)
       .set({
         pinHash: hash,
+        pinHmac: hmac,
         pinExpiresAt,
       })
       .where(eq(hosts.id, hostId));
@@ -232,7 +233,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       if (!host.pinHash) continue;
       if (host.pinExpiresAt && host.pinExpiresAt < now) continue;
 
-      const isValid = await verifyPin(pin, host.pinHash);
+      const isValid = await verifyPin(pin, host.pinHash, host.pinHmac);
       if (isValid) {
         matchedHost = host;
         break;

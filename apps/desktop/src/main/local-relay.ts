@@ -123,7 +123,7 @@ export function startLocalRelay(port = 3002): { success: boolean; error?: string
     NODE_ENV: 'production',
     JWT_SECRET: secret,
     JWT_REFRESH_SECRET: refreshSecret,
-    ALLOWED_ORIGINS: 'http://localhost:3000,http://127.0.0.1:3000',
+    ALLOWED_ORIGINS: config.getLocalRelayAllowedOrigins() || 'http://localhost:3000,http://127.0.0.1:3000',
     RB_DATA_DIR: path.join(app.getPath('userData'), 'local-relay-data'),
   };
 
@@ -136,7 +136,6 @@ export function startLocalRelay(port = 3002): { success: boolean; error?: string
 
       proc.stdout?.on('data', (data: Buffer) => {
         data.toString().split('\n').forEach(pushLog);
-        if (currentStatus === 'starting') startHealthPoll(port);
       });
       proc.stderr?.on('data', (data: Buffer) => {
         data.toString().split('\n').forEach((l) => {

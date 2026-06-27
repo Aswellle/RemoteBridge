@@ -1,5 +1,6 @@
 import Fastify, { FastifyRequest, FastifyReply } from 'fastify';
-import { createReadStream, statSync } from 'fs';
+import { createReadStream } from 'fs';
+import { stat as statFile } from 'fs/promises';
 import path from 'path';
 import { validateDownloadToken, markTokenUsed } from './token-manager';
 import { validatePath } from '../security/path-guard';
@@ -85,10 +86,10 @@ export async function startFileServer(): Promise<number> {
       return reply.code(403).send({ error: 'Access denied' });
     }
 
-    // 3. 先确认文件存在，再消耗 token（SEC-M1）
-    let stat: ReturnType<typeof statSync>;
+    // 3. 先确认文件存在，再消耗 token（SEC-M1 + PERF-M1）
+    let stat: Awaited<ReturnType<typeof statFile>>;
     try {
-      stat = statSync(filePath);
+      stat = await statFile(filePath);
     } catch {
       return reply.code(404).send({ error: 'File not found' });
     }
@@ -155,10 +156,10 @@ export async function startFileServer(): Promise<number> {
       return reply.code(403).send({ error: 'Access denied' });
     }
 
-    // 3. 先确认文件存在，再消耗 token（SEC-M1）
-    let stat: ReturnType<typeof statSync>;
+    // 3. 先确认文件存在，再消耗 token（SEC-M1 + PERF-M1）
+    let stat: Awaited<ReturnType<typeof statFile>>;
     try {
-      stat = statSync(filePath);
+      stat = await statFile(filePath);
     } catch {
       return reply.code(404).send({ error: 'File not found' });
     }

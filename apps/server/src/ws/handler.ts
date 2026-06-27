@@ -291,6 +291,9 @@ async function validateClientSession(
     }
   } catch (err) {
     app.log.error('校验客户端会话失败:', err as any);
+    // CQ-H2: 验证失败时关闭 zombie 连接，防止无 sessionId 的客户端长期占用 room
+    unregisterClient(meta.id, socket);
+    socket.close(4000, '内部错误，请重连');
   }
 }
 
@@ -331,24 +334,21 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
       // 主键优先用发送端的原始消息 id（relay 注入的 messageId / 顶层 id）——
       // Web/桌面端本地列表用的是同一个 id，历史拉取时才能按 id 去重，
       // 否则"在线收到 + 历史加载"会出现同一条消息两个 id 的重复。
-      try {
-        const payload = message.payload as { content?: string; messageId?: string };
-        const now = Math.floor(Date.now() / 1000);
-        const direction = meta.type === 'host' ? 'host_to_client' : 'client_to_host';
-        const sessionId = meta.sessionId || message.sessionId || '';
+      // PERF-M2: 持久化与中继解耦——fire-and-forget，不阻塞 relay 路径
+      const payload = message.payload as { content?: string; messageId?: string };
+      const now = Math.floor(Date.now() / 1000);
+      const direction = meta.type === 'host' ? 'host_to_client' : 'client_to_host';
+      const sessionId = meta.sessionId || message.sessionId || '';
 
-        if (sessionId && payload.content) {
-          await db.insert(messages).values({
-            id: payload.messageId || message.id || randomUUID(),
-            sessionId,
-            direction,
-            content: payload.content,
-            type: 'text',
-            createdAt: now,
-          }).onConflictDoNothing();
-        }
-      } catch (err) {
-        logger.error({ err }, '持久化消息失败');
+      if (sessionId && payload.content) {
+        void db.insert(messages).values({
+          id: payload.messageId || message.id || randomUUID(),
+          sessionId,
+          direction,
+          content: payload.content,
+          type: 'text',
+          createdAt: now,
+        }).onConflictDoNothing().catch((err: unknown) => logger.error({ err }, '持久化消息失败'));
       }
       // 继续中继消息给对方
       relayMessage(socket, message, meta);

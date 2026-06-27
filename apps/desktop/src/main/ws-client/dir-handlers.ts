@@ -1,4 +1,3 @@
-import { nanoid } from 'nanoid';
 import { WSMessageType, getFileCategory, isPreviewableFile } from '@remotebridge/shared';
 import { BrowserWindow } from 'electron';
 import { getRelayClient } from './client';
@@ -10,6 +9,26 @@ import { getFileServerPort } from '../file-server/server';
 import fs from 'fs/promises';
 import path from 'path';
 import log from '../logger';
+
+// ===== 白名单目录缓存（CQ-M5/PERF-M4）=====
+// 每次 WS 消息都调一次同步 SQLite 查询开销过大；用 10s TTL 缓存，
+// dir 变更时由 ipc/dirs.ts 调 invalidateAllowedDirsCache() 主动失效。
+let _allowedDirsCache: any[] | null = null;
+let _allowedDirsCacheAt = 0;
+const ALLOWED_DIRS_TTL_MS = 10_000;
+
+export function invalidateAllowedDirsCache(): void {
+  _allowedDirsCache = null;
+}
+
+function getCachedAllowedDirs(): any[] {
+  if (_allowedDirsCache && Date.now() - _allowedDirsCacheAt < ALLOWED_DIRS_TTL_MS) {
+    return _allowedDirsCache;
+  }
+  _allowedDirsCache = getCachedAllowedDirs() as any[];
+  _allowedDirsCacheAt = Date.now();
+  return _allowedDirsCache;
+}
 
 // ===== 预览配置 =====
 const PREVIEW_MAX_SIZE = 10 * 1024 * 1024; // 10MB 以上不预览
@@ -39,7 +58,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
     const { requestId, clientId, sessionId } = payload;
 
     try {
-      const allowedDirs = db.getAllowedDirectories() as any[];
+      const allowedDirs = getCachedAllowedDirs() as any[];
 
       const entries = await Promise.all(
         allowedDirs.map(async (dir) => {
@@ -100,7 +119,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
 
     try {
       // 1. 获取最新白名单
-      const allowedDirs = db.getAllowedDirectories();
+      const allowedDirs = getCachedAllowedDirs();
 
       // 2. 安全校验
       const validation = validatePath(requestedPath, allowedDirs as any);
@@ -225,7 +244,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
 
     try {
       // 1. 安全校验
-      const allowedDirs = db.getAllowedDirectories();
+      const allowedDirs = getCachedAllowedDirs();
       const validation = validatePath(filePath, allowedDirs as any);
 
       if (!validation.allowed) {
@@ -332,7 +351,7 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
 
     try {
       // 1. 安全校验
-      const allowedDirs = db.getAllowedDirectories();
+      const allowedDirs = getCachedAllowedDirs();
       const validation = validatePath(filePath, allowedDirs as any);
 
       if (!validation.allowed) {

@@ -29,6 +29,7 @@ interface ConfigSchema {
   localRelayAutoStart: boolean;
   localRelayJwtSecret: string;
   localRelayJwtRefreshSecret: string;
+  localRelayAllowedOrigins: string;
 }
 
 // ===== 默认值 =====
@@ -49,6 +50,7 @@ const defaults: ConfigSchema = {
   localRelayAutoStart: false,
   localRelayJwtSecret: '',
   localRelayJwtRefreshSecret: '',
+  localRelayAllowedOrigins: '',
 };
 
 // ===== safeStorage 加密工具 =====
@@ -127,6 +129,8 @@ export const config = {
   setLocalRelayJwtSecret: (value: string): void => { configStore.set('localRelayJwtSecret', encryptField(value)); },
   getLocalRelayJwtRefreshSecret: (): string => decryptField(configStore.get('localRelayJwtRefreshSecret', '')),
   setLocalRelayJwtRefreshSecret: (value: string): void => { configStore.set('localRelayJwtRefreshSecret', encryptField(value)); },
+  getLocalRelayAllowedOrigins: (): string => configStore.get('localRelayAllowedOrigins', ''),
+  setLocalRelayAllowedOrigins: (value: string): void => { configStore.set('localRelayAllowedOrigins', value); },
 
   // 批量获取所有配置
   getAll: (): ConfigSchema => configStore.store,

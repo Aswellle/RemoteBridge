@@ -8,6 +8,7 @@ export const hosts = sqliteTable('hosts', {
   os: text('os'),
   version: text('version'),
   pinHash: text('pin_hash').notNull(),
+  pinHmac: text('pin_hmac'),
   pinExpiresAt: integer('pin_expires_at'),
   lastSeenAt: integer('last_seen_at'),
   createdAt: integer('created_at')

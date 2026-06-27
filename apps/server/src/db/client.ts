@@ -41,6 +41,7 @@ export function initDatabase(): void {
       os            TEXT,
       version       TEXT,
       pin_hash      TEXT NOT NULL,
+      pin_hmac      TEXT,
       pin_expires_at INTEGER,
       last_seen_at  INTEGER,
       created_at    INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -87,6 +88,10 @@ export function initDatabase(): void {
   // SQLite 3.35+（Node 18+ 内置）支持 DROP COLUMN；列不存在时报错由 catch 忽略。
   try { sqlite.exec('ALTER TABLE sessions DROP COLUMN access_token'); } catch {}
   try { sqlite.exec('ALTER TABLE sessions DROP COLUMN refresh_token'); } catch {}
+
+  // BP-M1: 为已有库的 hosts 表添加 pin_hmac 列（新库建表时不含此列，等效向后兼容）。
+  // 列已存在时 SQLite 会报错，catch 忽略；NULL 表示旧记录，connect 路由降级为 bcrypt-only。
+  try { sqlite.exec('ALTER TABLE hosts ADD COLUMN pin_hmac TEXT'); } catch {}
 
   logger.info('数据库初始化完成');
 }
