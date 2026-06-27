@@ -85,10 +85,18 @@ export async function startFileServer(): Promise<number> {
       return reply.code(403).send({ error: 'Access denied' });
     }
 
-    // 3. 标记 token 为已使用
+    // 3. 先确认文件存在，再消耗 token（SEC-M1）
+    let stat: ReturnType<typeof statSync>;
+    try {
+      stat = statSync(filePath);
+    } catch {
+      return reply.code(404).send({ error: 'File not found' });
+    }
+
+    // 4. 标记 token 为已使用（文件已确认存在）
     markTokenUsed(token);
 
-    // 4. 写访问日志
+    // 5. 写访问日志
     db.insertAccessLog({
       clientId,
       action: 'DOWNLOAD',
@@ -96,35 +104,29 @@ export async function startFileServer(): Promise<number> {
       status: 'OK',
     });
 
-    try {
-      // 5. 获取文件信息
-      const stat = statSync(filePath);
-      const fileName = path.basename(filePath);
-      const rangeHeader = request.headers.range;
+    const fileName = path.basename(filePath);
+    const rangeHeader = request.headers.range;
 
-      // 6. 设置响应头
-      reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
-      reply.header('Accept-Ranges', 'bytes');
+    // 6. 设置响应头
+    reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    reply.header('Accept-Ranges', 'bytes');
 
-      if (rangeHeader) {
-        // Range 请求（断点续传）
-        const parts = rangeHeader.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-        const chunkSize = end - start + 1;
+    if (rangeHeader) {
+      // Range 请求（断点续传）
+      const parts = rangeHeader.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      const chunkSize = end - start + 1;
 
-        reply.code(206);
-        reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
-        reply.header('Content-Length', chunkSize);
+      reply.code(206);
+      reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      reply.header('Content-Length', chunkSize);
 
-        return reply.send(createReadStream(filePath, { start, end }));
-      } else {
-        // 完整文件
-        reply.header('Content-Length', stat.size);
-        return reply.send(createReadStream(filePath));
-      }
-    } catch (err) {
-      return reply.code(404).send({ error: 'File not found' });
+      return reply.send(createReadStream(filePath, { start, end }));
+    } else {
+      // 完整文件
+      reply.header('Content-Length', stat.size);
+      return reply.send(createReadStream(filePath));
     }
   });
 
@@ -153,10 +155,18 @@ export async function startFileServer(): Promise<number> {
       return reply.code(403).send({ error: 'Access denied' });
     }
 
-    // 3. 标记 token 为已使用
+    // 3. 先确认文件存在，再消耗 token（SEC-M1）
+    let stat: ReturnType<typeof statSync>;
+    try {
+      stat = statSync(filePath);
+    } catch {
+      return reply.code(404).send({ error: 'File not found' });
+    }
+
+    // 4. 标记 token 为已使用（文件已确认存在）
     markTokenUsed(token);
 
-    // 4. 写访问日志
+    // 5. 写访问日志
     db.insertAccessLog({
       clientId,
       action: 'PREVIEW',
@@ -164,37 +174,31 @@ export async function startFileServer(): Promise<number> {
       status: 'OK',
     });
 
-    try {
-      // 5. 获取文件信息
-      const stat = statSync(filePath);
-      const fileName = path.basename(filePath);
-      const ext = path.extname(fileName).slice(1).toLowerCase();
+    const fileName = path.basename(filePath);
+    const ext = path.extname(fileName).slice(1).toLowerCase();
 
-      // 6. 设置 Content-Type
-      reply.header('Content-Type', getContentTypeForExt(ext));
-      reply.header('Accept-Ranges', 'bytes');
-      reply.header('Cache-Control', 'no-store'); // 预览内容不缓存
+    // 6. 设置 Content-Type
+    reply.header('Content-Type', getContentTypeForExt(ext));
+    reply.header('Accept-Ranges', 'bytes');
+    reply.header('Cache-Control', 'no-store'); // 预览内容不缓存
 
-      // 7. 支持 Range 请求（用于大文本文件分段加载）
-      const rangeHeader = request.headers.range;
-      if (rangeHeader) {
-        const parts = rangeHeader.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-        const chunkSize = end - start + 1;
+    // 7. 支持 Range 请求（用于大文本文件分段加载）
+    const rangeHeader = request.headers.range;
+    if (rangeHeader) {
+      const parts = rangeHeader.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      const chunkSize = end - start + 1;
 
-        reply.code(206);
-        reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
-        reply.header('Content-Length', chunkSize);
+      reply.code(206);
+      reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+      reply.header('Content-Length', chunkSize);
 
-        return reply.send(createReadStream(filePath, { start, end }));
-      }
-
-      reply.header('Content-Length', stat.size);
-      return reply.send(createReadStream(filePath));
-    } catch (err) {
-      return reply.code(404).send({ error: 'File not found' });
+      return reply.send(createReadStream(filePath, { start, end }));
     }
+
+    reply.header('Content-Length', stat.size);
+    return reply.send(createReadStream(filePath));
   });
 
   // 启动服务器（仅监听本地）

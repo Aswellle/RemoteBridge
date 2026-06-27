@@ -35,6 +35,16 @@ export function registerSettingsHandlers(
 
   ipcMain.handle('settings:save', async (_, settings: SettingsData) => {
     try {
+      // SEC-M3: 校验 relay 地址协议，防止渲染层传入任意 URL 导致 SSRF 或本地资源访问。
+      try {
+        const wsProto = new URL(settings.relayUrl).protocol;
+        if (!['ws:', 'wss:'].includes(wsProto)) throw new Error('非法 WS 协议');
+        const apiProto = new URL(settings.relayApiUrl).protocol;
+        if (!['http:', 'https:'].includes(apiProto)) throw new Error('非法 API 协议');
+      } catch (e: any) {
+        return { success: false, error: `无效的 Relay 地址格式（需 ws[s]:// / http[s]://）：${e.message}` };
+      }
+
       const relayUrlChanged =
         settings.relayUrl !== config.getRelayUrl() ||
         settings.relayApiUrl !== config.getRelayApiUrl();

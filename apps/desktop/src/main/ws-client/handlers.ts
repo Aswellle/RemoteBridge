@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { WSMessageType, FileCategory } from '@remotebridge/shared';
 import { BrowserWindow, Notification } from 'electron';
 import { getRelayClient } from './client';
@@ -16,6 +17,7 @@ interface UploadTransfer {
   category: FileCategory;
   totalChunks: number;
   totalSize: number;
+  actualBytes: number; // SEC-H1: 实际已接收字节数，不信任客户端声明的 totalSize
   clientId?: string;
   sessionId?: string;
   timer: NodeJS.Timeout;
@@ -98,9 +100,8 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
 
     // 消息持久化：以 Relay 注入的原始消息 id 为主键（INSERT OR IGNORE 去重）
     try {
-      const { nanoid } = require('nanoid');
       db.insertMessage({
-        id: payload.messageId || nanoid(),
+        id: payload.messageId || randomUUID(),
         sessionId: payload.sessionId,
         direction: 'client_to_host',
         content: payload.content || '',
@@ -162,14 +163,15 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
         return;
       }
 
-      totalBufferedBytes += totalSize;
+      // SEC-H1: 不预先计入 totalSize（攻击者可声明 499MB 但只发 1KB 撑满配额）。
+      // 实际字节在每个分块到达时累加到 actualBytes / totalBufferedBytes。
 
       // PM5: 超时计时器在每个分块到达时重置，支持大文件慢速上传
       const timer = setTimeout(() => {
         const t = uploadBuffer.get(uploadId);
         if (t) {
           log.warn('文件上传超时，丢弃 uploadId:', uploadId);
-          totalBufferedBytes -= t.totalSize;
+          totalBufferedBytes -= t.actualBytes;
           uploadBuffer.delete(uploadId);
           client.send({
             type: WSMessageType.RESP_UPLOAD_ERROR,
@@ -186,6 +188,7 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
         category,
         totalChunks,
         totalSize,
+        actualBytes: 0,
         clientId,
         sessionId,
         timer,
@@ -194,7 +197,10 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
 
     const transfer = uploadBuffer.get(uploadId)!;
     if (!transfer.chunks[chunkIndex]) {
-      transfer.chunks[chunkIndex] = Buffer.from(data, 'base64');
+      const chunkBuf = Buffer.from(data, 'base64');
+      transfer.chunks[chunkIndex] = chunkBuf;
+      transfer.actualBytes += chunkBuf.length; // SEC-H1: 累加实际字节
+      totalBufferedBytes += chunkBuf.length;
       transfer.received++;
     }
 
@@ -204,7 +210,7 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
       const t = uploadBuffer.get(uploadId);
       if (t) {
         log.warn('文件上传超时，丢弃 uploadId:', uploadId);
-        totalBufferedBytes -= t.totalSize;
+        totalBufferedBytes -= t.actualBytes;
         uploadBuffer.delete(uploadId);
         client.send({
           type: WSMessageType.RESP_UPLOAD_ERROR,
@@ -216,7 +222,7 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
     // 所有分块已到齐 → 组装并写盘
     if (transfer.received === totalChunks) {
       clearTimeout(transfer.timer);
-      totalBufferedBytes -= transfer.totalSize;
+      totalBufferedBytes -= transfer.actualBytes;
       uploadBuffer.delete(uploadId);
 
       try {

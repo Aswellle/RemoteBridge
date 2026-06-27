@@ -269,8 +269,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       hostId: matchedHost.id,
       clientId,
       clientLabel: clientLabel || null,
-      accessToken,
-      refreshToken,
       expiresAt,
       createdAt: now,
     });
@@ -384,8 +382,6 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     const newExpiresAt = Math.floor(Date.now() / 1000) + 2 * 60 * 60;
     await db.update(sessions)
       .set({
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
         expiresAt: newExpiresAt,
         lastActiveAt: Math.floor(Date.now() / 1000),
       })
@@ -494,7 +490,14 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   // --- DELETE /auth/revoke/:sessionId ---
   // Host 吊销某个 Client 会话
-  fastify.delete<{ Params: { sessionId: string } }>('/auth/revoke/:sessionId', async (request, reply) => {
+  fastify.delete<{ Params: { sessionId: string } }>('/auth/revoke/:sessionId', {
+    config: {
+      rateLimit: {
+        max: 30,
+        timeWindow: RATE_LIMIT_CONFIG.WINDOW_MS,
+      },
+    },
+  }, async (request, reply) => {
     // 验证 Host JWT
     const token = extractTokenFromHeader(request.headers.authorization);
     if (!token) {

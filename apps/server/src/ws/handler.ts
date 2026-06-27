@@ -166,6 +166,9 @@ export function setupWebSocket(app: FastifyInstance): void {
       // 二进制帧（P1-12）：文件隧道分块的首选格式，自描述头部见 file-tunnel-codec.ts。
       // 仅服务端代理 ↔ Host 之间使用，永不出现在 Client 连接上。
       if (isBinary) {
+        // SEC-M2: 二进制帧仅 Host→Relay 文件隧道使用；client 类型连接发来的直接丢弃，
+        // 防止 Web 端发送任意 binary 帧触发文件隧道逻辑。
+        if (meta.type !== 'host') return;
         try {
           const decoded = decodeFileChunkFrame(data as Buffer);
           resolveFileTunnelBinaryFrame(decoded);

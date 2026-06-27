@@ -52,8 +52,6 @@ export function initDatabase(): void {
       host_id       TEXT NOT NULL REFERENCES hosts(id),
       client_id     TEXT NOT NULL,
       client_label  TEXT,
-      access_token  TEXT NOT NULL,
-      refresh_token TEXT NOT NULL,
       expires_at    INTEGER NOT NULL,
       created_at    INTEGER NOT NULL DEFAULT (unixepoch()),
       revoked_at    INTEGER,
@@ -84,6 +82,11 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_security_logs_host_created ON security_logs(host_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_client_host ON sessions(client_id, host_id);
   `);
+
+  // SEC-C2: 从已有库删除明文 token 列（新库建表时就不含这两列）。
+  // SQLite 3.35+（Node 18+ 内置）支持 DROP COLUMN；列不存在时报错由 catch 忽略。
+  try { sqlite.exec('ALTER TABLE sessions DROP COLUMN access_token'); } catch {}
+  try { sqlite.exec('ALTER TABLE sessions DROP COLUMN refresh_token'); } catch {}
 
   logger.info('数据库初始化完成');
 }

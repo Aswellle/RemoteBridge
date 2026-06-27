@@ -26,8 +26,6 @@ export const sessions = sqliteTable('sessions', {
     .references(() => hosts.id),
   clientId: text('client_id').notNull(),
   clientLabel: text('client_label'),
-  accessToken: text('access_token').notNull(),
-  refreshToken: text('refresh_token').notNull(),
   expiresAt: integer('expires_at').notNull(),
   createdAt: integer('created_at')
     .notNull()
