@@ -4,7 +4,7 @@
 #     --build-arg NEXT_PUBLIC_API_URL=https://your-domain.com/api/v1 \
 #     --build-arg NEXT_PUBLIC_WS_URL=wss://your-domain.com/ws .
 
-FROM node:20-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 RUN corepack enable
 WORKDIR /app
 
