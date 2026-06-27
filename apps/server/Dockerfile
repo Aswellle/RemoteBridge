@@ -1,7 +1,7 @@
 # Multi-stage build for the RemoteBridge Relay Server (@remotebridge/server).
 # Build from the monorepo root: docker build -f apps/server/Dockerfile .
 
-FROM node:20-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 RUN corepack enable
 WORKDIR /app
 
