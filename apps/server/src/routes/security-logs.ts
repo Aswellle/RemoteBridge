@@ -4,7 +4,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'node:crypto';
 import { db } from '../db/client';
 import { securityLogs } from '../db/schema';
 import { eq, and, or, desc, like, gte, lte, count, sql } from 'drizzle-orm';
@@ -230,7 +230,7 @@ export async function securityLogsRoutes(fastify: FastifyInstance): Promise<void
 
     try {
       await db.insert(securityLogs).values({
-        id: nanoid(),
+        id: randomUUID(),
         hostId,
         clientId: clientId || null,
         eventType: eventType as SecurityLog['eventType'],

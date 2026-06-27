@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'node:crypto';
 import { verifyToken, TokenPayload } from '../utils/jwt';
 import { db, isSessionRevoked } from '../db/client';
 import { sessions, messages } from '../db/schema';
@@ -177,7 +177,7 @@ export function setupWebSocket(app: FastifyInstance): void {
 
       try {
         const message: WSMessage = JSON.parse(data.toString());
-        handleMessage(socket, message, meta);
+        void handleMessage(socket, message, meta).catch((err: unknown) => app.log.error({ err }, 'handleMessage 未捕获异常'));
       } catch (err) {
         app.log.error('解析 WebSocket 消息失败:', err as any);
         sendWSMessage(socket, {
@@ -336,7 +336,7 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
 
         if (sessionId && payload.content) {
           await db.insert(messages).values({
-            id: payload.messageId || message.id || nanoid(),
+            id: payload.messageId || message.id || randomUUID(),
             sessionId,
             direction,
             content: payload.content,

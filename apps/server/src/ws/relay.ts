@@ -1,5 +1,5 @@
 import { WebSocket } from 'ws';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'node:crypto';
 import { WSMessage, WSMessageType } from '@remotebridge/shared';
 import {
   ConnectionMeta,
@@ -16,7 +16,7 @@ import { logger } from '../utils/logger';
 export function sendWSMessage(ws: WebSocket, message: Partial<WSMessage>): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
-      id: (message as any).id || nanoid(),
+      id: (message as any).id || randomUUID(),
       type: message.type,
       payload: message.payload || {},
       timestamp: message.timestamp || Date.now(),

@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
-import { nanoid } from 'nanoid';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { db } from '../db/client';
 import { hosts, sessions, securityLogs } from '../db/schema';
 import { eq, and, gt, isNull, ne, or } from 'drizzle-orm';
@@ -87,8 +87,8 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    const hostId = nanoid();
-    const secret = nanoid(64);
+    const hostId = randomUUID();
+    const secret = randomBytes(32).toString('hex');
 
     // 创建主机记录（pin_hash 暂时为空，后续生成 PIN 时填充）
     await db.insert(hosts).values({
@@ -242,7 +242,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     if (!matchedHost) {
       // 记录认证失败
       await db.insert(securityLogs).values({
-        id: nanoid(),
+        id: randomUUID(),
         clientId,
         eventType: 'AUTH_FAIL',
         detail: JSON.stringify({ pin: pin.slice(0, 4) + '****' }),
@@ -259,7 +259,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     // PIN 验证成功，创建会话
-    const sessionId = nanoid();
+    const sessionId = randomUUID();
     const accessToken = signClientAccessToken(clientId, sessionId, matchedHost.id);
     const refreshToken = signClientRefreshToken(clientId, sessionId, matchedHost.id);
     const expiresAt = Math.floor(Date.now() / 1000) + 2 * 60 * 60; // 2 小时
@@ -282,7 +282,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
     // 记录会话创建
     await db.insert(securityLogs).values({
-      id: nanoid(),
+      id: randomUUID(),
       hostId: matchedHost.id,
       clientId,
       eventType: 'SESSION_CREATED',
@@ -391,19 +391,26 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       })
       .where(eq(sessions.id, payload.sessionId));
 
-    // 如果请求来自 cookie 路径，更新 cookie；否则仅回 body（旧客户端兼容）
+    // SECURITY (SEC-C1): cookie 路径绝对不在 body 里回传明文 token。
+    // XSS 可以 fetch('/auth/refresh', {credentials:'include'}) 拿到响应 body，
+    // 从 data.accessToken 读走 JWT，完全绕过 httpOnly cookie 防护（02a-S11）。
+    // 非 cookie 路径（Host 端 / Legacy 非浏览器客户端）仍走 body 以保持向后兼容。
     if (cookieRefresh) {
       setCookies(reply, newAccessToken, newRefreshToken);
+      return reply.send({
+        success: true,
+        data: { accessToken: '' },
+        error: null,
+        timestamp: Date.now(),
+      } as ApiResponse<{ accessToken: string }>);
     }
 
-    const response: ApiResponse<{ accessToken: string }> = {
+    return reply.send({
       success: true,
       data: { accessToken: newAccessToken },
       error: null,
       timestamp: Date.now(),
-    };
-
-    return reply.send(response);
+    } as ApiResponse<{ accessToken: string }>);
   });
 
   // --- GET /auth/ws-ticket ---
@@ -542,7 +549,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
     // 记录安全日志
     await db.insert(securityLogs).values({
-      id: nanoid(),
+      id: randomUUID(),
       hostId,
       clientId: session[0].clientId,
       eventType: 'REVOKE',

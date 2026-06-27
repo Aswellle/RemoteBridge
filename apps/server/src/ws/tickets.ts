@@ -1,4 +1,4 @@
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'node:crypto';
 
 // ===== 短生命期 WS 票据（02a-S11）=====
 // Web 客户端无法在 WS URL 中安全传递 httpOnly cookie，因此先通过 REST 换取一个
@@ -16,7 +16,7 @@ const tickets = new Map<string, WsTicket>();
 
 /** 签发一个 30 秒单次票据，返回票据字符串。 */
 export function issueTicket(clientId: string, sessionId: string, hostId: string): string {
-  const ticket = nanoid(32);
+  const ticket = randomUUID();
   tickets.set(ticket, { clientId, sessionId, hostId, expiresAt: Date.now() + 30_000 });
   return ticket;
 }

@@ -10,7 +10,7 @@ import { waitForHostResponse } from '../ws/pending-requests';
 import { beginFileTransfer, endFileTransfer } from '../ws/file-tunnel';
 import type { NormalizedFileChunk } from '../ws/file-tunnel';
 import { WSMessageType } from '@remotebridge/shared';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'node:crypto';
 // reply.hijack() 之后 @fastify/cors 的钩子不再执行，流式响应必须手动补 CORS 头，
 // 否则浏览器拦截代理下载/预览（curl/Node 不校验 CORS，API 级测试无感）
 import { corsHeadersFor } from '../utils/cors';
@@ -49,7 +49,7 @@ function tunnelFromHost(
 
   const range = parseRange(rangeHeader);
   const corsHdrs = corsHeadersFor(origin);
-  const transferId = nanoid();
+  const transferId = randomUUID();
 
   reply.hijack();
   const raw = reply.raw;
@@ -245,7 +245,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       // 5. 注册等待（必须先于发送，避免响应先到）→ 向 Host 发送 CMD_REQUEST_DOWNLOAD
-      const requestId = nanoid();
+      const requestId = randomUUID();
       const respPromise = waitForHostResponse(
         requestId,
         WSMessageType.RESP_DOWNLOAD_READY,
@@ -273,7 +273,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
         // 7. 写访问日志（隧道接管响应前落库，传输结果不影响审计记录的存在）
         try {
           await db.insert(securityLogs).values({
-            id: nanoid(),
+            id: randomUUID(),
             hostId,
             clientId: payload.sub,
             eventType: 'ACCESS_DOWNLOAD',
@@ -351,7 +351,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       // 5. 注册等待（必须先于发送，避免响应先到）→ 向 Host 发送 CMD_REQUEST_PREVIEW
-      const requestId = nanoid();
+      const requestId = randomUUID();
       const respPromise = waitForHostResponse(
         requestId,
         WSMessageType.RESP_PREVIEW_READY,
@@ -377,7 +377,7 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
         // 7. 写访问日志
         try {
           await db.insert(securityLogs).values({
-            id: nanoid(),
+            id: randomUUID(),
             hostId,
             clientId: payload.sub,
             eventType: 'ACCESS_PREVIEW',

@@ -1,8 +1,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'node:crypto';
 import { db } from '../db/client';
 import { messages, sessions } from '../db/schema';
-import { eq, and, desc, gt, inArray } from 'drizzle-orm';
+import { eq, and, desc, gt } from 'drizzle-orm';
 import { extractTokenFromRequest, verifyAccessToken } from '../utils/jwt';
 import { sendToClient, sendToHost } from '../ws/relay';
 import { WSMessageType } from '@remotebridge/shared';
@@ -165,32 +165,23 @@ export async function messagesRoutes(fastify: FastifyInstance): Promise<void> {
     const page = Math.max(1, parseInt(request.query.page || '1', 10));
     const limit = Math.min(parseInt(request.query.limit || '50', 10), 200);
 
-    // 找出该 client↔host 对的所有会话（不按 revokedAt 过滤）。
-    // 吊销（revokedAt）杀的是这个会话 token 的鉴权能力，不代表对话内容本身
-    // 不再合法——之前过滤掉已吊销会话会导致：只要这个 client↔host 之间任意一次
-    // 历史会话被吊销过，那次会话里聊过的全部消息（双向）就从所有后续的聚合历史里
-    // 永久消失，造成"明明聊过却什么都看不到"的假象。
-    const clientSessions = await db.select({ id: sessions.id })
-      .from(sessions)
+    // JOIN 代替两步 inArray：避免 SQLite "too many SQL variables" 在会话数 >999 时崩溃（PERF-H2）。
+    // 吊销（revokedAt）只杀 token 鉴权能力，历史消息内容应继续可见——不按 revokedAt 过滤。
+    const result = await db.select({
+      id: messages.id,
+      sessionId: messages.sessionId,
+      direction: messages.direction,
+      content: messages.content,
+      type: messages.type,
+      createdAt: messages.createdAt,
+      readAt: messages.readAt,
+    })
+      .from(messages)
+      .innerJoin(sessions, eq(messages.sessionId, sessions.id))
       .where(and(
         eq(sessions.clientId, clientId),
         eq(sessions.hostId, hostId),
-      ));
-
-    if (clientSessions.length === 0) {
-      return reply.send({
-        success: true,
-        data: [],
-        error: null,
-        timestamp: Date.now(),
-      });
-    }
-
-    const sessionIds = clientSessions.map(s => s.id);
-
-    const result = await db.select()
-      .from(messages)
-      .where(inArray(messages.sessionId, sessionIds))
+      ))
       .orderBy(desc(messages.createdAt))
       .limit(limit)
       .offset((page - 1) * limit);
@@ -294,7 +285,7 @@ export async function messagesRoutes(fastify: FastifyInstance): Promise<void> {
 
     // 创建消息记录
     const now = Math.floor(Date.now() / 1000);
-    const messageId = nanoid();
+    const messageId = randomUUID();
     const direction = isHost ? 'host_to_client' : 'client_to_host';
 
     await db.insert(messages).values({
