@@ -5,9 +5,48 @@ All notable changes to RemoteBridge are documented here. All four workspace pack
 are currently pinned at `1.0.0`; this file starts tracking changes from the 2026-06
 comprehensive code review (`.full-review/05-final-report.md`) onward.
 
-## [Unreleased]
+## [1.3.0] - 2026-06-27
 
-Fixes from the 2026-06 comprehensive code review, in the order they were applied.
+Fixes from the 2026-06-14 and 2026-06-27 comprehensive code reviews.
+
+### Security
+- Replace bcrypt with `@node-rs/bcrypt` (10× faster, no native build issues)
+- Add HMAC-SHA256 pre-filter before bcrypt PIN comparison to prevent DoS via expensive hash
+- httpOnly cookie token storage for web client (XSS hardening, 02a-S11)
+- Host JWT rotation shortened to 90d, proactive rotation at ≤30d remaining (02a-S13)
+- Rate limit config now env-var-configurable (`RL_*`); production defaults unchanged
+
+### Performance & Reliability
+- Audit log writes are now fire-and-forget (no longer blocking the relay message loop)
+- `fs.stat` calls in path-guard converted to async (no more sync I/O in the message path)
+- TTL cache for allowed-directory lookups
+- Zombie client cleanup on host disconnect
+
+### Code Quality
+- `routes/proxy.ts`: extracted `proxyFileRequest()`, eliminating ~200 lines of duplication between download and preview routes (409→314 lines)
+- CORS policy consolidated to `utils/cors.ts` (single source of truth)
+
+### Tests
+- `auth-cookie.test.ts`: verifies cookie-path refresh does not leak plaintext JWT in body (SEC-C1)
+- `handlers.test.ts`: upload quota regression (SEC-H1), path-traversal defense, 2-chunk assembly
+- `file-server.test.ts`: 20 tests covering token validation, Range requests, MIME types, access logging
+- `rate-limit.test.ts`: 429 enforcement on register-host / auth/connect / ws-ticket via isolated relay
+
+### CI / DevOps
+- Add `.github/workflows/codeql.yml` (weekly CodeQL security scan, `security-and-quality` queries)
+- Add `.github/dependabot.yml` (npm weekly, GitHub Actions weekly, Docker monthly)
+- CI: Windows runner job for Windows-specific path-blacklist validation
+- CI: coverage gate on `@remotebridge/shared` (statements ≥70%, actual ~91%)
+- `docker-compose.yml`: document single-instance constraint (ADR-005)
+- Main branch protection: force-push / deletion blocked; `build-and-test` + `test-windows` required
+
+### Dependencies
+- drizzle-orm 0.29 → 0.40.1, drizzle-kit 0.20 → 0.30.x
+
+### Assets
+- App icon updated to rainbow bridge design (multi-size ICO: 16/32/48/64/128/256 px)
+
+## [Unreleased]
 
 ### Security
 
