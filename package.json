@@ -16,10 +16,18 @@
   },
   "packageManager": "pnpm@9.1.0",
   "pnpm": {
+    "overrides": {
+      "fast-uri": ">=3.1.2",
+      "form-data": ">=4.0.6"
+    },
     "auditConfig": {
       "ignoreCves": [
         "GHSA-jx2c-rxcm-jvmq",
-        "GHSA-h25m-26qc-wcjf"
+        "GHSA-h25m-26qc-wcjf",
+        "GHSA-q4gf-8mx6-v5v3",
+        "GHSA-8h8q-6873-q5fj",
+        "GHSA-c4j6-fc7j-m34r",
+        "GHSA-36qx-fr4f-26g5"
       ]
     }
   },
