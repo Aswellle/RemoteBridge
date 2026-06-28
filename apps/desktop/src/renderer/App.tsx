@@ -197,6 +197,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'dirs' | 'clients' | 'messages' | 'security' | 'settings'>('home');
   const [isLoading, setIsLoading] = useState(true);
   const [copiedPin, setCopiedPin] = useState(false);
+  const [pinError, setPinError] = useState('');
   const pinDisplayRef = useRef<HTMLDivElement>(null);
   const [editingAlias, setEditingAlias] = useState<number | null>(null);
   const [aliasValue, setAliasValue] = useState('');
@@ -255,10 +256,14 @@ export default function App() {
   // 监听连接状态
   useEffect(() => {
     window.electronAPI.onConnectionStatus((data: any) => {
-      setConnectionStatus(
-        data.status === 'connected' ? 'connected' :
-        data.status === 'error' ? 'error' : 'idle'
-      );
+      const next = data.status === 'connected' ? 'connected' :
+        data.status === 'error' ? 'error' : 'idle';
+      setConnectionStatus(next);
+      // 断开或出错时清除旧 PIN，重连后不显示已过期的连接码
+      if (next !== 'connected') {
+        setGeneratedPin('');
+        setPinError('');
+      }
     });
 
     window.electronAPI.onClientJoined(() => {
@@ -338,13 +343,17 @@ export default function App() {
 
   // 生成 PIN
   const handleGeneratePin = async () => {
+    setPinError('');
     try {
       const result = await window.electronAPI.generatePin(300); // 5 分钟
       if (result.success && result.data) {
         setGeneratedPin(result.data.pin);
         setCopiedPin(false);
+      } else {
+        setPinError(result.error || '生成连接码失败，请检查与 Relay 的连接');
       }
-    } catch (err) {
+    } catch (err: any) {
+      setPinError(err?.message || '生成连接码失败');
       console.error('生成 PIN 失败:', err);
     }
   };
@@ -384,7 +393,12 @@ export default function App() {
     setAliasValue(dir.label || '');
   };
 
-  const handleSaveAlias = (dirId: number) => {
+  const handleSaveAlias = async (dirId: number) => {
+    try {
+      await window.electronAPI.saveAlias(dirId, aliasValue);
+    } catch (err) {
+      console.error('保存别名失败:', err);
+    }
     setDirectories(prev =>
       prev.map(d => d.id === dirId ? { ...d, label: aliasValue } : d)
     );
@@ -648,6 +662,13 @@ export default function App() {
                     >
                       生成连接码
                     </button>
+
+                    {pinError && (
+                      <div className="mt-3 flex items-center gap-2 text-sm text-destructive">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                        <span>{pinError}</span>
+                      </div>
+                    )}
 
                     {generatedPin && (
                       <div ref={pinDisplayRef} className="mt-5 p-6 bg-background rounded-xl text-center border border-border/50">

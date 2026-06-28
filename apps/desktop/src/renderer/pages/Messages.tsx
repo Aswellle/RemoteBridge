@@ -268,7 +268,15 @@ export default function MessagesPage() {
 
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-          {filteredMessages.length === 0 ? (
+          {clients.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                <MessageSquare className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <p className="text-base font-semibold text-foreground mb-1">暂无已连接客户端</p>
+              <p className="text-sm text-muted-foreground">请先在"连接状态"页面生成连接码，让远程设备扫码连接</p>
+            </div>
+          ) : filteredMessages.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
                 <MessageSquare className="w-8 h-8 text-muted-foreground" />
