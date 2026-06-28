@@ -5,6 +5,16 @@ All notable changes to RemoteBridge are documented here. All four workspace pack
 are currently pinned at `1.0.0`; this file starts tracking changes from the 2026-06
 comprehensive code review (`.full-review/05-final-report.md`) onward.
 
+## [1.3.1] - 2026-06-28
+
+### Bug Fixes (desktop renderer)
+
+- **PIN 生成无反应**：`handleGeneratePin` 在 relay 返回 `success: false` 时静默忽略错误；现在添加 `pinError` 状态，在"生成连接码"按钮下方显示具体错误信息（如"未连接到 Relay"）
+- **断线后旧 PIN 残留**：连接状态变为非 `connected` 时，自动清除已生成的连接码和错误信息
+- **别名不持久化**：`handleSaveAlias` 只更新本地 React state，未调用 `window.electronAPI.saveAlias()`；IPC handler `dirs:save-alias` 早已存在，现在正确调用
+- **消息中心显示混乱**：无客户端时 `filteredMessages` 返回所有历史消息（因 `selectedClient === ''`），导致旧消息全部显示而侧边栏为空；现在优先判断 `clients.length === 0`，显示"暂无已连接客户端"引导信息
+- **Clients 页面破坏主页实时事件**：`Clients.tsx` 调用 `onClientJoined`/`onClientLeft` 时（preload 使用 `removeAllListeners`）会替换 `App.tsx` 注册的监听器，卸载时又 `removeAllListeners` 删除所有监听器，永久破坏主页客户端计数的实时更新；将 Clients 页改为 10s 轮询（与 Messages.tsx 同模式），消除监听器所有权冲突
+
 ## [1.3.0] - 2026-06-27
 
 Fixes from the 2026-06-14 and 2026-06-27 comprehensive code reviews.
