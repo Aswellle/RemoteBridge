@@ -96,7 +96,7 @@ export default function SettingsPage() {
   const [lrError, setLrError] = useState('');
   const [lrLogs, setLrLogs] = useState<string[]>([]);
   const [lrLoading, setLrLoading] = useState(false);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     Promise.all([
@@ -130,7 +130,9 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
   }, [lrLogs]);
 
   const handleLrStart = async () => {
@@ -397,13 +399,12 @@ export default function SettingsPage() {
             {/* 日志 */}
             <div className="border-t border-border mt-3 pt-3">
               <p className="text-xs text-muted-foreground mb-1.5">运行日志（最近 200 行）</p>
-              <div className="h-44 overflow-y-auto bg-secondary/50 rounded-lg p-2 font-mono text-xs text-muted-foreground space-y-0.5">
+              <div ref={logContainerRef} className="h-44 overflow-y-auto bg-secondary/50 rounded-lg p-2 font-mono text-xs text-muted-foreground space-y-0.5">
                 {lrLogs.length === 0 ? (
                   <span className="text-muted-foreground/50">暂无日志</span>
                 ) : (
                   lrLogs.map((line, i) => <div key={i}>{line}</div>)
                 )}
-                <div ref={logEndRef} />
               </div>
             </div>
           </div>

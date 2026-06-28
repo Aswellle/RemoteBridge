@@ -64,4 +64,10 @@ export function registerDirsHandlers(getMainWindow: () => BrowserWindow | null):
       return { success: false, error: error.message };
     }
   });
+
+  ipcMain.handle('dirs:clear-all', () => {
+    db.clearAllDirectories();
+    pushDirsUpdated();
+    return { success: true };
+  });
 }

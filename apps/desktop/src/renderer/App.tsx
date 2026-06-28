@@ -16,6 +16,8 @@ import {
   Monitor,
   AlertCircle,
   X,
+  Loader2,
+  Server,
 } from 'lucide-react';
 import { ElectronAPI, SettingsData, UpdateStatus } from '../preload/index';
 import { applyTheme } from './theme';
@@ -203,6 +205,40 @@ export default function App() {
   const [aliasValue, setAliasValue] = useState('');
   const [latency, setLatency] = useState(0);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' });
+  const [lrStatus, setLrStatus] = useState<'stopped' | 'starting' | 'running' | 'error'>('stopped');
+  const [showFirstLaunchModal, setShowFirstLaunchModal] = useState(false);
+
+  // 检测是否首次启动
+  useEffect(() => {
+    window.electronAPI.isFirstLaunch?.().then((isFirst) => {
+      if (isFirst) setShowFirstLaunchModal(true);
+    }).catch(() => {});
+  }, []);
+
+  // 轮询本地中继状态（每 5s），避免与 Settings 页的事件监听器冲突
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const state = await window.electronAPI.localRelayGetState();
+        setLrStatus(state.status as any);
+      } catch {}
+    };
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleCloseFirstLaunchModal = async (goToSettings = false) => {
+    setShowFirstLaunchModal(false);
+    await window.electronAPI.markFirstLaunchDone?.();
+    if (goToSettings) setActiveTab('settings');
+  };
+
+  const handleClearAllDirectories = async () => {
+    if (!window.confirm('确认清空所有共享目录吗？此操作不可撤销。')) return;
+    await window.electronAPI.clearAllDirectories?.();
+    setDirectories([]);
+  };
 
   // 加载系统信息
   useEffect(() => {
@@ -563,7 +599,7 @@ export default function App() {
                       )}
                     </div>
                     <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Relay 状态</span>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Relay 连接</span>
                       <div className="mt-1 flex items-center gap-2">
                         {/* 状态指示灯 */}
                         <div className={`w-2.5 h-2.5 rounded-full ${
@@ -590,6 +626,37 @@ export default function App() {
                             延迟 {latency > 0 ? `${latency}ms` : '<1ms'}
                           </span>
                         )}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">本地中继</span>
+                      <div className="mt-1 flex items-center gap-2">
+                        <div className={`w-2.5 h-2.5 rounded-full ${
+                          lrStatus === 'running'
+                            ? 'bg-green-500 animate-pulse shadow-lg shadow-green-500/50'
+                            : lrStatus === 'starting'
+                            ? 'bg-yellow-500 animate-pulse shadow-lg shadow-yellow-500/50'
+                            : lrStatus === 'error'
+                            ? 'bg-red-500'
+                            : 'bg-gray-500'
+                        }`} />
+                        <span className={`text-sm ${
+                          lrStatus === 'running' ? 'text-success' :
+                          lrStatus === 'starting' ? 'text-warning' :
+                          lrStatus === 'error' ? 'text-destructive' :
+                          'text-muted-foreground'
+                        }`}>
+                          {lrStatus === 'running' ? '已运行' :
+                           lrStatus === 'starting' ? '启动中...' :
+                           lrStatus === 'error' ? '错误' : '未运行'}
+                        </span>
+                        <button
+                          onClick={() => setActiveTab('settings')}
+                          className="text-xs text-muted-foreground/60 hover:text-primary transition-colors"
+                          title="管理本地中继"
+                        >
+                          <Server className="w-3 h-3" />
+                        </button>
                       </div>
                     </div>
                     <div>
@@ -701,13 +768,24 @@ export default function App() {
           <div className="p-8">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-semibold">共享目录</h2>
-              <button
-                onClick={handleAddDirectory}
-                className="flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 rounded-lg transition-colors text-sm font-medium"
-              >
-                {Icons.plus}
-                添加目录
-              </button>
+              <div className="flex gap-2">
+                {directories.length > 0 && (
+                  <button
+                    onClick={handleClearAllDirectories}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-destructive/15 hover:bg-destructive/30 text-destructive rounded-lg transition-colors text-sm font-medium"
+                  >
+                    {Icons.trash}
+                    清空目录
+                  </button>
+                )}
+                <button
+                  onClick={handleAddDirectory}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 rounded-lg transition-colors text-sm font-medium"
+                >
+                  {Icons.plus}
+                  添加目录
+                </button>
+              </div>
             </div>
 
             {isLoading ? (
@@ -828,6 +906,74 @@ export default function App() {
         {activeTab === 'settings' && <SettingsPage />}
       </main>
       </div>
+
+      {/* ===== 首次启动模态框 ===== */}
+      {showFirstLaunchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-card rounded-2xl shadow-2xl border border-border p-8 w-full max-w-md mx-4">
+            <h2 className="text-xl font-bold mb-1">欢迎使用 RemoteBridge</h2>
+            <p className="text-sm text-muted-foreground mb-6">
+              正在为您自动启动本地中继服务器，完成后即可生成连接码供网页端使用。
+            </p>
+
+            {/* 启动状态 */}
+            <div className="flex items-center gap-3 p-4 bg-secondary/60 rounded-xl mb-5">
+              {(lrStatus === 'stopped' || lrStatus === 'starting') && (
+                <>
+                  <Loader2 className="w-5 h-5 text-primary animate-spin flex-shrink-0" />
+                  <span className="text-sm">正在启动本地中继服务器...</span>
+                </>
+              )}
+              {lrStatus === 'running' && (
+                <>
+                  <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                    <Check className="w-3 h-3 text-white" />
+                  </div>
+                  <span className="text-sm text-success font-medium">本地中继服务器已就绪</span>
+                </>
+              )}
+              {lrStatus === 'error' && (
+                <>
+                  <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+                  <span className="text-sm text-destructive">启动遇到问题，可在设置中手动启动</span>
+                </>
+              )}
+            </div>
+
+            {/* 引导提示（就绪或出错后显示） */}
+            {(lrStatus === 'running' || lrStatus === 'error') && (
+              <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 mb-6">
+                <p className="text-sm font-medium mb-1">建议开启自动启动</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  前往「设置」→「本地中继服务器」，开启「随桌面端启动」，以后打开 RemoteBridge 时无需手动操作。
+                </p>
+              </div>
+            )}
+
+            {/* 按钮区 */}
+            <div className="flex gap-3">
+              {(lrStatus === 'running' || lrStatus === 'error') && (
+                <button
+                  onClick={() => handleCloseFirstLaunchModal(true)}
+                  className="flex-1 py-2.5 bg-primary hover:bg-primary/90 rounded-lg text-sm font-medium transition-colors"
+                >
+                  去设置开启自动启动
+                </button>
+              )}
+              <button
+                onClick={() => handleCloseFirstLaunchModal(false)}
+                className={`py-2.5 rounded-lg text-sm transition-colors ${
+                  lrStatus === 'running' || lrStatus === 'error'
+                    ? 'px-5 bg-secondary hover:bg-secondary/80 text-muted-foreground'
+                    : 'flex-1 bg-secondary hover:bg-secondary/80 text-muted-foreground'
+                }`}
+              >
+                {lrStatus === 'stopped' || lrStatus === 'starting' ? '稍后' : '关闭'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

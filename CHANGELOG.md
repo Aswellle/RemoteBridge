@@ -5,6 +5,19 @@ All notable changes to RemoteBridge are documented here. All four workspace pack
 are currently pinned at `1.0.0`; this file starts tracking changes from the 2026-06
 comprehensive code review (`.full-review/05-final-report.md`) onward.
 
+## [1.3.2] - 2026-06-28
+
+### Desktop
+
+- **首次启动自动引导**：首次打开桌面端时，自动启动本地中继服务器，并在屏幕中央显示启动进度模态框；就绪后提示用户前往「设置 → 本地中继服务器」开启「随桌面端启动」，降低普通用户学习成本（`config/store.ts` 新增 `firstLaunchDone` 标志，主进程检测并调用 `startLocalRelay`）
+- **设置页自动滚动修复**：进入「设置」页面时，日志面板初始加载触发 `scrollIntoView` 导致整页下滚；改为直接设置日志容器 `scrollTop`，仅在容器内部滚动，不影响页面位置
+- **连接状态一致性**：主页「连接状态」卡片新增「本地中继」行，与设置页的本地中继状态保持一致（`stopped/starting/running/error`）；原「Relay 状态」重命名为「Relay 连接」以区分 WS 连接状态与本地进程状态
+- **共享目录重置**：目录页新增「清空目录」按钮，一键将所有共享目录标记为非活跃（软删除），支持将桌面端重置为初始状态
+
+### Web
+
+- **连接页布局优化**：右侧连接表单面板由 `max-w-sm`（384px）扩大至 `max-w-lg`（512px），卡片内边距从 `p-8` 增至 `p-10`，显著减少页面左右留白，使表单更突出
+
 ## [1.3.1] - 2026-06-28
 
 ### Bug Fixes (desktop renderer)

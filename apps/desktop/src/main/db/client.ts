@@ -55,6 +55,10 @@ export const db = {
     ).run(alias, id);
   },
 
+  clearAllDirectories: () => {
+    return sqlite.prepare('UPDATE allowed_directories SET is_active = 0').run();
+  },
+
   // --- 连接的客户端 ---
   getConnectedClients: () => {
     return sqlite.prepare('SELECT * FROM connected_clients WHERE revoked_at IS NULL').all();

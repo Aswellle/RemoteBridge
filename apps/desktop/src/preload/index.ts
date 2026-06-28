@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('dirs:update-permission', id, perm),
   saveAlias: (id: number, alias: string) =>
     ipcRenderer.invoke('dirs:save-alias', id, alias),
+  clearAllDirectories: () => ipcRenderer.invoke('dirs:clear-all'),
+
+  // === 首次启动 ===
+  isFirstLaunch: () => ipcRenderer.invoke('system:is-first-launch'),
+  markFirstLaunchDone: () => ipcRenderer.invoke('system:mark-first-launch-done'),
 
   // === 认证 ===
   registerHost: () => ipcRenderer.invoke('auth:register-host'),
@@ -178,6 +183,9 @@ export interface ElectronAPI {
   }>>;
   updatePermission: (id: number, perm: string) => Promise<{ success: boolean }>;
   saveAlias: (id: number, alias: string) => Promise<{ success: boolean; error?: string }>;
+  clearAllDirectories: () => Promise<{ success: boolean }>;
+  isFirstLaunch: () => Promise<boolean>;
+  markFirstLaunchDone: () => Promise<void>;
   registerHost: () => Promise<{ success: boolean; data?: { hostId: string }; error?: string }>;
   disconnectRelay: () => Promise<{ success: boolean }>;
   getRelayStatus: () => Promise<{ connected: boolean }>;

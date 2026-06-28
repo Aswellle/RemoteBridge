@@ -21,7 +21,7 @@ import { registerDirsHandlers } from './ipc/dirs';
 import { registerClientsHandlers } from './ipc/clients';
 import { registerMessagesHandlers } from './ipc/messages';
 import { registerSettingsHandlers } from './ipc/settings';
-import { registerLocalRelayHandlers, stopLocalRelay } from './local-relay';
+import { registerLocalRelayHandlers, stopLocalRelay, startLocalRelay } from './local-relay';
 
 // ===== Relay 配置（从 config store 加载） =====
 function getRelayUrl(): string {
@@ -68,6 +68,11 @@ app.whenReady().then(async () => {
 
   // 注册所有 IPC 处理器
   registerIpcHandlers();
+
+  // 首次启动：自动运行本地中继服务器（即使 autoStart 未配置）
+  if (!config.getFirstLaunchDone()) {
+    startLocalRelay(config.getLocalRelayPort());
+  }
 
   // 启动时自动注册/连接 Relay（复用持久化身份；失败不阻塞启动，UI 可手动重试）
   ensureHostRegisteredAndConnected(getMainWindow, getRelayApi, getRelayUrl)
@@ -199,4 +204,10 @@ function registerIpcHandlers(): void {
   registerMessagesHandlers();
   registerSettingsHandlers(getMainWindow, getRelayApi, getRelayUrl);
   registerLocalRelayHandlers(getMainWindow);
+
+  // --- 首次启动检测 ---
+  ipcMain.handle('system:is-first-launch', () => !config.getFirstLaunchDone());
+  ipcMain.handle('system:mark-first-launch-done', () => {
+    config.setFirstLaunchDone(true);
+  });
 }

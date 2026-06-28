@@ -142,8 +142,8 @@ export default function HomePage() {
       </div>
 
       {/* ===== 右侧：连接表单 ===== */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="w-full max-w-sm">
+      <div className="flex-1 flex items-center justify-center px-12 py-8">
+        <div className="w-full max-w-lg">
           {/* 移动端品牌标识 — 侧边栏隐藏时显示 */}
           <div className="lg:hidden text-center mb-6">
             <p className="text-xl font-bold text-primary font-system">RemoteBridge</p>
@@ -161,7 +161,7 @@ export default function HomePage() {
           </motion.div>
 
           <motion.div
-            className="bg-card rounded-2xl shadow-xl p-8"
+            className="bg-card rounded-2xl shadow-xl p-10"
             initial={{ opacity: 0, y: 24, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.4, delay: 0.1 }}
