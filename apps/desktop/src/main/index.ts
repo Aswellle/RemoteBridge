@@ -21,7 +21,7 @@ import { registerDirsHandlers } from './ipc/dirs';
 import { registerClientsHandlers } from './ipc/clients';
 import { registerMessagesHandlers } from './ipc/messages';
 import { registerSettingsHandlers } from './ipc/settings';
-import { registerLocalRelayHandlers, stopLocalRelay, startLocalRelay } from './local-relay';
+import { registerLocalRelayHandlers, stopLocalRelay, startLocalRelay, onRelayReady } from './local-relay';
 
 // ===== Relay 配置（从 config store 加载） =====
 function getRelayUrl(): string {
@@ -66,7 +66,19 @@ app.whenReady().then(async () => {
   // 初始化 Host JWT 定期轮换（注册 IPC + 启动后 30s 首次检查 + 每日检查）
   setupTokenRotator(getRelayApi);
 
-  // 注册所有 IPC 处理器
+  // 本地 Relay 就绪后自动重连（解决 autoStart / 首次启动时 Relay 尚未就绪的竞态）
+  onRelayReady(() => {
+    const existing = getRelayClient();
+    if (existing && existing.isConnected()) return;
+    ensureHostRegisteredAndConnected(getMainWindow, getRelayApi, getRelayUrl)
+      .then((r) => {
+        if (r.success) log.info(`本地 Relay 就绪后自动连接成功 (hostId: ${r.data?.hostId})`);
+        else log.warn('本地 Relay 就绪后自动连接失败:', r.error);
+      })
+      .catch((err) => log.error('本地 Relay 就绪后连接异常:', err));
+  });
+
+  // 注册所有 IPC 处理器（registerLocalRelayHandlers 内若 autoStart=true 会启动 Relay，须在 onRelayReady 之后）
   registerIpcHandlers();
 
   // 首次启动：自动运行本地中继服务器（即使 autoStart 未配置）
@@ -156,6 +168,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     'logs:security',
     async (_, query?: { page?: number; pageSize?: number; eventType?: string; clientId?: string }) => {
+      // 尚未注册到中继（token 为空）→ 返回空列表，不报错
+      if (!config.getHostToken()) {
+        return { success: true, data: { logs: [], total: 0, page: query?.page || 1, pageSize: query?.pageSize || 20, totalPages: 0 } };
+      }
       try {
         const params: Record<string, string | number> = {
           page: query?.page || 1,

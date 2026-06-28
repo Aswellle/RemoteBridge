@@ -136,6 +136,10 @@ export const db = {
   getMessages: (limit: number = 100) => {
     return sqlite.prepare('SELECT * FROM local_messages ORDER BY created_at DESC LIMIT ?').all(limit);
   },
+
+  deleteMessagesByClient: (clientId: string) => {
+    return sqlite.prepare('DELETE FROM local_messages WHERE sender_id = ?').run(clientId);
+  },
 };
 
 export default db;

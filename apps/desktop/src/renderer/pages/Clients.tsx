@@ -116,7 +116,7 @@ export default function ClientsPage() {
     }
     setActionError('');
     try {
-      const result = await window.electronAPI.revokeClient(client.sessionId);
+      const result = await window.electronAPI.revokeClient(client.sessionId, client.clientId);
       if (result.success) {
         await loadClients();
         await loadAccessLogs();

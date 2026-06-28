@@ -32,8 +32,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // === 客户端管理 ===
   listClients: () => ipcRenderer.invoke('clients:list'),
-  revokeClient: (sessionId: string) =>
-    ipcRenderer.invoke('clients:revoke', sessionId),
+  revokeClient: (sessionId: string, clientId?: string) =>
+    ipcRenderer.invoke('clients:revoke', sessionId, clientId),
 
   // === 消息发送 ===
   sendMessage: (clientId: string, content: string) =>
@@ -200,7 +200,7 @@ export interface ElectronAPI {
     online: boolean;
     isTrusted: boolean;
   }>>;
-  revokeClient: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+  revokeClient: (sessionId: string, clientId?: string) => Promise<{ success: boolean; error?: string }>;
   sendMessage: (clientId: string, content: string) => Promise<{ success: boolean; error?: string }>;
   getMessageHistory: (limit?: number) => Promise<any[]>;
   getAccessLogs: (limit?: number) => Promise<Array<{

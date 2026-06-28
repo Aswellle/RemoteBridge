@@ -19,6 +19,7 @@ let lastError = '';
 const logLines: string[] = [];
 const MAX_LOGS = 200;
 let healthPollTimer: ReturnType<typeof setInterval> | null = null;
+const relayReadyCallbacks: Array<() => void> = [];
 
 // ===== internal helpers =====
 
@@ -55,6 +56,9 @@ function setStatus(s: LocalRelayStatus, err = ''): void {
   currentStatus = s;
   lastError = err;
   broadcastStatus(s, err);
+  if (s === 'running') {
+    relayReadyCallbacks.forEach(cb => { try { cb(); } catch {} });
+  }
 }
 
 function stopHealthPoll(): void {
@@ -100,6 +104,11 @@ function broadcastStatus(status: LocalRelayStatus, error: string): void {
 }
 
 // ===== public API =====
+
+/** 本地 Relay 就绪时（status → 'running'）触发回调，用于在 Relay 启动后自动重连 */
+export function onRelayReady(cb: () => void): void {
+  relayReadyCallbacks.push(cb);
+}
 
 export function startLocalRelay(port = 3002): { success: boolean; error?: string } {
   if (relayProc !== null) return { success: false, error: '本地 Relay 已在运行' };

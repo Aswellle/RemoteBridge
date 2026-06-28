@@ -51,7 +51,7 @@ export function registerClientsHandlers(getRelayApi: () => string): void {
     }
   });
 
-  ipcMain.handle('clients:revoke', async (_, sessionId: string) => {
+  ipcMain.handle('clients:revoke', async (_, sessionId: string, clientId?: string) => {
     if (!sessionId) {
       return { success: false, error: '缺少会话 ID（Relay 不可达时无法吊销）' };
     }
@@ -61,6 +61,10 @@ export function registerClientsHandlers(getRelayApi: () => string): void {
           Authorization: `Bearer ${config.getHostToken()}`,
         },
       });
+      // 吊销成功后清理该客户端的本地消息历史
+      if (clientId) {
+        try { db.deleteMessagesByClient(clientId); } catch {}
+      }
       return { success: true };
     } catch (error: any) {
       const code: string = error?.code ?? '';
