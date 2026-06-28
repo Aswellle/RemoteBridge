@@ -62,22 +62,32 @@ export default function ClientsPage() {
     }
   }, []);
 
-  // 初始加载
+  // 初始加载 + 10s 轮询（不注册 onClientJoined/onClientLeft 事件，
+  // 避免覆盖 App.tsx 已注册的同名监听器导致主页客户端状态丢失）
   useEffect(() => {
+    let alive = true;
     loadClients();
     loadAccessLogs();
-  }, [loadClients, loadAccessLogs]);
-
-  // 监听客户端上下线事件 → 直接刷新列表（online 状态来自 relay 实时数据）
-  useEffect(() => {
-    window.electronAPI.onClientJoined(() => loadClients());
-    window.electronAPI.onClientLeft(() => loadClients());
-
-    return () => {
-      window.electronAPI.removeAllListeners('event:client-joined');
-      window.electronAPI.removeAllListeners('event:client-left');
+    const timer = setInterval(() => {
+      if (!alive) return;
+      if (document.visibilityState === 'visible') {
+        loadClients();
+        loadAccessLogs();
+      }
+    }, 10000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && alive) {
+        loadClients();
+        loadAccessLogs();
+      }
     };
-  }, [loadClients]);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [loadClients, loadAccessLogs]);
 
   // 信任/取消信任
   const handleTrust = async (clientId: string, trusted: boolean) => {
