@@ -39,15 +39,9 @@ export function registerClientsHandlers(getRelayApi: () => string): void {
         isTrusted: !!localById.get(r.clientId)?.is_trusted,
       }));
     } catch {
-      // relay 不可达 → 回退本地表（无 sessionId，吊销不可用）
-      return (db.getConnectedClients() as any[]).map((c) => ({
-        clientId: c.id,
-        sessionId: null,
-        label: c.label || null,
-        lastSeenAt: c.last_seen_at,
-        online: false,
-        isTrusted: !!c.is_trusted,
-      }));
+      // relay 不可达 → 返回空列表，避免展示过期的本地缓存客户端条目
+      // 无法联系 relay = 无法得知谁真正在线，展示旧数据会产生误导
+      return [];
     }
   });
 

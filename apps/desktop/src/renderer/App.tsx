@@ -200,6 +200,8 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [copiedPin, setCopiedPin] = useState(false);
   const [pinError, setPinError] = useState('');
+  const [pinExpiresAt, setPinExpiresAt] = useState<number | null>(null);
+  const [pinTimeLeft, setPinTimeLeft] = useState<number | null>(null);
   const pinDisplayRef = useRef<HTMLDivElement>(null);
   const [editingAlias, setEditingAlias] = useState<number | null>(null);
   const [aliasValue, setAliasValue] = useState('');
@@ -272,11 +274,13 @@ export default function App() {
     }
   }, []);
 
+  // 只在已连接时轮询客户端列表（避免启动时用旧数据渲染）
   useEffect(() => {
+    if (connectionStatus !== 'connected') return;
     refreshClients();
     const timer = setInterval(refreshClients, 10000);
     return () => clearInterval(timer);
-  }, [refreshClients]);
+  }, [connectionStatus, refreshClients]);
 
   // 初始化时查询当前连接状态（主进程启动时会自动连接 Relay）
   useEffect(() => {
@@ -295,10 +299,14 @@ export default function App() {
       const next = data.status === 'connected' ? 'connected' :
         data.status === 'error' ? 'error' : 'idle';
       setConnectionStatus(next);
-      // 断开或出错时清除旧 PIN，重连后不显示已过期的连接码
-      if (next !== 'connected') {
+      if (next === 'connected') {
+        // 连接（或重连）成功后立即刷新客户端列表，不等下一次 10s 轮询
+        refreshClients();
+      } else {
+        // 断开或出错时清除旧 PIN，重连后不显示已过期的连接码
         setGeneratedPin('');
         setPinError('');
+        setPinExpiresAt(null);
       }
     });
 
@@ -366,6 +374,7 @@ export default function App() {
     }
     setConnectionStatus('idle');
     setGeneratedPin('');
+    setPinExpiresAt(null);
     setClients([]);
     setMessages([]);
   };
@@ -377,6 +386,19 @@ export default function App() {
     }
   }, [generatedPin]);
 
+  // PIN 倒计时：每秒更新剩余时间，到期后自动清除连接码
+  useEffect(() => {
+    if (!pinExpiresAt) { setPinTimeLeft(null); return; }
+    const tick = () => {
+      const left = Math.max(0, Math.round(pinExpiresAt - Date.now() / 1000));
+      setPinTimeLeft(left);
+      if (left === 0) { setGeneratedPin(''); setPinExpiresAt(null); }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [pinExpiresAt]);
+
   // 生成 PIN
   const handleGeneratePin = async () => {
     setPinError('');
@@ -384,6 +406,7 @@ export default function App() {
       const result = await window.electronAPI.generatePin(300); // 5 分钟
       if (result.success && result.data) {
         setGeneratedPin(result.data.pin);
+        setPinExpiresAt(result.data.expiresAt ?? null);
         setCopiedPin(false);
       } else {
         setPinError(result.error || '生成连接码失败，请检查与 Relay 的连接');
@@ -474,9 +497,9 @@ export default function App() {
       />
       <div className="flex flex-1 min-h-0">
       {/* 侧边栏 */}
-      <aside className="w-64 bg-card border-r border-border flex flex-col flex-shrink-0">
+      <aside className="w-64 bg-card border-r border-border/40 flex flex-col flex-shrink-0">
         {/* Logo + 版本号 */}
-        <div className="p-4 border-b border-border">
+        <div className="p-4 border-b border-border/40">
           <h1 className="text-xl font-bold text-primary">RemoteBridge</h1>
           <p className="text-xs text-muted-foreground mt-1">Host 模式{systemInfo?.appVersion ? ` · v${systemInfo.appVersion}` : ''}</p>
         </div>
@@ -535,7 +558,7 @@ export default function App() {
         </nav>
 
         {/* 底部系统信息 */}
-        <div className="p-4 border-t border-border">
+        <div className="p-4 border-t border-border/40">
           {isLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-3 w-3/4" />
@@ -738,22 +761,45 @@ export default function App() {
                     )}
 
                     {generatedPin && (
-                      <div ref={pinDisplayRef} className="mt-5 p-6 bg-background rounded-xl text-center border border-border/50">
-                        <p className="text-sm text-muted-foreground mb-3">连接码（5 分钟内有效）</p>
-                        <p className="text-4xl font-mono tracking-[0.3em] text-success mb-4">
-                          {generatedPin.slice(0, 4)}-{generatedPin.slice(4)}
-                        </p>
-                        <button
-                          onClick={handleCopyPin}
-                          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-all ${
-                            copiedPin
-                              ? 'bg-success/20 text-success'
-                              : 'bg-secondary hover:bg-secondary text-foreground'
-                          }`}
-                        >
-                          {copiedPin ? Icons.check : Icons.copy}
-                          {copiedPin ? '已复制' : '复制连接码'}
-                        </button>
+                      <div ref={pinDisplayRef} className="mt-5 rounded-xl overflow-hidden border border-success/40 bg-success/5">
+                        {/* 状态栏 */}
+                        <div className="flex items-center justify-between px-4 py-2.5 bg-success/10 border-b border-success/20">
+                          <div className="flex items-center gap-1.5 text-success text-xs font-semibold uppercase tracking-wide">
+                            <span className="w-1.5 h-1.5 rounded-full bg-success inline-block animate-pulse" />
+                            连接码已就绪
+                          </div>
+                          {pinTimeLeft !== null && (
+                            <span className={`text-xs font-mono tabular-nums ${pinTimeLeft <= 60 ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}>
+                              {pinTimeLeft <= 60
+                                ? `即将失效 ${pinTimeLeft}s`
+                                : `${Math.floor(pinTimeLeft / 60)}:${String(pinTimeLeft % 60).padStart(2, '0')} 后失效`}
+                            </span>
+                          )}
+                        </div>
+                        {/* PIN 码主体 */}
+                        <div className="px-6 py-5 text-center">
+                          <p className="text-xs text-muted-foreground uppercase tracking-widest mb-4">在浏览器中输入以下连接码</p>
+                          <div className="flex items-center justify-center gap-3 mb-5">
+                            <span className="text-3xl font-mono font-bold tracking-[0.15em] text-success bg-success/10 border border-success/30 rounded-lg px-4 py-2 select-all">
+                              {generatedPin.slice(0, 4)}
+                            </span>
+                            <span className="text-2xl text-muted-foreground/60 font-light select-none">—</span>
+                            <span className="text-3xl font-mono font-bold tracking-[0.15em] text-success bg-success/10 border border-success/30 rounded-lg px-4 py-2 select-all">
+                              {generatedPin.slice(4)}
+                            </span>
+                          </div>
+                          <button
+                            onClick={handleCopyPin}
+                            className={`inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+                              copiedPin
+                                ? 'bg-success text-white'
+                                : 'bg-success/15 hover:bg-success/25 text-success border border-success/30'
+                            }`}
+                          >
+                            {copiedPin ? Icons.check : Icons.copy}
+                            {copiedPin ? '已复制！' : '复制连接码'}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

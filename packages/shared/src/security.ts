@@ -127,6 +127,8 @@ export const PIN_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 export function generatePin(length: number = 8): string {
   // 使用加密安全随机源（Node 18+ 与浏览器均提供 globalThis.crypto）
+  // Electron utility process 由 relay-wrapper.js 在加载 bundle.js 前注入 polyfill，
+  // 因此此处可安全地直接使用 globalThis.crypto（不引入 node:crypto，保持浏览器兼容）。
   // rejection sampling 避免 256 % 31 != 0 带来的取模偏差
   const cryptoObj = globalThis.crypto;
   const maxValid = Math.floor(256 / PIN_CHARS.length) * PIN_CHARS.length;

@@ -374,7 +374,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            <div className="border-t border-border pt-3 space-y-1">
+            <div className="border-t border-border/40 pt-3 space-y-1">
               <div className="flex items-center gap-3">
                 <label className="text-xs text-muted-foreground w-10 flex-shrink-0">端口</label>
                 <input
@@ -397,7 +397,7 @@ export default function SettingsPage() {
             </div>
 
             {/* 日志 */}
-            <div className="border-t border-border mt-3 pt-3">
+            <div className="border-t border-border/40 mt-3 pt-3">
               <p className="text-xs text-muted-foreground mb-1.5">运行日志（最近 200 行）</p>
               <div ref={logContainerRef} className="h-44 overflow-y-auto bg-secondary/50 rounded-lg p-2 font-mono text-xs text-muted-foreground space-y-0.5">
                 {lrLogs.length === 0 ? (

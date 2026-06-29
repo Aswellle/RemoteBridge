@@ -15,14 +15,23 @@ function pushDirsUpdated(): void {
 
 // ===== 注册目录管理 IPC =====
 export function registerDirsHandlers(getMainWindow: () => BrowserWindow | null): void {
+  let _selectDialogOpen = false;
   ipcMain.handle('dirs:select-dialog', async () => {
+    if (_selectDialogOpen) return null;
     const mainWindow = getMainWindow();
     if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openDirectory'],
-      title: '选择共享目录',
-    });
-    return result.canceled || !result.filePaths.length ? null : result.filePaths[0];
+    _selectDialogOpen = true;
+    // 确保窗口在前台，避免 Windows 上对话框出现在应用窗口后面
+    mainWindow.focus();
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: '选择共享目录',
+      });
+      return result.canceled || !result.filePaths.length ? null : result.filePaths[0];
+    } finally {
+      _selectDialogOpen = false;
+    }
   });
 
   ipcMain.handle('dirs:add', async (_, dirPath: string) => {

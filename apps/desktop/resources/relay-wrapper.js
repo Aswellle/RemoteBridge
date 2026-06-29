@@ -9,6 +9,12 @@ const Module = require('module');
 const path = require('path');
 const fs = require('fs');
 
+// Electron utility process (Node 20) may not expose globalThis.crypto;
+// polyfill it before the relay bundle loads so generatePin() works.
+if (typeof globalThis.crypto === 'undefined') {
+  globalThis.crypto = require('node:crypto').webcrypto;
+}
+
 const nativeBin = path.join(__dirname, '..', '.cache', 'better_sqlite3.electron.node');
 
 if (fs.existsSync(nativeBin)) {

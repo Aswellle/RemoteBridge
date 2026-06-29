@@ -181,7 +181,7 @@ export default function SecurityLogs() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-muted-foreground text-left">
+                <tr className="border-b border-border/40 text-muted-foreground text-left">
                   <th className="px-4 py-3 font-medium">时间</th>
                   <th className="px-4 py-3 font-medium">事件类型</th>
                   <th className="px-4 py-3 font-medium">客户端 ID</th>

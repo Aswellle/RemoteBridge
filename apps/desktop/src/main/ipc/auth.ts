@@ -96,10 +96,9 @@ async function isStoredIdentityValid(relayApi: string, hostId: string, hostToken
     });
     return true;
   } catch (error: any) {
-    const status = error?.response?.status;
-    // 401/403 = token 失效或主机记录丢失，需要重新注册；
-    // 网络错误等其他情况视为暂时不可用，不丢弃已有身份
-    if (status === 401 || status === 403) {
+    // 任何 HTTP 错误（401/403/404 等）= token 失效或主机记录丢失，需要重新注册；
+    // 纯网络错误（ECONNREFUSED/ETIMEDOUT 等）= Relay 暂时不可用，保留已有身份等下次重试
+    if (error?.response?.status) {
       return false;
     }
     throw error;
@@ -205,7 +204,10 @@ export function registerAuthHandlers(
 
       return { success: true, data: response.data.data };
     } catch (error: any) {
-      return { success: false, error: error.message };
+      // 优先返回 Relay 响应体中的具体错误，降级到 axios 通用消息
+      const serverMsg: string | undefined = error?.response?.data?.error?.message;
+      log.error('生成 PIN 失败:', serverMsg || error.message, error?.response?.status);
+      return { success: false, error: serverMsg || error.message };
     }
   });
 }

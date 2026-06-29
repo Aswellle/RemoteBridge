@@ -277,7 +277,7 @@ export default function ClientsPage() {
             <div className="bg-card rounded-lg overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-muted-foreground text-left border-b border-border">
+                  <tr className="text-muted-foreground text-left border-b border-border/40">
                     <th className="px-4 py-3 font-medium">时间</th>
                     <th className="px-4 py-3 font-medium">客户端</th>
                     <th className="px-4 py-3 font-medium">操作</th>

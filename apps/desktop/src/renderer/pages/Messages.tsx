@@ -42,6 +42,9 @@ export default function MessagesPage() {
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // 只展示当前在线的客户端（offline 历史会话不在消息中心主动呈现）
+  const onlineClients = clients.filter((c) => c.online);
+
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -56,7 +59,17 @@ export default function MessagesPage() {
         const list = await window.electronAPI.listClients();
         if (!alive) return;
         setClients(list);
-        setSelectedClient((prev) => prev || (list.length > 0 ? list[0].clientId : ''));
+        const firstOnline = list.find((c) => c.online);
+        if (!firstOnline) {
+          // 无在线客户端时清空选中，避免展示离线历史会话
+          setSelectedClient('');
+        } else {
+          setSelectedClient((prev) => {
+            // 保留已选且仍在线的客户端；否则切到第一个在线客户端
+            const prevStillOnline = prev && list.some((c) => c.clientId === prev && c.online);
+            return prevStillOnline ? prev : firstOnline.clientId;
+          });
+        }
       } catch (err) {
         console.error('加载客户端列表失败:', err);
       }
@@ -80,8 +93,13 @@ export default function MessagesPage() {
     };
   }, []);
 
-  // 加载消息历史
+  // 加载消息历史 — 依赖 selectedClient：
+  // 无选中客户端（= 无活跃连接）时清空消息，避免展示上次会话的残留记录
   useEffect(() => {
+    if (!selectedClient) {
+      setMessages([]);
+      return;
+    }
     async function loadHistory() {
       try {
         const history = await window.electronAPI.getMessageHistory(200);
@@ -105,7 +123,7 @@ export default function MessagesPage() {
       }
     }
     loadHistory();
-  }, []);
+  }, [selectedClient]);
 
   // 监听新消息
   useEffect(() => {
@@ -206,17 +224,17 @@ export default function MessagesPage() {
   return (
     <div className="flex h-full">
       {/* 客户端列表侧边栏 */}
-      <aside className="w-56 bg-card/80 border-r border-border flex-shrink-0 overflow-y-auto">
-        <div className="p-3 border-b border-border">
+      <aside className="w-56 bg-card/80 border-r border-border/40 flex-shrink-0 overflow-y-auto">
+        <div className="p-3 border-b border-border/40">
           <h3 className="text-sm font-semibold text-foreground">会话列表</h3>
         </div>
-        {clients.length === 0 ? (
+        {onlineClients.length === 0 ? (
           <div className="p-4 text-center text-muted-foreground text-sm">
             <p>暂无已连接客户端</p>
           </div>
         ) : (
           <div className="space-y-1 p-2">
-            {clients.map((client) => (
+            {onlineClients.map((client) => (
               <button
                 key={client.clientId}
                 onClick={() => handleSelectClient(client.clientId)}
@@ -249,7 +267,7 @@ export default function MessagesPage() {
       {/* 聊天区 */}
       <main className="flex-1 flex flex-col">
         {/* 聊天标题 */}
-        <div className="px-6 py-3 border-b border-border flex items-center justify-between">
+        <div className="px-6 py-3 border-b border-border/40 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold">
               {selectedClient
@@ -268,7 +286,7 @@ export default function MessagesPage() {
 
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-          {clients.length === 0 ? (
+          {onlineClients.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
                 <MessageSquare className="w-8 h-8 text-muted-foreground" />

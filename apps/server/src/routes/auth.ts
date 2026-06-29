@@ -157,17 +157,28 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         : PIN_DEFAULT_EXPIRES_IN;
     const pinExpiresAt = Math.floor(Date.now() / 1000) + effectiveExpiresIn;
 
-    // 生成 PIN
-    const { pin, hash, hmac } = await generatePinWithHash(8);
+    // 生成 PIN（包裹 try-catch 以便 Fastify 能返回有意义的 500 而非空响应）
+    let pin: string;
+    try {
+      const result = await generatePinWithHash(8);
+      pin = result.pin;
 
-    // 更新主机记录
-    await db.update(hosts)
-      .set({
-        pinHash: hash,
-        pinHmac: hmac,
-        pinExpiresAt,
-      })
-      .where(eq(hosts.id, hostId));
+      await db.update(hosts)
+        .set({
+          pinHash: result.hash,
+          pinHmac: result.hmac,
+          pinExpiresAt,
+        })
+        .where(eq(hosts.id, hostId));
+    } catch (err: any) {
+      request.log.error({ err, hostId }, 'generate-pin 内部错误');
+      return reply.code(500).send({
+        success: false,
+        data: null,
+        error: { code: 'PIN_GENERATION_FAILED', message: `生成连接码失败: ${err?.message ?? '未知错误'}` },
+        timestamp: Date.now(),
+      });
+    }
 
     const response: ApiResponse<GeneratePinResponse> = {
       success: true,

@@ -31,6 +31,7 @@ interface ConfigSchema {
   localRelayJwtRefreshSecret: string;
   localRelayAllowedOrigins: string;
   firstLaunchDone: boolean;
+  lastLaunchVersion: string;
 }
 
 // ===== 默认值 =====
@@ -53,6 +54,7 @@ const defaults: ConfigSchema = {
   localRelayJwtRefreshSecret: '',
   localRelayAllowedOrigins: '',
   firstLaunchDone: false,
+  lastLaunchVersion: '',
 };
 
 // ===== safeStorage 加密工具 =====
@@ -135,6 +137,8 @@ export const config = {
   setLocalRelayAllowedOrigins: (value: string): void => { configStore.set('localRelayAllowedOrigins', value); },
   getFirstLaunchDone: (): boolean => configStore.get('firstLaunchDone', false),
   setFirstLaunchDone: (value: boolean): void => { configStore.set('firstLaunchDone', value); },
+  getLastLaunchVersion: (): string => configStore.get('lastLaunchVersion', ''),
+  setLastLaunchVersion: (value: string): void => { configStore.set('lastLaunchVersion', value); },
 
   // 批量获取所有配置
   getAll: (): ConfigSchema => configStore.store,

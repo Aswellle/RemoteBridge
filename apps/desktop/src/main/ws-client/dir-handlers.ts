@@ -25,7 +25,7 @@ function getCachedAllowedDirs(): any[] {
   if (_allowedDirsCache && Date.now() - _allowedDirsCacheAt < ALLOWED_DIRS_TTL_MS) {
     return _allowedDirsCache;
   }
-  _allowedDirsCache = getCachedAllowedDirs() as any[];
+  _allowedDirsCache = db.getAllowedDirectories() as any[];
   _allowedDirsCacheAt = Date.now();
   return _allowedDirsCache;
 }

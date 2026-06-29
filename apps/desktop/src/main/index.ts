@@ -81,8 +81,10 @@ app.whenReady().then(async () => {
   // 注册所有 IPC 处理器（registerLocalRelayHandlers 内若 autoStart=true 会启动 Relay，须在 onRelayReady 之后）
   registerIpcHandlers();
 
-  // 首次启动：自动运行本地中继服务器（即使 autoStart 未配置）
-  if (!config.getFirstLaunchDone()) {
+  // 首次启动或版本升级（且 autoStart 未开）：自动运行本地中继，确保用户能看到引导流程
+  const _currentVer = app.getVersion();
+  if (!config.getFirstLaunchDone() ||
+      (!config.getLocalRelayAutoStart() && config.getLastLaunchVersion() !== _currentVer)) {
     startLocalRelay(config.getLocalRelayPort());
   }
 
@@ -197,7 +199,9 @@ function registerIpcHandlers(): void {
         } else if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
           msg = '连接中继服务器超时，请稍后重试';
         } else if (httpStatus === 401) {
-          msg = '身份验证失败，请在设置中重新注册主机';
+          // Token 已失效 → 后台重新注册，本次返回空列表而非错误，避免在 UI 上显示误导性错误
+          ensureHostRegisteredAndConnected(getMainWindow, getRelayApi, getRelayUrl).catch(() => {});
+          return { success: true, data: { logs: [], total: 0, page: query?.page || 1, pageSize: query?.pageSize || 20, totalPages: 0 } };
         } else {
           msg = error?.response?.data?.error?.message ?? error.message;
         }
@@ -221,9 +225,16 @@ function registerIpcHandlers(): void {
   registerSettingsHandlers(getMainWindow, getRelayApi, getRelayUrl);
   registerLocalRelayHandlers(getMainWindow);
 
-  // --- 首次启动检测 ---
-  ipcMain.handle('system:is-first-launch', () => !config.getFirstLaunchDone());
+  // --- 首次启动检测（版本升级 + autoStart 未开时也重新触发引导） ---
+  ipcMain.handle('system:is-first-launch', () => {
+    if (!config.getFirstLaunchDone()) return true;
+    // autoStart 已开 → relay 自动启动，无需再显示引导
+    if (config.getLocalRelayAutoStart()) return false;
+    // autoStart 未开 → 新版本首次启动时再次显示引导
+    return config.getLastLaunchVersion() !== app.getVersion();
+  });
   ipcMain.handle('system:mark-first-launch-done', () => {
     config.setFirstLaunchDone(true);
+    config.setLastLaunchVersion(app.getVersion());
   });
 }

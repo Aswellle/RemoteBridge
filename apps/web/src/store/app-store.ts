@@ -427,6 +427,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().clearSession();
     set({
       dirEntries: [],
+      allowedDirs: [],
+      currentPath: null,
       messages: [],
       activeDownloads: [],
     });

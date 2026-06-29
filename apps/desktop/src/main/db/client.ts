@@ -34,7 +34,13 @@ export const db = {
 
   addAllowedDirectory: (path: string, label?: string, permission: string = 'download', recursive: boolean = true) => {
     const stmt = sqlite.prepare(
-      'INSERT OR IGNORE INTO allowed_directories (path, label, permission, recursive) VALUES (?, ?, ?, ?)'
+      `INSERT INTO allowed_directories (path, label, permission, recursive, is_active)
+       VALUES (?, ?, ?, ?, 1)
+       ON CONFLICT(path) DO UPDATE SET
+         is_active  = 1,
+         permission = excluded.permission,
+         recursive  = excluded.recursive,
+         updated_at = unixepoch()`
     );
     return stmt.run(path, label || null, permission, recursive ? 1 : 0);
   },
