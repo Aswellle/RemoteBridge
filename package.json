@@ -32,7 +32,7 @@
     }
   },
   "dependencies": {
-    "browserslist": "^4.28.2",
-    "caniuse-lite": "^1.0.30001797"
+    "browserslist": "^4.28.4",
+    "caniuse-lite": "^1.0.30001799"
   }
 }
