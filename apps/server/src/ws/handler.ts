@@ -68,8 +68,7 @@ export function setupWebSocket(app: FastifyInstance): void {
   }, HEARTBEAT_INTERVAL);
 
   // WebSocket 端点
-  app.get('/ws', { websocket: true }, (connection, req) => {
-    const socket = connection.socket as WebSocket;
+  app.get('/ws', { websocket: true }, (socket, req) => {
 
     const url = new URL(req.url, `http://${req.headers.host}`);
     const token = url.searchParams.get('token');

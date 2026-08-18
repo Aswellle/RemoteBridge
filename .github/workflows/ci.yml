@@ -24,8 +24,9 @@ jobs:
 
       # CH1: audit 改为 --audit-level=high，高危/严重漏洞时中断构建；
       # 低/中危误报通过 .auditrc / overrides 处理，不再全局静默。
+      # CH3: 使用官方 registry 运行审计（npmmirror 不支持 audit 端点）
       - name: Audit dependencies
-        run: pnpm audit --prod --audit-level=high
+        run: pnpm audit --prod --audit-level=high --registry https://registry.npmjs.org
 
       # apps/server, apps/web and apps/desktop all import @remotebridge/shared
       # from its compiled dist/, so it must be built before anything else.

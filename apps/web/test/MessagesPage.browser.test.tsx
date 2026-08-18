@@ -50,7 +50,7 @@ vi.mock('@/components/ui/NotConnected', () => ({
 import MessagesPage from '@/app/dashboard/messages/page';
 
 // ===== 渲染辅助（flushSync 同步冲洗 effect，无需 act 全局）=====
-function render(ui: React.ReactElement): HTMLElement {
+function render(ui: JSX.Element): HTMLElement {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -60,7 +60,7 @@ function render(ui: React.ReactElement): HTMLElement {
   return container;
 }
 
-function rerender(root: ReturnType<typeof createRoot>, ui: React.ReactElement): void {
+function rerender(root: ReturnType<typeof createRoot>, ui: JSX.Element): void {
   flushSync(() => {
     root.render(ui);
   });
