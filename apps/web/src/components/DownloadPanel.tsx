@@ -71,7 +71,7 @@ export default function DownloadPanel() {
       </div>
 
       {/* 下载列表 */}
-      <div className="max-h-64 overflow-y-auto">
+      <div className="max-h-80 overflow-y-auto">
         {downloads.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <Inbox className="w-8 h-8 mx-auto mb-1 text-muted-foreground" />

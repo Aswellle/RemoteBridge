@@ -144,7 +144,7 @@ function FileRow({ entry, onDirClick, onFileClick, isRootView }: FileRowProps) {
 
   return (
     <div
-      className="grid grid-cols-12 gap-4 px-6 py-3 hover:bg-secondary/50 cursor-pointer transition-colors items-center"
+      className="grid grid-cols-12 gap-4 px-6 py-3 hover:bg-secondary/50 focus-visible:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset cursor-pointer transition-colors items-center"
       onClick={handleClick}
       role="button"
       tabIndex={0}

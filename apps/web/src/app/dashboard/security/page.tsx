@@ -119,11 +119,11 @@ export default function SecurityPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-6">
       <h2 className="text-2xl font-semibold mb-6">安全审计日志</h2>
 
       {/* 筛选栏 */}
-      <div className="bg-card rounded-lg p-4 mb-6 flex flex-wrap gap-4 items-center">
+    <div className="bg-card rounded-lg p-5 mb-6 flex flex-wrap gap-4 items-center">
         <div>
           <label className="text-sm text-muted-foreground mr-2">事件类型:</label>
           <select
@@ -148,10 +148,9 @@ export default function SecurityPage() {
             className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm w-48"
           />
         </div>
-
         <button
           onClick={() => fetchLogs(1)}
-          className="px-4 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm rounded transition-colors"
+          className="px-4 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm rounded-lg transition-colors"
         >
           刷新
         </button>
@@ -215,8 +214,8 @@ export default function SecurityPage() {
                     <td className="px-4 py-3 text-foreground font-mono text-xs">
                       {log.ipAddress || '-'}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs max-w-xs truncate" title={log.detail || ''}>
-                      {parseDetail(log.detail)}
+                    <td className="px-4 py-3 text-muted-foreground text-xs max-w-xs">
+                      <span className="line-clamp-2 block" title={log.detail || ''}>{parseDetail(log.detail)}</span>
                     </td>
                   </tr>
                 ))}

@@ -97,13 +97,13 @@ export default function SettingsPage() {
               <span className="text-sm text-muted-foreground">状态</span>
               <span className={`text-sm flex items-center gap-1.5 ${
                 connectionStatus === 'connected' ? 'text-success' :
-                connectionStatus === 'connecting' ? 'text-yellow-400' :
+                connectionStatus === 'connecting' ? 'text-warning' :
                 connectionStatus === 'error' ? 'text-destructive' : 'text-muted-foreground'
               }`}>
                 <span className={`w-2 h-2 rounded-full ${
-                  connectionStatus === 'connected' ? 'bg-green-500' :
-                  connectionStatus === 'connecting' ? 'bg-yellow-500' :
-                  connectionStatus === 'error' ? 'bg-red-500' : 'bg-muted-foreground'
+                  connectionStatus === 'connected' ? 'bg-success' :
+                  connectionStatus === 'connecting' ? 'bg-warning' :
+                  connectionStatus === 'error' ? 'bg-destructive' : 'bg-muted'
                 }`} />
                 {connectionStatus === 'connected' ? '已连接' :
                  connectionStatus === 'connecting' ? '连接中...' :

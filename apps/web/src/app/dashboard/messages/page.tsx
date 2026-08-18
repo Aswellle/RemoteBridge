@@ -27,6 +27,7 @@ export default function MessagesPage() {
   const [inputValue, setInputValue] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -43,9 +44,20 @@ export default function MessagesPage() {
     e.target.value = '';
   };
 
-  // 自动滚动到底部
+  // 自动滚动到底部：仅在用户已接近底部（< 100px）时才滚动，
+  // 避免用户向上浏览历史时被新消息劫持滚动位置
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = scrollContainerRef.current;
+    if (container) {
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceFromBottom <= 100) {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+    }
+    // 容器不可见或首次加载时直接滚动
+    messagesEndRef.current?.scrollIntoView();
   }, [messages]);
 
   // 仅在最新消息来自主机时清零未读：用户自己发的消息不会使未读+1，
@@ -94,7 +106,7 @@ export default function MessagesPage() {
       </div>
 
       {/* 消息列表 */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4" role="log" aria-live="polite" aria-label="消息列表">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-4" role="log" aria-live="polite" aria-label="消息列表">
         {isLoadingHistory && (
           <div className="space-y-4">
             {[0, 1, 2, 3, 4].map((i) => (

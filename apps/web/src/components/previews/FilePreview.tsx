@@ -59,6 +59,43 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  // 焦点陷阱：模态打开时把 Tab 循环锁定在模态内，关闭后焦点回到触发元素
+  const modalRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    triggerRef.current = (document.activeElement as HTMLElement) ?? null;
+    const focusables = () =>
+      Array.from(
+        modalRef.current?.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+    // 打开后把焦点移到模态内第一个可聚焦元素
+    const first = focusables()[0];
+    first?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const firstEl = items[0];
+      const lastEl = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) {
+        e.preventDefault();
+        lastEl.focus();
+      } else if (!e.shiftKey && document.activeElement === lastEl) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      // 关闭后焦点回到触发元素
+      triggerRef.current?.focus();
+    };
+  }, []);
+
   // 下载文件
   const handleDownload = useCallback(() => {
     try {
@@ -88,7 +125,7 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
           className="bg-background rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
           role="dialog"
           aria-modal="true"
-          aria-label="文件预览"
+          ref={modalRef}
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
