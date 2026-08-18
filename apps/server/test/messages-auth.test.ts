@@ -26,7 +26,7 @@ function request(
       port: parsed.port,
       path: parsed.pathname + parsed.search,
       headers: {
-        'Content-Type': 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...headers,
       },
     };
