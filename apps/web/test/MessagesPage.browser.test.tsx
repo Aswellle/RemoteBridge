@@ -99,11 +99,20 @@ describe('MessagesPage (component)', () => {
     expect(container.textContent).toContain('发送');
   });
 
-  it('calls markMessagesRead on mount (unread-clear effect)', () => {
+  it('marks messages read only when a host message arrives (not on empty mount)', () => {
+    // 空状态挂载：无最新消息，不应调用清零
     render(<MessagesPage />);
-    expect(mockState.markMessagesRead).toHaveBeenCalled();
-  });
+    expect(mockState.markMessagesRead).not.toHaveBeenCalled();
 
+    // 收到一条来自主机的消息 → 应触发清零
+    mockState.messages = [
+      { id: 'h1', content: 'from host', direction: 'host_to_client', type: 'text', timestamp: 4000 },
+    ];
+    // 重新渲染以触发 effect（messages 引用变化）
+    const container = render(<MessagesPage />);
+    expect(mockState.markMessagesRead).toHaveBeenCalled();
+    expect(container.textContent).toContain('from host');
+  });
   it('does not throw when messages change repeatedly (regression: effect must not loop)', () => {
     // 模拟 effect 依赖 messages 变化时的重渲染 —— 如果 effect 错误地 setState 触发
     // 无限循环，flushSync 内的渲染会抛出 "Maximum update depth exceeded"

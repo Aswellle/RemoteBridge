@@ -361,7 +361,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           sessionId: sessionId || undefined,
         };
 
-        wsInstance.send(JSON.stringify(wsMsg));
+        cur.send(JSON.stringify(wsMsg));
 
         // 更新进度（前 90% 为分块发送阶段；收到 ACK 后置 100%）
         get().updateFileMessage(uploadId, {

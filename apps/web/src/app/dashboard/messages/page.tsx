@@ -48,11 +48,11 @@ export default function MessagesPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 用户正在浏览本页时清零未读：messages 变化说明用户在查看会话，
-  // 此时清零未读可保证侧边栏角标与阅读状态一致。
-  // markMessagesRead 是 Zustand 稳定 setter，无需放入依赖数组。
+  // 仅在最新消息来自主机时清零未读：用户自己发的消息不会使未读+1，
+  // 但若在用户回复期间主机新消息到达，应等用户看到后再清零，避免角标提前消失。
   useEffect(() => {
-    markMessagesRead();
+    const last = messages[messages.length - 1];
+    if (last && last.direction === 'host_to_client') markMessagesRead();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
