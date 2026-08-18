@@ -23,7 +23,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 }
 
 // ===== Host history entry =====
-interface HostHistoryEntry {
+export interface HostHistoryEntry {
   hostId: string;
   name: string;
   os: string;
@@ -94,9 +94,10 @@ function loadPersistedSession(): {
     return { sessionId: null, hostInfo: null };
   }
   try {
+    const raw = localStorage.getItem('hostInfo');
     return {
       sessionId: localStorage.getItem('sessionId'),
-      hostInfo: JSON.parse(localStorage.getItem('hostInfo') || 'null'),
+      hostInfo: raw ? (JSON.parse(raw) as HostInfo) : null,
     };
   } catch {
     return { sessionId: null, hostInfo: null };
@@ -333,6 +334,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const totalChunks = Math.max(1, Math.ceil(uint8.length / CHUNK_SIZE));
 
       for (let i = 0; i < totalChunks; i++) {
+        // 每轮检查连接状态：中途断连时立即中断，避免向死 socket 写入
+        const cur = get().wsInstance;
+        if (!cur || cur.readyState !== WebSocket.OPEN) {
+          get().updateFileMessage(uploadId, { uploadStatus: 'error' });
+          showErrorToast('发送中断', '连接已断开');
+          return;
+        }
         const slice = uint8.subarray(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
         const data = uint8ToBase64(slice);
 

@@ -29,6 +29,7 @@ class MockWebSocket {
 
   readyState = MockWebSocket.CONNECTING;
   onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
   closeArgs: { code?: number; reason?: string } | null = null;
 
@@ -50,20 +51,45 @@ function abnormalClose(ws: MockWebSocket, code: number, reason = ''): void {
   ws.onclose?.({ code, reason });
 }
 
+// 向已打开的 WS 注入一条服务端消息，驱动 handleMessage
+function dispatchMessage(ws: MockWebSocket, message: object): void {
+  ws.onmessage?.({ data: JSON.stringify(message) } as unknown as MessageEvent);
+}
+
 // ===== Mock store =====
 interface MockState {
   sessionId: string | null;
+  hostInfo: { hostId: string; name: string; os: string; online: boolean } | null;
+  currentPath: string | null;
+  connectionStatus: string;
   setConnectionStatus: ReturnType<typeof vi.fn>;
   setWsInstance: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
+  addMessage: ReturnType<typeof vi.fn>;
+  updateFileMessage: ReturnType<typeof vi.fn>;
+  setIsLoadingDir: ReturnType<typeof vi.fn>;
+  setHostInfo: ReturnType<typeof vi.fn>;
+  setDirEntries: ReturnType<typeof vi.fn>;
+  setCurrentPath: ReturnType<typeof vi.fn>;
+  listAllowed: ReturnType<typeof vi.fn>;
 }
 
 function createMockStore(sessionId: string | null = 'test-session') {
   const state: MockState = {
     sessionId,
+    hostInfo: { hostId: 'h1', name: 'Test Host', os: 'Windows', online: true },
+    currentPath: '/share',
+    connectionStatus: 'disconnected',
     setConnectionStatus: vi.fn(),
     setWsInstance: vi.fn(),
     disconnect: vi.fn(),
+    addMessage: vi.fn(),
+    updateFileMessage: vi.fn(),
+    setIsLoadingDir: vi.fn(),
+    setHostInfo: vi.fn(),
+    setDirEntries: vi.fn(),
+    setCurrentPath: vi.fn(),
+    listAllowed: vi.fn(),
   };
   return { getState: () => state, state };
 }
@@ -93,6 +119,9 @@ function mockTicketNetworkError(): void {
 
 describe('WebSocketManager', () => {
   beforeEach(() => {
+    // 彻底清理上一次测试遗留的 mockResolvedValueOnce / mockRejectedValueOnce 队列，
+    // 避免「前一个测试未消费的票据 stub 泄漏到下一个测试」造成断言漂移
+    vi.resetAllMocks();
     MockWebSocket.instances = [];
     vi.stubGlobal('WebSocket', MockWebSocket);
     // 默认提供 sessionId — connect() 用 localStorage 检查是否已认证
@@ -296,5 +325,104 @@ describe('WebSocketManager', () => {
 
     await vi.advanceTimersByTimeAsync(60000);
     expect(MockWebSocket.instances).toHaveLength(1);
+
+  }); // closes 'stops reconnecting after disconnect()'
+  // ===== handleMessage 分支覆盖 =====
+  describe('handleMessage', () => {
+    async function openConnectedSocket() {
+      mockTicketSuccess('msg-ticket');
+      const { manager, store } = createManager();
+      await manager.connect();
+      const ws = MockWebSocket.instances[0];
+      ws.onopen?.();
+      return { manager, store, ws };
+    }
+
+    it('routes an inbound host text message to addMessage with host_to_client direction', async () => {
+      const { store, ws } = await openConnectedSocket();
+
+      dispatchMessage(ws, {
+        id: 'm1',
+        type: 'MSG_TEXT',
+        senderType: 'host',
+        payload: { content: 'hello from host' },
+        timestamp: 1700000000000,
+        sessionId: 'test-session',
+      });
+
+      expect(store.state.addMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'm1', content: 'hello from host', direction: 'host_to_client', type: 'text' })
+      );
+    });
+
+    it('updates the file message to completed on RESP_UPLOAD_ACK', async () => {
+      const { store, ws } = await openConnectedSocket();
+
+      dispatchMessage(ws, {
+        id: 'ack1',
+        type: 'RESP_UPLOAD_ACK',
+        payload: { uploadId: 'up1', fileName: 'a.txt', savedPath: '/tmp/a.txt' },
+        timestamp: 1700000000000,
+        sessionId: 'test-session',
+      });
+
+      expect(store.state.updateFileMessage).toHaveBeenCalledWith('up1', {
+        uploadStatus: 'completed',
+        savedPath: '/tmp/a.txt',
+        uploadProgress: 100,
+      });
+      expect(toast.success).toHaveBeenCalledWith('文件已接收', expect.any(Object));
+    });
+
+    it('marks the host offline and pushes a system message on HOST_OFFLINE', async () => {
+      const { store, ws } = await openConnectedSocket();
+
+      dispatchMessage(ws, {
+        id: 'off1',
+        type: 'HOST_OFFLINE',
+        payload: {},
+        timestamp: 1700000000000,
+        sessionId: 'test-session',
+      });
+
+      expect(store.state.setHostInfo).toHaveBeenCalledWith({ hostId: 'h1', name: 'Test Host', os: 'Windows', online: false });
+      expect(store.state.addMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ direction: 'host_to_client', type: 'system' })
+      );
+    });
+
+    it('refreshes the allowed-dirs list on HOST_DIRS_UPDATED when at root view', async () => {
+      const { store, ws } = await openConnectedSocket();
+      store.state.currentPath = null;
+
+      dispatchMessage(ws, {
+        id: 'dir1',
+        type: 'HOST_DIRS_UPDATED',
+        payload: {},
+        timestamp: 1700000000000,
+        sessionId: 'test-session',
+      });
+
+      expect(store.state.listAllowed).toHaveBeenCalled();
+    });
+  });
+
+  // ===== 换票失败 → 退避重连 =====
+  it('schedules a reconnect when the ticket fetch fails with a network error', async () => {
+    vi.useFakeTimers();
+    mockTicketNetworkError();
+    const { manager } = createManager();
+
+    await manager.connect();
+    expect(MockWebSocket.instances).toHaveLength(0);
+
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    mockTicketSuccess();
+    // 首次重连延迟 = 初始 1000ms × 2 = 2000ms（退避第一次翻倍）；
+    // runAllTimersAsync 会完整刷新 doConnect 内的 await 链（换票→建连）
+    await vi.runAllTimersAsync();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    randomSpy.mockRestore();
   });
 });

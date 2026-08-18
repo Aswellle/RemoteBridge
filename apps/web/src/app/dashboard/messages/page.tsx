@@ -5,7 +5,7 @@ import { MessageSquare, ArrowUp, Paperclip, File, CheckCircle2, XCircle, Loader2
 import NotConnected from '@/components/ui/NotConnected';
 import { useAppStore } from '@/store/app-store';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { formatRelativeTime } from '@remotebridge/shared';
+import { formatRelativeTime, formatFileSize } from '@remotebridge/shared';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { logger } from '@/lib/logger';
 
@@ -20,11 +20,6 @@ const ACCEPTED_FILE_TYPES = [
   '.md', '.markdown',
 ].join(',');
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export default function MessagesPage() {
   const { connectionStatus, messages, sendMessage, sendFile, markMessagesRead, sessionId, loadMessageHistory } = useAppStore();
@@ -53,11 +48,13 @@ export default function MessagesPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 用户正在浏览本页：进入时和每次新消息到达时都清零未读
-  // （只在进入时清一次的话，停留期间收到的消息会让侧边栏角标越挂越多）
+  // 用户正在浏览本页时清零未读：messages 变化说明用户在查看会话，
+  // 此时清零未读可保证侧边栏角标与阅读状态一致。
+  // markMessagesRead 是 Zustand 稳定 setter，无需放入依赖数组。
   useEffect(() => {
     markMessagesRead();
-  }, [markMessagesRead, messages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   // 加载历史消息
   useEffect(() => {

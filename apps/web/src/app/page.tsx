@@ -5,15 +5,9 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Shield, Monitor, Loader2, Clock, ChevronRight, History } from 'lucide-react';
 import { toast } from 'sonner';
-import { useAppStore } from '@/store/app-store';
+import { useAppStore, HostHistoryEntry } from '@/store/app-store';
 import { initTheme } from '@/lib/theme';
 
-interface HostHistoryEntry {
-  hostId: string;
-  name: string;
-  os: string;
-  lastConnected: number;
-}
 
 export default function HomePage() {
   const router = useRouter();
