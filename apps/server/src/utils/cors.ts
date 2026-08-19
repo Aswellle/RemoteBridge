@@ -8,7 +8,7 @@ import type { FastifyCorsOptions } from '@fastify/cors';
 // 修改策略只改这里。
 
 export const ALLOWED_ORIGINS: string[] =
-  process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
+  process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:9666'];
 
 // @fastify/cors 插件选项
 export const CORS_OPTIONS: FastifyCorsOptions = {
