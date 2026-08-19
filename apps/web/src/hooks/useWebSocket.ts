@@ -165,7 +165,7 @@ export class WebSocketManager {
         const errMsg = (message.payload as any).message || '目录访问被拒绝';
         logger.error('目录访问错误:', errMsg);
         // 之前只打 console，用户面对的是转完圈后凭空消失的加载态
-        toast.error('无法打开目录', { description: errMsg });
+        toast.error('无法打开目录', { description: errMsg, id: 'dir-error' });
         break;
       }
 
@@ -205,7 +205,7 @@ export class WebSocketManager {
           type: 'system',
           timestamp: message.timestamp,
         });
-        toast.warning('远程主机已离线', { description: '主机恢复在线后会自动通知' });
+        toast.warning('远程主机已离线', { description: '主机恢复在线后会自动通知', id: 'host-offline' });
         break;
 
       case WSMessageType.HOST_ONLINE:
@@ -222,7 +222,7 @@ export class WebSocketManager {
           type: 'system',
           timestamp: message.timestamp,
         });
-        toast.success('远程主机已重新上线');
+        toast.success('远程主机已重新上线', { id: 'host-online' });
         break;
 
       case WSMessageType.MSG_SYSTEM:
@@ -246,7 +246,7 @@ export class WebSocketManager {
           savedPath: p.savedPath,
           uploadProgress: 100,
         });
-        toast.success('文件已接收', { description: `${p.fileName} 已保存至桌面端` });
+        toast.success('文件已接收', { description: `${p.fileName} 已保存至桌面端`, id: `file-rcvd-${p.uploadId||p.fileName}` });
         break;
       }
 
@@ -255,7 +255,7 @@ export class WebSocketManager {
         this.store.getState().updateFileMessage(p.uploadId, {
           uploadStatus: 'error',
         });
-        toast.error('文件发送失败', { description: p.message });
+        toast.error('文件发送失败', { description: p.message, id: 'file-send-err' });
         break;
       }
 
@@ -279,7 +279,7 @@ export class WebSocketManager {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    toast.error('连接已断开', { description });
+        toast.error('连接已断开', { description, id: 'session-terminated' });
     this.store.getState().disconnect();
     if (typeof window !== 'undefined') {
       window.location.href = `/?reason=${reason}`;
