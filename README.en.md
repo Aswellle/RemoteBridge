@@ -4,6 +4,8 @@
 
 # RemoteBridge
 
+Zero open ports. Your files, anywhere.
+
 </div>
 
  **[中文文档](./README.md)**
@@ -20,9 +22,10 @@
 </div>
 
 
-**Remote file access — no port forwarding, no VPN, no public IP required.**
+**Access your PC files from any browser — without opening a single port.**
 
-> Your PC's files, accessible from any browser — the desktop app connects outbound to a relay, your network never opens a port.
+> The desktop app connects outbound to a relay — no port forwarding, no VPN, no public IP.
+> Share an 8-digit PIN with guests, revoke anytime.
 
 ---
 
