@@ -96,6 +96,7 @@ jobs:
     if: ${{ !cancelled() }}
     steps:
       - name: Remind: use release-notes template
+        run: |
           echo "📝 Draft Release created for ${{ github.ref_name }}."
           echo "   Before publishing, paste the release description from release-notes/${{ github.ref_name }}.md"
           echo "   (or follow release-notes/TEMPLATE.md if this is the first release using the new format)."
