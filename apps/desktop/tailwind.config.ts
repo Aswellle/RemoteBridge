@@ -21,10 +21,19 @@ const config: Config = {
         border: 'hsl(var(--border))',
         ring: 'hsl(var(--ring))',
       },
-      borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+      fontFamily: {
+        sans: [
+          '-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', '"SF Pro Display"',
+          '"Segoe UI Variable"', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial',
+          '"Noto Sans"', '"Liberation Sans"', '"PingFang SC"', '"Microsoft YaHei"',
+          '"Hiragino Sans GB"', '"WenQuanYi Micro Hei"', 'sans-serif',
+          '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Noto Color Emoji"',
+        ],
+        mono: [
+          '"SF Mono"', '"JetBrains Mono"', '"Fira Code"', '"Cascadia Code"',
+          'ui-monospace', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"',
+          '"Courier New"', 'monospace',
+        ],
       },
     },
   },

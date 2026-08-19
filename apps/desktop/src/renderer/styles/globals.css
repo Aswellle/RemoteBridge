@@ -63,6 +63,16 @@
 body {
   color: hsl(var(--foreground));
   background: hsl(var(--background));
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", "Liberation Sans", "PingFang SC", "PingFang TC",
+    "Microsoft YaHei", "Microsoft JhengHei", "Hiragino Sans GB",
+    "WenQuanYi Micro Hei", sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* 自定义滚动条 */

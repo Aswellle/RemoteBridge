@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import os from 'os';
 import {
   isPathAllowed,
   validateDirectoryRequest,
@@ -49,50 +48,34 @@ describe('validateDirectoryRequest', () => {
   });
 });
 describe('isPathAllowed — case-insensitive filesystem (SEC: case normalization)', () => {
-  // Windows / macOS 默认大小写不敏尽：白名单 /home/user 应匹配 /HOME/USER/docs，
+  // Windows / macOS 默认大小写不敏感：白名单 /home/user 应匹配 /HOME/USER/docs，
   // 同时系统黑名单 C:\Windows 不能被 c:\windows 绕过。
-  const origPlatform = process.platform;
-
-  afterEach(() => {
-    // 还原平台，避免污染后续用例
-    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true, writable: true });
-  });
+  // 直接注入 platform 参数，避免 mock process.platform（在部分 Node 版本不可靠）。
 
   it('matches whitelist path with different case on win32', () => {
-    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true, writable: true });
-    expect(isPathAllowed('C:\\USERS\\Alice\\docs', ['C:\\Users\\Alice'])).toBe(true);
+    expect(isPathAllowed('C:\\USERS\\Alice\\docs', ['C:\\Users\\Alice'], 'win32')).toBe(true);
   });
 
   it('matches whitelist path with different case on darwin', () => {
-    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true, writable: true });
-    expect(isPathAllowed('/HOME/user/docs', ['/home/user'])).toBe(true);
+    expect(isPathAllowed('/HOME/user/docs', ['/home/user'], 'darwin')).toBe(true);
   });
 
   it('does NOT match a different-case sibling directory', () => {
-    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true, writable: true });
     // /home/user2 不是 /home/user 的子路径，大小写变化也不应误匹配
-    expect(isPathAllowed('/HOME/USER2/file.txt', ['/home/user'])).toBe(false);
+    expect(isPathAllowed('/HOME/USER2/file.txt', ['/home/user'], 'win32')).toBe(false);
   });
 
   it('on linux (case-sensitive) preserves exact matching', () => {
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true, writable: true });
-    expect(isPathAllowed('/HOME/user/docs', ['/home/user'])).toBe(false);
-    expect(isPathAllowed('/home/user/docs', ['/home/user'])).toBe(true);
+    expect(isPathAllowed('/HOME/user/docs', ['/home/user'], 'linux')).toBe(false);
+    expect(isPathAllowed('/home/user/docs', ['/home/user'], 'linux')).toBe(true);
   });
 });
 
 describe('validateDirectoryRequest — case & symlink (SEC)', () => {
-  const origPlatform = process.platform;
-
-  afterEach(() => {
-    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true, writable: true });
-  });
-
   it('rejects a system-blocked dir reached even with different case on win32', () => {
-    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true, writable: true });
     const result = validateDirectoryRequest('c:\\windows\\system32', [
       { path: 'C:\\Users\\Public', is_active: true },
-    ]);
+    ], 'win32');
     expect(result).toEqual({ allowed: false, reason: 'SYSTEM_PROTECTED' });
   });
 

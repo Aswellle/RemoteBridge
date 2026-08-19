@@ -85,23 +85,25 @@ export function getBlockedDirsForPlatform(platform: 'win32' | 'darwin' | 'linux'
  * 在大小写不敏感的文件系统（Windows / 默认 macOS）上，
  * path.resolve() 保留输入大小写，而文件系统按不敏感方式比对。
  * 统一转为小写后再比较，既防止白名单误拒，也防止系统黑名单被大小写变种绕过。
+ *
+ * @param platform 目标平台，默认取运行时 process.platform；测试时可显式注入。
  */
-function normalizeForCompare(p: string): string {
-  const platform = process.platform;
+function normalizeForCompare(p: string, platform: string = process.platform): string {
   return (platform === 'win32' || platform === 'darwin') ? p.toLowerCase() : p;
 }
 
 export function isPathAllowed(
   requestedPath: string,
-  allowedDirs: string[]
+  allowedDirs: string[],
+  platform: string = process.platform
 ): boolean {
   // 1. 解析为绝对路径，消除 ../  ./ 等相对路径攻击（词法归一，不解符号链接）
   const resolved = path.resolve(requestedPath);
-  const resolvedNorm = normalizeForCompare(resolved);
+  const resolvedNorm = normalizeForCompare(resolved, platform);
 
   // 2. 检查是否在任何允许目录的子路径下
   return allowedDirs.some(allowed => {
-    const resolvedAllowed = normalizeForCompare(path.resolve(allowed));
+    const resolvedAllowed = normalizeForCompare(path.resolve(allowed), platform);
     // 必须以允许目录 + 路径分隔符开头，防止前缀匹配攻击
     // 例如: /home/user 不应该匹配 /home/user2
     return resolvedNorm === resolvedAllowed ||
