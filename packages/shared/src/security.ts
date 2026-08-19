@@ -5,7 +5,27 @@
 
 import path from 'path';
 import os from 'os';
-import fs from 'fs';
+
+// fs 仅在 Node 端用于 realpathSync（解析符号链接真实路径）。
+// shared 包同时被浏览器端（web）消费，静态 import 会令 webpack 构建失败，
+// 因此懒加载并在非 Node 环境回退为 null。
+import type * as Fs from 'fs';
+
+let _fs: typeof Fs | null | undefined = undefined;
+function getNodeFs(): typeof Fs | null {
+  if (_fs !== undefined) return _fs;
+  try {
+    if (typeof process !== 'undefined' && process.versions?.node) {
+      // 间接 eval 隐藏 require，避免 webpack 静态分析尝试打包 'fs'
+      _fs = (0, eval)('require')('fs') as typeof Fs;
+    } else {
+      _fs = null;
+    }
+  } catch {
+    _fs = null;
+  }
+  return _fs;
+}
 // ===== 系统保护目录黑名单 =====
 // 绝对禁止远程访问的系统目录
 export const SYSTEM_BLOCKED_DIRS: Record<string, string[]> = {
@@ -104,13 +124,17 @@ export function validateDirectoryRequest(
     let resolved = path.resolve(requestedPath);
 
     // 步骤 1b: 解析符号链接真实路径，防止 symlink 逃逸白名单/黑名单
-    // realpathSync 在目标不存在时抛出 ENOENT，此时回退到 resolve 后的路径
-    try {
-      const real = fs.realpathSync(resolved);
-      // 重新归一化真实路径（realpathSync 也可能保留大小写）
-      resolved = real;
-    } catch {
-      // 目标不存在（如新建目录请求）：以 resolve 路径继续校验
+    // realpathSync 在目标不存在时抛出 ENOENT，此时回退到 resolve 后的路径。
+    // fs 在浏览器端不可用（getNodeFs 返回 null），跳过解析，依赖步骤 1 的词法归一。
+    const fs = getNodeFs();
+    if (fs) {
+      try {
+        const real = fs.realpathSync(resolved);
+        // 重新归一化真实路径（realpathSync 也可能保留大小写）
+        resolved = real;
+      } catch {
+        // 目标不存在（如新建目录请求）：以 resolve 路径继续校验
+      }
     }
     const resolvedNorm = normalizeForCompare(resolved);
 

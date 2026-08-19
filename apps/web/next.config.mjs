@@ -2,8 +2,20 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@remotebridge/shared'],
-  // 输出独立部署包
   output: 'standalone',
+  // shared 包含 Node-only 的 fs 导入（realpathSync 符号链接校验），浏览器端
+  // 仅消费其中的 UI 常量，需告知 webpack 将 fs 解析为空模块避免构建失败。
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        os: false,
+      };
+    }
+    return config;
+  },
 
   // ===== 安全响应头 (P1-10) =====
   // script-src/style-src 仍保留 'unsafe-inline'/'unsafe-eval'：Next.js 开发模式的
