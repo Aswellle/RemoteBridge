@@ -273,3 +273,13 @@ GitHub Actions builds Windows / macOS / Linux installers in parallel and publish
 ## License
 
 [MIT](LICENSE)
+
+---
+
+## ⭐ Support This Project
+
+If RemoteBridge is helpful to you, we'd love a ⭐️ Star!
+
+Every star motivates us to keep improving.
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Aswellle/RemoteBridge&type=Date)](https://star-history.com/#Aswellle/RemoteBridge&Date)
