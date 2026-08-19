@@ -5,6 +5,79 @@ All notable changes to RemoteBridge are documented here. All four workspace pack
 are currently pinned at `1.0.0`; this file starts tracking changes from the 2026-06
 comprehensive code review (`.full-review/05-final-report.md`) onward.
 
+## [1.3.8] - 2026-08-19
+
+### Desktop UI/UX
+
+- Applied ui-ux-pro-max 10-priority framework across the desktop renderer: ARIA live
+  regions, dialog semantics (`role="dialog"`, `aria-modal`, `aria-labelledby`), Escape-to-close,
+  click-outside-to-close, focus lock, WCAG AA contrast (≥4.5:1) on `muted-foreground`,
+  CSS-variable scrollbars, `prefers-reduced-motion`, semantic status-light tokens
+  (`--status-online` / `--status-offline` / `--status-connecting`)
+  (`App.tsx`, `Messages.tsx`, `Settings.tsx`, `components/FileList.tsx`,
+  `components/Breadcrumb.tsx`, `globals.css`, `theme.ts`).
+- Replaced Google Fonts Inter with a cross-platform system font stack (SF Pro → Segoe UI →
+  Roboto → Noto Sans CJK → PingFang SC / Microsoft YaHei → emoji): zero network dependency,
+  native rendering, no FOIT/FOUT (`web/src/app/layout.tsx`, `web/tailwind.config.ts`,
+  `desktop/tailwind.config.ts`, `globals.css`, `packages/shared/src/ui-fonts.ts`).
+
+### Production / Docker hardening
+
+- Relay Server now sets `trustProxy: true` so `@fastify/rate-limit` counts by the real
+  client IP behind Caddy, not the proxy IP; added `bodyLimit: 1_048_576` (1 MB request cap)
+  (`apps/server/src/index.ts`).
+- Both Dockerfiles create a non-root runtime user (uid 1001: `relayuser` / `nextjs`) to
+  shrink the blast radius of a container breakout (`apps/server/Dockerfile`,
+  `apps/web/Dockerfile`).
+- Web container adds a `HEALTHCHECK` (`node -e` inline, 30s interval, 5s timeout, 20s
+  start period, 3 retries); `docker-compose.yml` switches `depends_on` to
+  `condition: service_healthy` so Caddy only accepts traffic once server and web are truly
+  ready, avoiding startup 502s.
+- All containers now cap resources (server ≤1 CPU / 512 MB, web ≤0.5 CPU / 256 MB), rotate
+  logs (`max-size: 10m`, `max-file: 3~5`), and set `no-new-privileges:true`
+  (`docker-compose.yml`).
+- `Caddyfile` completes the security-header set: HSTS (`max-age=31536000; includeSubDomains;
+  preload`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` disabling
+  geolocation/microphone/camera/payment, and `-Server` to hide Caddy's version.
+- `apps/web/next.config.mjs` mirrors the same headers (CSP, X-Content-Type-Options,
+  X-Frame-Options, Referrer-Policy, Permissions-Policy) for defense in depth.
+
+### Security & code quality
+
+- Path allowlist matching is now case-insensitive on Windows (`packages/shared/src/security.ts`).
+- Symlink escape prevention via `realpathSync` resolution before allowlist check
+  (`packages/shared/src/security.ts`).
+- `RATE_LIMIT_CONFIG` guards against `NaN` from missing/non-numeric env vars, falling back to
+  safe defaults (`packages/shared/src/security.ts`).
+- File-tunnel codec validates frame length field on decode to reject malformed/over-sized
+  frames (`packages/shared/src/file-tunnel-codec.ts`).
+- Host JWT is now sent via `Authorization: Bearer` header instead of WS URL query parameter,
+  preventing token leakage into logs/proxy history (`apps/desktop/src/main/ws-client/client.ts`).
+- Removed the `dlopen` ABI fallback in `electron-binding.ts` — the Electron prebuilt binary
+  from `.cache/` is loaded directly, avoiding ABI mismatch crashes.
+- Upload handler validates chunk bounds before writes (`apps/desktop/src/main/ws-client/handlers.ts`).
+- Zombie WebSocket instances and listeners are fully cleaned up on disconnect to prevent
+  memory leaks.
+- `streamDownload` now uses `AbortController` so in-flight downloads can be cancelled on
+  component unmount.
+- Tunnel codec validates version and flags fields on encode/decode, rejecting incompatible frames.
+
+### DevOps / docs
+
+- Added missing `HOST_TOKEN_ROTATION_THRESHOLD_DAYS: 30` to `JWT_CONFIG`
+  (`packages/shared/src/security.ts`) so the desktop token-rotator fires at the correct threshold.
+- `packages/shared` lazy-loads `fs` via `getNodeFs()` with a webpack `fs:false` fallback,
+  fixing browser-bundle builds that previously crashed on static `fs` imports
+  (`packages/shared/src/` various, `apps/web/next.config.mjs`).
+- Rewrote `生产环境部署与使用指南.md` to match the current codebase (version numbers, rate-limit
+  variables, port override logic, local-relay feature, auto-update, installer download links,
+  data-retention monitoring).
+
+### Assets
+
+- Desktop version bumped to 1.3.8 (`apps/desktop/package.json`).
+
 ## [1.3.2] - 2026-06-28
 
 ### Desktop

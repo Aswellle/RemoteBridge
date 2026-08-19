@@ -95,6 +95,11 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !cancelled() }}
     steps:
+      - name: Remind: use release-notes template
+          echo "📝 Draft Release created for ${{ github.ref_name }}."
+          echo "   Before publishing, paste the release description from release-notes/${{ github.ref_name }}.md"
+          echo "   (or follow release-notes/TEMPLATE.md if this is the first release using the new format)."
+
       - name: Mark release as published
         continue-on-error: true   # 若所有平台都失败导致 release 未创建，此步骤允许失败
         run: gh release edit "${{ github.ref_name }}" --draft=false --repo Aswellle/RemoteBridge
