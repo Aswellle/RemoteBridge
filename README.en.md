@@ -1,6 +1,6 @@
 <div align="center">
 
-![RemoteBridge Logo](apps/desktop/colorfulbridge.png)
+![RemoteBridge Logo](https://raw.githubusercontent.com/Aswellle/RemoteBridge/main/apps/desktop/colorfulbridge.png)
 
 # RemoteBridge
 
