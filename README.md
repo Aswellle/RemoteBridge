@@ -11,11 +11,16 @@
  **[English](./README.en.md)**
 <div align="center">
 
+[![Stars](https://img.shields.io/github/stars/Aswellle/RemoteBridge?style=flat-square&color=blue)](https://github.com/Aswellle/RemoteBridge/stargazers)
+[![Forks](https://img.shields.io/github/forks/Aswellle/RemoteBridge?style=flat-square&color=blue)](https://github.com/Aswellle/RemoteBridge/network/members)
+[![Issues](https://img.shields.io/github/issues/Aswellle/RemoteBridge?style=flat-square&color=orange)](https://github.com/Aswellle/RemoteBridge/issues)
 [![License](https://img.shields.io/github/license/Aswellle/RemoteBridge?style=flat-square&color=brightgreen)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Aswellle/RemoteBridge?style=flat-square&color=brightgreen)](https://github.com/Aswellle/RemoteBridge/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/Aswellle/RemoteBridge/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Aswellle/RemoteBridge/actions/workflows/ci.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-607D8B?style=flat-square)](https://github.com/Aswellle/RemoteBridge/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/Aswellle/RemoteBridge?style=flat-square&color=green)](https://github.com/Aswellle/RemoteBridge/commits/main)
 
 [简体中文](README.md) | [English](README.en.md)
 
