@@ -198,6 +198,8 @@ export const JWT_CONFIG = {
   // 从 365d 缩短至 90d（02a-S13）；配套的桌面端 token-rotator.ts 在过期前
   // 30 天自动调用 POST /auth/host-token-refresh，确保 host 无感知轮换。
   HOST_TOKEN_EXPIRY: '90d',
+  // 主机 token 剩余有效期 ≤ 该阈值（天）时触发主动轮换
+  HOST_TOKEN_ROTATION_THRESHOLD_DAYS: 30,
 } as const;
 // ===== Rate Limiting 配置 =====
 // 各字段支持通过 RL_* 环境变量覆盖，仅用于集成测试环境（提高主机注册上限避免并发测试文件触发 429）。
