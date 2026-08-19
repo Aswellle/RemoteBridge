@@ -236,6 +236,21 @@ export default function App() {
     if (goToSettings) setActiveTab('settings');
   };
 
+  const firstLaunchDialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showFirstLaunchModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleCloseFirstLaunchModal(false);
+    };
+    document.addEventListener('keydown', onKey);
+    const t = setTimeout(() => {
+      firstLaunchDialogRef.current?.querySelector<HTMLElement>(
+        'button, [tabindex]:not([tabindex="-1"])'
+      )?.focus();
+    }, 60);
+    return () => { document.removeEventListener('keydown', onKey); clearTimeout(t); };
+  }, [showFirstLaunchModal]);
+
   const handleClearAllDirectories = async () => {
     if (!window.confirm('确认清空所有共享目录吗？此操作不可撤销。')) return;
     await window.electronAPI.clearAllDirectories?.();
@@ -489,6 +504,11 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
+      <div className="sr-only" aria-live="polite" aria-atomic="true" role="status">
+        {connectionStatus === 'connected' && '已连接到 Relay 服务器'}
+        {connectionStatus === 'connecting' && '正在连接'}
+        {connectionStatus === 'error' && '连接失败'}
+      </div>
       <UpdateBanner
         status={updateStatus}
         onDownload={handleDownloadUpdate}
@@ -625,15 +645,7 @@ export default function App() {
                       <span className="text-xs text-muted-foreground uppercase tracking-wider">Relay 连接</span>
                       <div className="mt-1 flex items-center gap-2">
                         {/* 状态指示灯 */}
-                        <div className={`w-2.5 h-2.5 rounded-full ${
-                          connectionStatus === 'connected'
-                            ? 'bg-green-500 animate-pulse shadow-lg shadow-green-500/50'
-                            : connectionStatus === 'connecting'
-                            ? 'bg-yellow-500 animate-pulse shadow-lg shadow-yellow-500/50'
-                            : connectionStatus === 'error'
-                            ? 'bg-red-500'
-                            : 'bg-gray-500'
-                        }`} />
+                        <div className={'w-2.5 h-2.5 rounded-full ' + (connectionStatus === 'connected' ? 'bg-success shadow shadow-success/50' : connectionStatus === 'connecting' ? 'bg-warning shadow shadow-warning/50' : connectionStatus === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40') + ' ' + (connectionStatus === 'connected' || connectionStatus === 'connecting' ? 'animate-pulse' : '')} />
                         <span className={`text-sm ${
                           connectionStatus === 'connected' ? 'text-success' :
                           connectionStatus === 'connecting' ? 'text-warning' :
@@ -654,15 +666,7 @@ export default function App() {
                     <div>
                       <span className="text-xs text-muted-foreground uppercase tracking-wider">本地中继</span>
                       <div className="mt-1 flex items-center gap-2">
-                        <div className={`w-2.5 h-2.5 rounded-full ${
-                          lrStatus === 'running'
-                            ? 'bg-green-500 animate-pulse shadow-lg shadow-green-500/50'
-                            : lrStatus === 'starting'
-                            ? 'bg-yellow-500 animate-pulse shadow-lg shadow-yellow-500/50'
-                            : lrStatus === 'error'
-                            ? 'bg-red-500'
-                            : 'bg-gray-500'
-                        }`} />
+                        <div className={'w-2.5 h-2.5 rounded-full ' + (lrStatus === 'running' ? 'bg-success shadow shadow-success/50' : lrStatus === 'starting' ? 'bg-warning shadow shadow-warning/50' : lrStatus === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40') + ' ' + (lrStatus === 'running' || lrStatus === 'starting' ? 'animate-pulse' : '')} />
                         <span className={`text-sm ${
                           lrStatus === 'running' ? 'text-success' :
                           lrStatus === 'starting' ? 'text-warning' :
@@ -955,9 +959,10 @@ export default function App() {
 
       {/* ===== 首次启动模态框 ===== */}
       {showFirstLaunchModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-card rounded-2xl shadow-2xl border border-border p-8 w-full max-w-md mx-4">
-            <h2 className="text-xl font-bold mb-1">欢迎使用 RemoteBridge</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) handleCloseFirstLaunchModal(false); }}>
+          <div ref={firstLaunchDialogRef} role="dialog" aria-modal="true" aria-labelledby="first-launch-title" className="bg-card rounded-2xl shadow-2xl border border-border p-8 w-full max-w-md mx-4">
+            <h2 id="first-launch-title" className="text-xl font-bold mb-1">欢迎使用 RemoteBridge</h2>
             <p className="text-sm text-muted-foreground mb-6">
               正在为您自动启动本地中继服务器，完成后即可生成连接码供网页端使用。
             </p>
@@ -972,7 +977,7 @@ export default function App() {
               )}
               {lrStatus === 'running' && (
                 <>
-                  <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                  <div className="w-5 h-5 rounded-full bg-success flex items-center justify-center flex-shrink-0">
                     <Check className="w-3 h-3 text-white" />
                   </div>
                   <span className="text-sm text-success font-medium">本地中继服务器已就绪</span>

@@ -175,15 +175,16 @@ export default function MessagesPage() {
   }, [messages, selectedClient]);
 
   // 发送消息
+  const [sending, setSending] = useState(false);
   const handleSend = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     const content = inputValue.trim();
     if (!content || !selectedClient) return;
 
+    setSending(true);
     try {
       const result = await window.electronAPI.sendMessage(selectedClient, content);
       if (result.success) {
-        // 添加到本地消息列表
         const newMsg: MessageRecord = {
           id: `local-${Date.now()}`,
           sessionId: selectedClient,
@@ -198,6 +199,8 @@ export default function MessagesPage() {
       }
     } catch (err) {
       console.error('发送消息失败:', err);
+    } finally {
+      setSending(false);
     }
   }, [inputValue, selectedClient]);
 
@@ -247,9 +250,10 @@ export default function MessagesPage() {
                 <div className="flex items-center min-w-0">
                   <span
                     className={`w-2 h-2 rounded-full mr-2 flex-shrink-0 ${
-                      client.online ? 'bg-green-400' : 'bg-gray-500'
+                      client.online ? 'bg-success' : 'bg-muted-foreground/40'
                     }`}
-                    title={client.online ? '在线' : '离线'}
+                    aria-label={client.online ? '在线' : '离线'}
+                    role="status"
                   />
                   <span className="truncate text-sm">{client.label || client.clientId.slice(0, 8)}</span>
                 </div>
@@ -323,10 +327,13 @@ export default function MessagesPage() {
             />
             <button
               type="submit"
-              disabled={!inputValue.trim() || !selectedClient}
-              className="px-5 py-2 bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+              disabled={!inputValue.trim() || !selectedClient || sending}
+              className="px-5 py-2 bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
             >
-              发送
+              {sending ? (
+                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true" />
+              ) : null}
+              {sending ? '发送中…' : '发送'}
             </button>
           </form>
         </div>

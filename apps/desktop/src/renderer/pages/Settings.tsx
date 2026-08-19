@@ -47,17 +47,19 @@ function Toggle({
   label: string;
   description?: string;
 }) {
+  const id = `toggle-${label.replace(/\s+/g, '-')}`;
   return (
-    <div className="flex items-center justify-between py-3">
-      <div>
+    <div className="flex items-center justify-between py-3 gap-4">
+      <div id={`${id}-label`}>
         <p className="text-sm font-medium">{label}</p>
-        {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
+        {description && <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{description}</p>}
       </div>
       <button
         onClick={() => onChange(!checked)}
         role="switch"
         aria-checked={checked}
-        className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+        aria-labelledby={`${id}-label`}
+        className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
           checked ? 'bg-primary' : 'bg-secondary'
         }`}
       >
@@ -166,8 +168,8 @@ export default function SettingsPage() {
 
   const lrStatusDot: Record<string, string> = {
     stopped: 'bg-muted-foreground',
-    starting: 'bg-yellow-400 animate-pulse',
-    running: 'bg-green-500',
+    starting: 'bg-warning animate-pulse',
+    running: 'bg-success',
     error: 'bg-destructive',
   };
   const lrStatusLabel: Record<string, string> = {
