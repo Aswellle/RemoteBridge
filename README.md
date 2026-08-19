@@ -1,5 +1,14 @@
 <div align="center">
 
+![RemoteBridge Logo](apps/desktop/colorfulbridge.png)
+
+# RemoteBridge
+
+</div>
+
+ **[English](./README.en.md)**
+<div align="center">
+
 [![License](https://img.shields.io/github/license/Aswellle/RemoteBridge?style=flat-square&color=brightgreen)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Aswellle/RemoteBridge?style=flat-square&color=brightgreen)](https://github.com/Aswellle/RemoteBridge/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/Aswellle/RemoteBridge/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Aswellle/RemoteBridge/actions/workflows/ci.yml)
@@ -10,7 +19,6 @@
 
 </div>
 
-# RemoteBridge
 
 **远程文件访问，无需端口转发，无需 VPN，无需公网 IP。**
 
