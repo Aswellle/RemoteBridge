@@ -124,10 +124,45 @@ describe('encodeFileChunkFrame / decodeFileChunkFrame', () => {
   });
 
   it('rejects an unsupported version byte', () => {
-    const chunk = Buffer.from('x');
-    const frame = encodeFileChunkFrame({ transferId: 'tr-v', seq: 0, eof: true }, chunk);
-    frame.writeUInt8(99, 0); // 篡改 version 字节
+    // 构造最小帧头：version=99（不支持），flags=0，transferIdLen=3，seq=0
+    const header = Buffer.alloc(8);
+    header.writeUInt8(99, 0);   // version
+    header.writeUInt8(0, 1);    // flags
+    header.writeUInt16BE(3, 2); // transferIdLen
+    const transferId = Buffer.from('abc');
+    const frame = Buffer.concat([header, transferId]);
+    expect(() => decodeFileChunkFrame(frame)).toThrow(/版本/);
+  });
+});
 
-    expect(() => decodeFileChunkFrame(frame)).toThrow();
+describe('decodeFileChunkFrame — length validation (SEC)', () => {
+  it('throws on a frame shorter than the 8-byte minimum header', () => {
+    const buf = Buffer.alloc(5);
+    expect(() => decodeFileChunkFrame(buf)).toThrow(/过短/);
+  });
+
+  it('throws when transferIdLen points past the buffer end', () => {
+    const buf = Buffer.alloc(8);
+    buf.writeUInt8(1, 0); // version
+    buf.writeUInt8(0, 1); // flags (no meta)
+    buf.writeUInt16BE(100, 2); // transferIdLen = 100, but only 6 bytes remain
+    buf.writeUInt32BE(0, 4); // seq
+    expect(() => decodeFileChunkFrame(buf)).toThrow(/截断/);
+  });
+
+  it('throws when a meta frame has an inflated contentTypeLen', () => {
+    // Layout: ver(1) + flags(1) + transferIdLen(2) + transferId(2) + seq(4) +
+    //         meta fixed(24) + contentTypeLen(2) = 36 bytes
+    // contentTypeLen 声明 1000 字节，但读取后 offset(36) + 1000 > buf.length(36) → 截断
+    const buf = Buffer.alloc(36);
+    let o = 0;
+    buf.writeUInt8(1, o); o += 1;            // version
+    buf.writeUInt8(0b10, o); o += 1;         // flags: hasMeta
+    buf.writeUInt16BE(2, o); o += 2;         // transferIdLen = 2
+    o += 2;                                   // transferId bytes (未写入，为零)
+    buf.writeUInt32BE(0, o); o += 4;         // seq = 0
+    o += 24;                                  // meta fixed fields (totalSize/rangeStart/rangeEnd)
+    buf.writeUInt16BE(1000, o);              // contentTypeLen = 1000 (超出缓冲区)
+    expect(() => decodeFileChunkFrame(buf)).toThrow(/截断/);
   });
 });

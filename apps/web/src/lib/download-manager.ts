@@ -14,6 +14,24 @@ import { RELAY_API_URL as RELAY_API_BASE } from './env';
  * 链路：store.requestDownload 发请求 → 这里消费响应并回写进度 → DownloadPanel 纯展示。
  */
 
+// ===== 下载中止控制器 =====
+// 每个进行中的流式下载对应一个 AbortController，便于取消（用户离开页面/关闭预览时中止 fetch）。
+const downloadControllers = new Map<string, AbortController>();
+
+/** 中止指定下载（由 DownloadPanel/预览组件在卸载时调用）。已完成的下载为 no-op。 */
+export function cancelDownload(downloadId: string): void {
+  const ctrl = downloadControllers.get(downloadId);
+  if (ctrl) {
+    ctrl.abort();
+    downloadControllers.delete(downloadId);
+  }
+}
+
+/** 中止所有进行中的下载（全局清理时使用）。 */
+export function cancelAllDownloads(): void {
+  downloadControllers.forEach((ctrl) => ctrl.abort());
+  downloadControllers.clear();
+}
 // ===== RESP_DOWNLOAD_READY =====
 export async function handleDownloadReady(payload: RespDownloadReadyPayload): Promise<void> {
   const store = useAppStore.getState();
@@ -32,6 +50,10 @@ export async function handleDownloadReady(payload: RespDownloadReadyPayload): Pr
   // 机器时该地址不可达，必须改走 Relay 代理（代理会向 Host 转发并流式传回）。
   const isHostLocalUrl = /127\.0\.0\.1|localhost/.test(payload.downloadUrl);
 
+  // 创建中止控制器，供用户取消/离开页面时使用
+  const controller = new AbortController();
+  downloadControllers.set(download.id, controller);
+
   try {
     if (isHostLocalUrl) {
       const { sessionId } = store;
@@ -39,7 +61,7 @@ export async function handleDownloadReady(payload: RespDownloadReadyPayload): Pr
       store.updateDownload(download.id, { downloadUrl: proxyUrl });
       // 代理端点通过 httpOnly cookie 鉴权（02a-S11），<a download> 带不了 cookie，
       // 必须用 fetch credentials:'include' 流式下载，顺便拿到真实进度
-      await streamDownload(proxyUrl, fileName, payload.fileSize || 0, download.id);
+      await streamDownload(proxyUrl, fileName, payload.fileSize || 0, download.id, controller.signal);
     } else {
       // 直连可达的 URL（同机部署等场景）：交给浏览器原生下载
       store.updateDownload(download.id, { downloadUrl: payload.downloadUrl });
@@ -52,9 +74,16 @@ export async function handleDownloadReady(payload: RespDownloadReadyPayload): Pr
       eta: 0,
     });
   } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      // 用户主动取消 —— 不弹错误提示，仅标记取消状态
+      useAppStore.getState().updateDownload(download.id, { status: 'error', error: '下载已取消' });
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     useAppStore.getState().updateDownload(download.id, { status: 'error', error: message });
     toast.error(`下载失败: ${fileName}`, { description: message });
+  } finally {
+    downloadControllers.delete(download.id);
   }
 }
 
@@ -75,9 +104,10 @@ async function streamDownload(
   fileName: string,
   expectedSize: number,
   downloadId: string,
+  signal: AbortSignal,
 ): Promise<void> {
   // httpOnly cookie 认证（02a-S11）：credentials:'include' 自动携带 rb_access cookie
-  const response = await fetch(url, { credentials: 'include' });
+  const response = await fetch(url, { credentials: 'include', signal });
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
@@ -102,6 +132,10 @@ async function streamDownload(
   let lastUpdate = 0;
 
   for (;;) {
+    // 每次读取前检查是否已中止，避免无谓等待
+    if (signal.aborted) {
+      throw new DOMException('下载已取消', 'AbortError');
+    }
     const { done, value } = await reader.read();
     if (done) break;
     chunks.push(value);

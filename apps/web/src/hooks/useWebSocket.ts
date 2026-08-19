@@ -90,6 +90,14 @@ export class WebSocketManager {
       }
     }
 
+    // SEC: fetchWsTicket 期间用户可能已点击断开（disconnect 置位 stopped=true）。
+    // 此时必须中止建连，否则会在用户主动断开后仍创建 WS 并翻转 store 为 connected，
+    // 形成僵尸连接；后续再次 connect 会建第二条 WS，导致双连接与状态不一致。
+    if (this.stopped) {
+      logger.info('doConnect: 票据获取后检测到主动断开，中止建连');
+      return;
+    }
+
     const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}&type=client`;
     this.ws = new WebSocket(wsUrl);
 

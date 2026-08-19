@@ -71,7 +71,15 @@ export function setupWebSocket(app: FastifyInstance): void {
   app.get('/ws', { websocket: true }, (socket, req) => {
 
     const url = new URL(req.url, `http://${req.headers.host}`);
-    const token = url.searchParams.get('token');
+    const queryToken = url.searchParams.get('token');
+    const authHeader = req.headers['authorization'] as string | undefined;
+    // SEC: 支持从 Authorization: Bearer <token> 头部读取（推荐，避免 token 出现在 URL/日志），
+    // 同时保留 query param 作为向后兼容（旧版桌面端）。
+    let token = queryToken;
+    if (!token && authHeader) {
+      const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+      if (match) token = match[1];
+    }
     const ticket = url.searchParams.get('ticket');
     const type = url.searchParams.get('type') as 'host' | 'client';
 
@@ -105,9 +113,9 @@ export function setupWebSocket(app: FastifyInstance): void {
       try {
         payload = verifyToken(token);
         if (payload.type !== type) throw new Error('Token type mismatch');
-        if ((payload as any).use === 'refresh') throw new Error('Refresh token not allowed');
+        if (payload.type === 'client' && payload.use === 'refresh') throw new Error('Refresh token not allowed');
       } catch (err) {
-        app.log.warn('WebSocket 认证失败:', err as any);
+        app.log.warn({ err }, 'WebSocket 认证失败');
         socket.close(4001, 'Unauthorized');
         return;
       }
@@ -116,16 +124,16 @@ export function setupWebSocket(app: FastifyInstance): void {
         id: payload.sub,
         lastPong: Date.now(),
       };
-      if (type === 'client') {
-        meta.sessionId = (payload as any).sessionId;
-        meta.hostId = (payload as any).hostId;
+      // 收窄到 client 类型后 sessionId/hostId 必然存在
+      if (payload.type === 'client') {
+        meta.sessionId = payload.sessionId;
+        meta.hostId = payload.hostId;
         meta.connectedAt = Date.now();
       }
     } else {
       socket.close(4001, 'Missing or invalid parameters');
       return;
     }
-
     setConnMeta(socket, meta);
 
     // 注册到房间管理（meta.id = payload.sub 或 ticketData.clientId，两条路径均已填充）

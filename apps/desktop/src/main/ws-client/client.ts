@@ -47,9 +47,11 @@ export class RelayClient {
     this.isConnecting = true;
 
     try {
-      const wsUrl = `${this.config.relayUrl}?token=${this.config.hostToken}&type=host`;
-      this.ws = new WebSocket(wsUrl);
-
+      // SEC: 不在 URL 中传递 token（会出现在服务器/代理日志里），
+      // 改为通过 WebSocket 握手头的 Authorization 字段发送。
+      this.ws = new WebSocket(this.config.relayUrl, {
+        headers: { Authorization: `Bearer ${this.config.hostToken}` },
+      });
       this.ws.on('open', () => {
         log.info('已连接到 Relay Server');
         this.reconnectAttempts = 0;

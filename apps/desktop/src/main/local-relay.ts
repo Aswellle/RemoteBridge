@@ -256,10 +256,17 @@ export function registerLocalRelayHandlers(getMainWindow: () => BrowserWindow | 
   }));
 
   ipcMain.handle('relay-local:set-config', (_, cfg: { port?: number; autoStart?: boolean }) => {
+    const portChanged = typeof cfg.port === 'number' && cfg.port !== config.getLocalRelayPort();
     if (typeof cfg.port === 'number') config.setLocalRelayPort(cfg.port);
     if (typeof cfg.autoStart === 'boolean') config.setLocalRelayAutoStart(cfg.autoStart);
-  });
 
+    // 端口变更且 relay 正在运行 → 重启以绑定新端口，避免 UI 显示新端口但实际仍监听旧端口
+    if (portChanged && currentStatus === 'running') {
+      log.info(`本地 Relay 端口变更，重启中 (${currentPort} → ${cfg.port})`);
+      stopLocalRelay();
+      startLocalRelay(cfg.port as number);
+    }
+  });
   // Auto-start if configured
   if (config.getLocalRelayAutoStart()) {
     startLocalRelay(config.getLocalRelayPort());

@@ -128,6 +128,13 @@ export function encodeFileChunkFrame(meta: FileChunkFrameMeta, chunk: Buffer): B
 
 /** 解码一个二进制 WS 帧。data 始终为 Buffer（与 JSON 路径解码后的形态一致） */
 export function decodeFileChunkFrame(buf: Buffer): DecodedFileChunkFrame {
+  // SEC: 帧来自内部已认证的 Host↔Relay WS 信道，但仍需防御截断/畸形帧 ——
+  // 缺失长度校验会让 readUInt32BE 在截断帧上抛出未捕获 RangeError（崩溃），
+  // 或被超长 length 字段驱动 offset 越界、将尾部字节误解析为字段。
+  if (buf.length < 8) {
+    throw new Error(`文件隧道帧过短: 至少 8 字节头部，实际 ${buf.length}`);
+  }
+
   let offset = 0;
   const version = buf.readUInt8(offset);
   offset += 1;
@@ -142,9 +149,15 @@ export function decodeFileChunkFrame(buf: Buffer): DecodedFileChunkFrame {
 
   const transferIdLen = buf.readUInt16BE(offset);
   offset += 2;
+  if (offset + transferIdLen > buf.length) {
+    throw new Error(`文件隧道帧截断: transferIdLen=${transferIdLen} 超出缓冲区`);
+  }
   const transferId = buf.toString('ascii', offset, offset + transferIdLen);
   offset += transferIdLen;
 
+  if (offset + 4 > buf.length) {
+    throw new Error('文件隧道帧截断: seq 字段不完整');
+  }
   const seq = buf.readUInt32BE(offset);
   offset += 4;
 
@@ -156,6 +169,9 @@ export function decodeFileChunkFrame(buf: Buffer): DecodedFileChunkFrame {
   };
 
   if (hasMeta) {
+    if (offset + 24 > buf.length) {
+      throw new Error('文件隧道帧截断: 元数据固定字段不完整');
+    }
     result.totalSize = readUInt64BE(buf, offset);
     offset += 8;
     result.rangeStart = readUInt64BE(buf, offset);
@@ -165,11 +181,20 @@ export function decodeFileChunkFrame(buf: Buffer): DecodedFileChunkFrame {
 
     const contentTypeLen = buf.readUInt16BE(offset);
     offset += 2;
+    if (offset + contentTypeLen > buf.length) {
+      throw new Error(`文件隧道帧截断: contentTypeLen=${contentTypeLen} 超出缓冲区`);
+    }
     result.contentType = buf.toString('utf-8', offset, offset + contentTypeLen);
     offset += contentTypeLen;
 
+    if (offset + 2 > buf.length) {
+      throw new Error('文件隧道帧截断: fileNameLen 字段不完整');
+    }
     const fileNameLen = buf.readUInt16BE(offset);
     offset += 2;
+    if (offset + fileNameLen > buf.length) {
+      throw new Error(`文件隧道帧截断: fileNameLen=${fileNameLen} 超出缓冲区`);
+    }
     result.fileName = buf.toString('utf-8', offset, offset + fileNameLen);
     offset += fileNameLen;
   }

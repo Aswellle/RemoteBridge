@@ -165,4 +165,25 @@ describe('CMD_UPLOAD_FILE_CHUNK — 安全校验与正确性 (TST-H2)', () => {
     const acks = sentMessages.filter((m) => m.type === WSMessageType.RESP_UPLOAD_ACK);
     expect(acks).toHaveLength(3);
   });
+
+  it('拒绝 chunkIndex 越界的分块（SEC: 防 sparse array 内存耗尽攻击）', async () => {
+    // totalChunks=2 时发送 chunkIndex=999，旧代码会创建含百万空槽的 sparse array，
+    // 越界分块永不完成，缓冲区滞留至超时，可耗尽主机内存。
+    await emitChunk({
+      uploadId: 'uid-oob',
+      chunkIndex: 999, totalChunks: 2,
+      fileName: 'oob.txt', mimeType: 'text/plain', category: 'documents',
+      totalSize: 7, data: Buffer.from('content').toString('base64'),
+      clientId: 'c1', sessionId: 's1',
+    });
+
+    const oobErrors = sentMessages.filter(
+      (m) => m.type === WSMessageType.RESP_UPLOAD_ERROR && m.payload.code === 'INVALID_CHUNK_INDEX',
+    );
+    expect(oobErrors).toHaveLength(1);
+
+    // 不应产生任何 ACK，也不应初始化持久缓冲（上传被拒绝）
+    const acks = sentMessages.filter((m) => m.type === WSMessageType.RESP_UPLOAD_ACK);
+    expect(acks).toHaveLength(0);
+  });
 });

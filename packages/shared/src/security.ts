@@ -5,7 +5,7 @@
 
 import path from 'path';
 import os from 'os';
-
+import fs from 'fs';
 // ===== 系统保护目录黑名单 =====
 // 绝对禁止远程访问的系统目录
 export const SYSTEM_BLOCKED_DIRS: Record<string, string[]> = {
@@ -61,20 +61,31 @@ export function getBlockedDirsForPlatform(platform: 'win32' | 'darwin' | 'linux'
 }
 
 // ===== 路径安全校验 =====
+/**
+ * 在大小写不敏感的文件系统（Windows / 默认 macOS）上，
+ * path.resolve() 保留输入大小写，而文件系统按不敏感方式比对。
+ * 统一转为小写后再比较，既防止白名单误拒，也防止系统黑名单被大小写变种绕过。
+ */
+function normalizeForCompare(p: string): string {
+  const platform = process.platform;
+  return (platform === 'win32' || platform === 'darwin') ? p.toLowerCase() : p;
+}
+
 export function isPathAllowed(
   requestedPath: string,
   allowedDirs: string[]
 ): boolean {
-  // 1. 解析为绝对路径，消除 ../  ./ 等相对路径攻击
+  // 1. 解析为绝对路径，消除 ../  ./ 等相对路径攻击（词法归一，不解符号链接）
   const resolved = path.resolve(requestedPath);
+  const resolvedNorm = normalizeForCompare(resolved);
 
   // 2. 检查是否在任何允许目录的子路径下
   return allowedDirs.some(allowed => {
-    const resolvedAllowed = path.resolve(allowed);
+    const resolvedAllowed = normalizeForCompare(path.resolve(allowed));
     // 必须以允许目录 + 路径分隔符开头，防止前缀匹配攻击
     // 例如: /home/user 不应该匹配 /home/user2
-    return resolved === resolvedAllowed ||
-           resolved.startsWith(resolvedAllowed + path.sep);
+    return resolvedNorm === resolvedAllowed ||
+           resolvedNorm.startsWith(resolvedAllowed + path.sep);
   });
 }
 
@@ -90,16 +101,27 @@ export function validateDirectoryRequest(
 ): PathValidationResult {
   try {
     // 步骤 1: path.resolve() 规范化，防止 ../ 攻击
-    const resolved = path.resolve(requestedPath);
+    let resolved = path.resolve(requestedPath);
+
+    // 步骤 1b: 解析符号链接真实路径，防止 symlink 逃逸白名单/黑名单
+    // realpathSync 在目标不存在时抛出 ENOENT，此时回退到 resolve 后的路径
+    try {
+      const real = fs.realpathSync(resolved);
+      // 重新归一化真实路径（realpathSync 也可能保留大小写）
+      resolved = real;
+    } catch {
+      // 目标不存在（如新建目录请求）：以 resolve 路径继续校验
+    }
+    const resolvedNorm = normalizeForCompare(resolved);
 
     // 步骤 2: 检查系统黑名单（优先于白名单）
     const platform = os.platform() as 'win32' | 'darwin' | 'linux';
     const blocked = getBlockedDirsForPlatform(platform);
 
     const isSystemBlocked = blocked.some(blockedDir => {
-      const resolvedBlocked = path.resolve(blockedDir);
-      return resolved === resolvedBlocked ||
-             resolved.startsWith(resolvedBlocked + path.sep);
+      const resolvedBlocked = normalizeForCompare(path.resolve(blockedDir));
+      return resolvedNorm === resolvedBlocked ||
+             resolvedNorm.startsWith(resolvedBlocked + path.sep);
     });
 
     if (isSystemBlocked) {
@@ -152,20 +174,24 @@ export const JWT_CONFIG = {
   // 从 365d 缩短至 90d（02a-S13）；配套的桌面端 token-rotator.ts 在过期前
   // 30 天自动调用 POST /auth/host-token-refresh，确保 host 无感知轮换。
   HOST_TOKEN_EXPIRY: '90d',
-  // 桌面端触发主动轮换的阈值：剩余有效期 ≤ 此值时发起轮换请求
-  HOST_TOKEN_ROTATION_THRESHOLD_DAYS: 30,
 } as const;
-
 // ===== Rate Limiting 配置 =====
 // 各字段支持通过 RL_* 环境变量覆盖，仅用于集成测试环境（提高主机注册上限避免并发测试文件触发 429）。
 // 生产环境不传这些环境变量，使用下方安全默认值。
-export const RATE_LIMIT_CONFIG = {
-  AUTH_MAX: parseInt(process.env.RL_AUTH_MAX ?? '10', 10),
-  PIN_GENERATE_MAX: parseInt(process.env.RL_PIN_MAX ?? '5', 10),
-  REGISTER_HOST_MAX: parseInt(process.env.RL_REGISTER_MAX ?? '5', 10),
-  WINDOW_MS: parseInt(process.env.RL_WINDOW_MS ?? '60000', 10),
-};
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  // 非数值 / NaN / 非正数 → 回退默认值，避免 fail-open（NaN 比较总为 false 导致限流失效）
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
 
+export const RATE_LIMIT_CONFIG = {
+  AUTH_MAX: envInt('RL_AUTH_MAX', 10),
+  PIN_GENERATE_MAX: envInt('RL_PIN_MAX', 5),
+  REGISTER_HOST_MAX: envInt('RL_REGISTER_MAX', 5),
+  WINDOW_MS: envInt('RL_WINDOW_MS', 60000),
+};
 // ===== 下载令牌配置 =====
 export const DOWNLOAD_TOKEN_CONFIG = {
   EXPIRY_MS: 30 * 60 * 1000,  // 30 分钟

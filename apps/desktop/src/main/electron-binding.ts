@@ -49,15 +49,14 @@ if (process.versions?.electron) {
     // @ts-ignore
     process.dlopen = function (module: any, filename: string, ...args: any[]) {
       if (typeof filename === 'string' && filename.includes('better_sqlite3')) {
-        try {
-          return origDlopen.call(this, module, electronBinary, ...args);
-        } catch (err) {
-          log.warn('加载 Electron 版 better-sqlite3 失败，回退原始路径:', (err as Error).message);
-        }
+        // SEC: 不回落到原始（非 Electron 编译的）.node —— 其 NODE_MODULE_VERSION
+        // 与 Electron 进程不匹配，加载会立即 ABI 崩溃或静默内存损坏。
+        // 若 Electron 预编译二进制缺失，应明确报错而非尝试加载不兼容版本。
+        origDlopen.call(this, module, electronBinary, ...args);
+        return;
       }
-      return origDlopen.call(this, module, filename, ...args);
+      origDlopen.call(this, module, filename, ...args);
     };
-
     log.info('better-sqlite3 重定向至:', electronBinary);
   } else {
     log.warn('未找到 better-sqlite3 Electron 预编译版本（.cache/better_sqlite3.electron.node），可能出现模块版本不匹配');

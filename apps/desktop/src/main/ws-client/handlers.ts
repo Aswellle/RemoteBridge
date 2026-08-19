@@ -192,10 +192,23 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
         clientId,
         sessionId,
         timer,
-      });
+    });
     }
 
     const transfer = uploadBuffer.get(uploadId)!;
+
+    // SEC: 校验 chunkIndex 边界 —— 缺失校验时恶意客户端可发送
+    // chunkIndex=999999 (totalChunks=2)，创建含百万空槽的 sparse array，
+    // 越界分块永不完成传输，缓冲区滞留至 5 分钟超时，可耗尽主机内存。
+    if (chunkIndex < 0 || chunkIndex >= totalChunks) {
+      log.warn(`文件上传：chunkIndex 越界 (${chunkIndex}/${totalChunks})，丢弃 uploadId:`, uploadId);
+      client.send({
+        type: WSMessageType.RESP_UPLOAD_ERROR,
+        payload: { uploadId, code: 'INVALID_CHUNK_INDEX', message: `分块索引越界: ${chunkIndex}/${totalChunks}`, clientId, sessionId },
+      });
+      return;
+    }
+
     if (!transfer.chunks[chunkIndex]) {
       const chunkBuf = Buffer.from(data, 'base64');
       transfer.chunks[chunkIndex] = chunkBuf;

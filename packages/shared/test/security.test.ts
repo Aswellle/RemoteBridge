@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import os from 'os';
 import {
   isPathAllowed,
   validateDirectoryRequest,
@@ -45,6 +46,62 @@ describe('validateDirectoryRequest', () => {
       { path: '/home/user/shared', is_active: false },
     ]);
     expect(result).toEqual({ allowed: false, reason: 'NOT_IN_WHITELIST' });
+  });
+});
+describe('isPathAllowed — case-insensitive filesystem (SEC: case normalization)', () => {
+  // Windows / macOS 默认大小写不敏尽：白名单 /home/user 应匹配 /HOME/USER/docs，
+  // 同时系统黑名单 C:\Windows 不能被 c:\windows 绕过。
+  const origPlatform = process.platform;
+
+  afterEach(() => {
+    // 还原平台，避免污染后续用例
+    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true, writable: true });
+  });
+
+  it('matches whitelist path with different case on win32', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true, writable: true });
+    expect(isPathAllowed('C:\\USERS\\Alice\\docs', ['C:\\Users\\Alice'])).toBe(true);
+  });
+
+  it('matches whitelist path with different case on darwin', () => {
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true, writable: true });
+    expect(isPathAllowed('/HOME/user/docs', ['/home/user'])).toBe(true);
+  });
+
+  it('does NOT match a different-case sibling directory', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true, writable: true });
+    // /home/user2 不是 /home/user 的子路径，大小写变化也不应误匹配
+    expect(isPathAllowed('/HOME/USER2/file.txt', ['/home/user'])).toBe(false);
+  });
+
+  it('on linux (case-sensitive) preserves exact matching', () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true, writable: true });
+    expect(isPathAllowed('/HOME/user/docs', ['/home/user'])).toBe(false);
+    expect(isPathAllowed('/home/user/docs', ['/home/user'])).toBe(true);
+  });
+});
+
+describe('validateDirectoryRequest — case & symlink (SEC)', () => {
+  const origPlatform = process.platform;
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true, writable: true });
+  });
+
+  it('rejects a system-blocked dir reached even with different case on win32', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true, writable: true });
+    const result = validateDirectoryRequest('c:\\windows\\system32', [
+      { path: 'C:\\Users\\Public', is_active: true },
+    ]);
+    expect(result).toEqual({ allowed: false, reason: 'SYSTEM_PROTECTED' });
+  });
+
+  it('allows a whitelisted path with non-existent target (falls back to resolve path)', () => {
+    // realpathSync 对不存在路径抛 ENOENT，应回退到 path.resolve 继续校验
+    const result = validateDirectoryRequest('/home/user/shared/newdir', [
+      { path: '/home/user/shared', is_active: true },
+    ]);
+    expect(result).toEqual({ allowed: true });
   });
 });
 
