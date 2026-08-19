@@ -5,7 +5,18 @@ All notable changes to RemoteBridge are documented here. All four workspace pack
 are currently pinned at `1.0.0`; this file starts tracking changes from the 2026-06
 comprehensive code review (`.full-review/05-final-report.md`) onward.
 
-## [1.3.9] - 2026-08-20
+## [1.3.10] - 2026-08-20
+
+### Desktop — relay connection fix
+
+- **Fixed desktop unable to connect to relay server** (WebSocket close 4001): desktop connected to
+  `ws://127.0.0.1:3002/ws` without the `type` query parameter, but the relay handler requires
+  `?type=host` (or `?type=client` for web) and rejects the handshake with "Missing or invalid
+  parameters" otherwise. Web client already appended `&type=client`; desktop now appends
+  `?type=host` at connect time (`apps/desktop/src/main/ws-client/client.ts`), so it works regardless
+  of the configured relay URL in Settings.
+
+ ## [1.3.9] - 2026-08-20
 
 ### Desktop — critical startup fix
 
