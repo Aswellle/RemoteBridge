@@ -3,7 +3,6 @@
  * 文件类型判断、大小格式化等工具函数
  */
 
-// ===== 可预览文件类型 =====
 export const PREVIEWABLE_TYPES = {
   image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'tiff'],
   text: [
@@ -15,16 +14,22 @@ export const PREVIEWABLE_TYPES = {
     'dockerfile', 'makefile', 'env', 'gitignore', 'editorconfig',
   ],
   pdf: ['pdf'],
+  video: ['mp4', 'webm', 'mov', 'mkv', 'avi', 'flv', 'm4v', 'ogv'],
+  spreadsheet: ['xls', 'xlsx', 'csv', 'tsv', 'ods'],
+  document: ['doc', 'docx', 'ppt', 'pptx', 'odt', 'rtf'],
 } as const;
 
-// ===== 文件类型判断 =====
-export function getFileCategory(extension: string): 'image' | 'text' | 'pdf' | 'unknown' {
-  const ext = extension.toLowerCase();
+export type FileCategory = 'image' | 'text' | 'pdf' | 'video' | 'spreadsheet' | 'document' | 'unknown';
 
+// ===== 文件类型判断 =====
+export function getFileCategory(extension: string): FileCategory {
+  const ext = extension.toLowerCase();
   if ((PREVIEWABLE_TYPES.image as unknown as string[]).includes(ext)) return 'image';
   if ((PREVIEWABLE_TYPES.text as unknown as string[]).includes(ext)) return 'text';
   if ((PREVIEWABLE_TYPES.pdf as unknown as string[]).includes(ext)) return 'pdf';
-
+  if ((PREVIEWABLE_TYPES.video as unknown as string[]).includes(ext)) return 'video';
+  if ((PREVIEWABLE_TYPES.spreadsheet as unknown as string[]).includes(ext)) return 'spreadsheet';
+  if ((PREVIEWABLE_TYPES.document as unknown as string[]).includes(ext)) return 'document';
   return 'unknown';
 }
 
@@ -50,6 +55,9 @@ export function getFileIcon(extension: string): string {
 
   switch (category) {
     case 'image': return '🖼️';
+    case 'video': return '🎬';
+    case 'spreadsheet': return '📊';
+    case 'document': return '📝';
     case 'text': return '📄';
     case 'pdf': return '📕';
     default: return '📁';

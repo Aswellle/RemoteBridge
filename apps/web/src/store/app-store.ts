@@ -1,10 +1,10 @@
 import { create } from 'zustand';
-import { WSMessage, WSMessageType, FileEntry, HostInfo, AllowedDirectory, FileCategory } from '@remotebridge/shared';
+import { WSMessage, WSMessageType, FileEntry, HostInfo, AllowedDirectory, UploadCategory } from '@remotebridge/shared';
 import api from '@/lib/api';
 import { logger } from '@/lib/logger';
 
 // ===== 文件类别检测（MIME + 扩展名） =====
-function getFileCategoryFromFile(mimeType: string, fileName: string): FileCategory {
+function getFileCategoryFromFile(mimeType: string, fileName: string): UploadCategory {
   if (mimeType.startsWith('image/')) return 'images';
   if (mimeType.startsWith('video/')) return 'videos';
   const ext = fileName.split('.').pop()?.toLowerCase() ?? '';

@@ -106,33 +106,19 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
     }
   }, [filePath]);
 
-  // 在新标签页全屏打开文件
+  // 在新标签页全屏打开文件 — 跳转到独立预览页
   const handleOpenNewTab = useCallback(() => {
     try {
-      if (effectiveCategory === 'image' && previewUrl) {
-        // 图片直接用 blob URL 新标签打开
-        window.open(previewUrl, '_blank', 'noopener');
-        return;
-      }
-      if (effectiveCategory === 'pdf' && previewUrl) {
-        window.open(previewUrl, '_blank', 'noopener');
-        return;
-      }
-      if (rawBytes) {
-        // 文本等可用 rawBytes 构造 blob 新标签打开
-        const blob = new Blob([rawBytes.slice()], { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank', 'noopener');
-        // 延迟释放 blob URL，新标签页加载完后回收
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        return;
-      }
-      // 无可用预览数据，回退到下载
-      handleDownload();
+      const params = new URLSearchParams({
+        path: filePath,
+        name: fileName,
+        ext: fileExtension,
+      });
+      window.open(`/preview?${params.toString()}`, '_blank', 'noopener');
     } catch (err) {
       logger.error('新标签页打开失败:', err);
     }
-  }, [effectiveCategory, previewUrl, rawBytes, handleDownload]);
+  }, [filePath, fileName, fileExtension]);
   const CategoryIcon = effectiveCategory === 'image' ? Image
     : effectiveCategory === 'text' ? FileText
     : effectiveCategory === 'pdf' ? FileType

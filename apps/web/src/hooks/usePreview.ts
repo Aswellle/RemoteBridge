@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { WSMessageType, type RespPreviewReadyPayload, type RespPreviewErrorPayload } from '@remotebridge/shared';
+import { WSMessageType, type RespPreviewReadyPayload, type RespPreviewErrorPayload, type FileCategory } from '@remotebridge/shared';
 import { useAppStore } from '@/store/app-store';
 import { RELAY_API_URL as RELAY_API_BASE } from '@/lib/env';
+
 
 // ===== 预览状态 =====
 interface PreviewState {
@@ -14,12 +15,11 @@ interface PreviewState {
   fileName: string;
   fileSize: number;
   extension: string;
-  category: 'image' | 'text' | 'pdf' | 'unknown';
+  category: FileCategory;
   expiresAt: number;
   loading: boolean;
   error: string | null;
 }
-
 const INITIAL_STATE: PreviewState = {
   previewUrl: null,
   rawBytes: null,

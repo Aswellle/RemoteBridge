@@ -247,14 +247,14 @@ export interface ErrorPayload {
 }
 
 // ===== 文件类别 =====
-export type FileCategory = 'images' | 'videos' | 'documents' | 'archives' | 'markdown';
+export type UploadCategory = 'images' | 'videos' | 'documents' | 'archives' | 'markdown';
 
 // ===== 文件上传 Payload（Web → Desktop） =====
 export interface CmdUploadFileChunkPayload extends RelayRoutingFields {
   uploadId: string;
   fileName: string;
   mimeType: string;
-  category: FileCategory;
+  category: UploadCategory;
   chunkIndex: number;
   totalChunks: number;
   totalSize: number;
