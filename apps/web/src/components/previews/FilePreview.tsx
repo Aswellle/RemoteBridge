@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, Loader2, AlertTriangle, Image, FileText, FileType, FolderOpen } from 'lucide-react';
+import { Download, X, Loader2, AlertTriangle, Image, FileText, FileType, FolderOpen, ExternalLink } from 'lucide-react';
 import { getFileCategory } from '@remotebridge/shared';
 import { usePreview } from '@/hooks/usePreview';
 import { useAppStore } from '@/store/app-store';
@@ -106,6 +106,33 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
     }
   }, [filePath]);
 
+  // 在新标签页全屏打开文件
+  const handleOpenNewTab = useCallback(() => {
+    try {
+      if (effectiveCategory === 'image' && previewUrl) {
+        // 图片直接用 blob URL 新标签打开
+        window.open(previewUrl, '_blank', 'noopener');
+        return;
+      }
+      if (effectiveCategory === 'pdf' && previewUrl) {
+        window.open(previewUrl, '_blank', 'noopener');
+        return;
+      }
+      if (rawBytes) {
+        // 文本等可用 rawBytes 构造 blob 新标签打开
+        const blob = new Blob([rawBytes.slice()], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank', 'noopener');
+        // 延迟释放 blob URL，新标签页加载完后回收
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        return;
+      }
+      // 无可用预览数据，回退到下载
+      handleDownload();
+    } catch (err) {
+      logger.error('新标签页打开失败:', err);
+    }
+  }, [effectiveCategory, previewUrl, rawBytes, handleDownload]);
   const CategoryIcon = effectiveCategory === 'image' ? Image
     : effectiveCategory === 'text' ? FileText
     : effectiveCategory === 'pdf' ? FileType
@@ -137,9 +164,16 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
             <div className="flex items-center min-w-0">
               <CategoryIcon className="w-5 h-5 mr-3 text-muted-foreground flex-shrink-0" />
               <h2 className="text-lg font-semibold text-foreground truncate">{fileName}</h2>
-              <span className="ml-2 text-sm text-muted-foreground flex-shrink-0">.{fileExtension}</span>
             </div>
             <div className="flex items-center space-x-3 flex-shrink-0 ml-4">
+              <button
+                onClick={handleOpenNewTab}
+                className="flex items-center gap-1.5 px-4 py-2 bg-secondary hover:bg-secondary/80 text-foreground text-sm rounded-lg transition-colors"
+                title="在新标签页全屏打开"
+              >
+                <ExternalLink className="w-4 h-4" />
+                新标签页打开
+              </button>
               <button
                 onClick={handleDownload}
                 className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary/90 text-white text-sm rounded-lg transition-colors"
