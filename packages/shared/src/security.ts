@@ -80,14 +80,15 @@ export function getBlockedDirsForPlatform(platform: 'win32' | 'darwin' | 'linux'
   return platform === 'win32' ? getWindowsBlockedDirs() : SYSTEM_BLOCKED_DIRS[platform] || [];
 }
 
-// ===== 路径安全校验 =====
+
 /**
- * 在大小写不敏感的文件系统（Windows / 默认 macOS）上，
- * path.resolve() 保留输入大小写，而文件系统按不敏感方式比对。
- * 统一转为小写后再比较，既防止白名单误拒，也防止系统黑名单被大小写变种绕过。
- *
- * @param platform 目标平台，默认取运行时 process.platform；测试时可显式注入。
+ * 按目标平台返回对应的 path 模块语义。
+ * win32 用 path.win32（反斜杠分隔、大小写不敏感），其余用 path.posix。
+ * 这让路径校验在任意运行期 OS 上都能按目标平台正确比对。
  */
+function getPathForPlatform(platform: string): typeof path {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
 function normalizeForCompare(p: string, platform: string = process.platform): string {
   return (platform === 'win32' || platform === 'darwin') ? p.toLowerCase() : p;
 }
@@ -97,17 +98,18 @@ export function isPathAllowed(
   allowedDirs: string[],
   platform: string = process.platform
 ): boolean {
+  const p = getPathForPlatform(platform);
   // 1. 解析为绝对路径，消除 ../  ./ 等相对路径攻击（词法归一，不解符号链接）
-  const resolved = path.resolve(requestedPath);
+  const resolved = p.resolve(requestedPath);
   const resolvedNorm = normalizeForCompare(resolved, platform);
 
   // 2. 检查是否在任何允许目录的子路径下
   return allowedDirs.some(allowed => {
-    const resolvedAllowed = normalizeForCompare(path.resolve(allowed), platform);
+    const resolvedAllowed = normalizeForCompare(p.resolve(allowed), platform);
     // 必须以允许目录 + 路径分隔符开头，防止前缀匹配攻击
     // 例如: /home/user 不应该匹配 /home/user2
     return resolvedNorm === resolvedAllowed ||
-           resolvedNorm.startsWith(resolvedAllowed + path.sep);
+           resolvedNorm.startsWith(resolvedAllowed + p.sep);
   });
 }
 
@@ -119,11 +121,13 @@ export interface PathValidationResult {
 
 export function validateDirectoryRequest(
   requestedPath: string,
-  allowedDirs: Array<{ path: string; is_active: boolean }>
+  allowedDirs: Array<{ path: string; is_active: boolean }>,
+  platform: string = process.platform
 ): PathValidationResult {
   try {
+    const p = getPathForPlatform(platform);
     // 步骤 1: path.resolve() 规范化，防止 ../ 攻击
-    let resolved = path.resolve(requestedPath);
+    let resolved = p.resolve(requestedPath);
 
     // 步骤 1b: 解析符号链接真实路径，防止 symlink 逃逸白名单/黑名单
     // realpathSync 在目标不存在时抛出 ENOENT，此时回退到 resolve 后的路径。
@@ -138,16 +142,15 @@ export function validateDirectoryRequest(
         // 目标不存在（如新建目录请求）：以 resolve 路径继续校验
       }
     }
-    const resolvedNorm = normalizeForCompare(resolved);
+    const resolvedNorm = normalizeForCompare(resolved, platform);
 
-    // 步骤 2: 检查系统黑名单（优先于白名单）
-    const platform = os.platform() as 'win32' | 'darwin' | 'linux';
-    const blocked = getBlockedDirsForPlatform(platform);
+    // 步骤 2: 检查系统黑名单（优先于白名单）—— 按目标平台取对应黑名单
+    const blocked = getBlockedDirsForPlatform(platform as 'win32' | 'darwin' | 'linux');
 
     const isSystemBlocked = blocked.some(blockedDir => {
-      const resolvedBlocked = normalizeForCompare(path.resolve(blockedDir));
+      const resolvedBlocked = normalizeForCompare(p.resolve(blockedDir), platform);
       return resolvedNorm === resolvedBlocked ||
-             resolvedNorm.startsWith(resolvedBlocked + path.sep);
+             resolvedNorm.startsWith(resolvedBlocked + p.sep);
     });
 
     if (isSystemBlocked) {
@@ -159,7 +162,7 @@ export function validateDirectoryRequest(
       .filter(d => d.is_active)
       .map(d => d.path);
 
-    if (!isPathAllowed(resolved, activeAllowed)) {
+    if (!isPathAllowed(resolved, activeAllowed, platform)) {
       return { allowed: false, reason: 'NOT_IN_WHITELIST' };
     }
 
