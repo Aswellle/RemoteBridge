@@ -49,7 +49,12 @@ export class RelayClient {
     try {
       // SEC: 不在 URL 中传递 token（会出现在服务器/代理日志里），
       // 改为通过 WebSocket 握手头的 Authorization 字段发送。
-      this.ws = new WebSocket(this.config.relayUrl, {
+      // 桌面端始终以 Host 身份连接；追加 type=host 使 Relay 接受 WS 握手
+      // （Relay 要求 type 参数，否则返回 4001 Missing or invalid parameters）
+      const wsUrl = this.config.relayUrl.includes('?')
+        ? `${this.config.relayUrl}&type=host`
+        : `${this.config.relayUrl}?type=host`;
+      this.ws = new WebSocket(wsUrl, {
         headers: { Authorization: `Bearer ${this.config.hostToken}` },
       });
       this.ws.on('open', () => {
