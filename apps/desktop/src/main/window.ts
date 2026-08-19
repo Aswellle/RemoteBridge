@@ -33,6 +33,7 @@ export function createWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     title: 'RemoteBridge Desktop',
+    icon: path.join(__dirname, '../../resources/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -101,8 +102,21 @@ export function createWindow(): BrowserWindow {
     });
   }
 
+  // 开发模式下 Vite dev server 可能尚未就绪（did-fail-load ERR_CONNECTION_REFUSED），
+  // 通过指数退避重试加载渲染进程，避免白屏。生产模式 file:// 加载无需重试。
   if (devServerUrl) {
-    mainWindow.loadURL(devServerUrl);
+    let retries = 0;
+    const maxRetries = 10;
+    const tryLoad = () => {
+      mainWindow!.loadURL(devServerUrl).catch(() => {});
+    };
+    mainWindow.webContents.on('did-fail-load', (_evt, code, _desc, url) => {
+      if (url === devServerUrl && code === -102 && retries < maxRetries) {
+        retries++;
+        setTimeout(tryLoad, Math.min(1000 * retries, 4000));
+      }
+    });
+    tryLoad();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }

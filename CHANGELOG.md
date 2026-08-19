@@ -5,7 +5,29 @@ All notable changes to RemoteBridge are documented here. All four workspace pack
 are currently pinned at `1.0.0`; this file starts tracking changes from the 2026-06
 comprehensive code review (`.full-review/05-final-report.md`) onward.
 
-## [1.3.8] - 2026-08-19
+## [1.3.9] - 2026-08-20
+
+### Desktop — critical startup fix
+
+- **Fixed desktop failing to start** (`diagnostics_channel.tracingChannel is not a function`):
+  Electron 28 bundles Node 18 which lacks `tracingChannel` (added in Node 19.7); fastify@5 /
+  pino@10 use it and crashed the main process on boot. Upgraded `electron` `^28.3.0` → `^29.0.0`
+  (bundles Node 20.17) in `apps/desktop/package.json`; rebuilt `better-sqlite3` for the new ABI.
+- **Fixed white-screen on launch**: Vite dev server bound IPv6 `[::1]:5173` only, while Electron
+  Chromium tried IPv4 `127.0.0.1` first → `ERR_CONNECTION_REFUSED`. Set `server.host: true` in
+  `electron.vite.config.ts` so the dev server listens on all interfaces; added exponential-backoff
+  retry on `did-fail-load` in `src/main/window.ts` as a safety net.
+- **Fixed missing app icon**: `BrowserWindow` never set `icon`, so both dev and the dock/taskbar
+  showed the default Electron icon despite `resources/icon.ico` existing. Added `icon` path
+  (`src/main/window.ts`).
+- **Fixed shared-package import crash** (`does not provide an export named 'EVENT_TYPE_COLORS'` /
+  `process is not defined`): workspace symlink resolves outside the Vite root, so `@remotebridge/shared`
+  was served raw CJS via `/@fs/` and broke ESM named-export analysis. Added a `resolve.alias`
+  pointing directly to the compiled dist, forced `optimizeDeps.include`, and injected a
+  `process` polyfill via `define` so the CJS module evaluates in the browser context
+  (`electron.vite.config.ts`).
+
+ ## [1.3.8] - 2026-08-19
 
 ### Desktop UI/UX
 
