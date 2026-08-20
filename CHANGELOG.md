@@ -1,9 +1,10 @@
 # Changelog
 
-All notable changes to RemoteBridge are documented here. All four workspace packages
-(`@remotebridge/shared`, `@remotebridge/server`, `@remotebridge/web`, `@remotebridge/desktop`)
-are currently pinned at `1.0.0`; this file starts tracking changes from the 2026-06
-comprehensive code review (`.full-review/05-final-report.md`) onward.
+All notable changes to RemoteBridge are documented here. The desktop package
+(`@remotebridge/desktop`) is at version `1.3.11`; the remaining workspace packages
+(`@remotebridge/shared`, `@remotebridge/server`, `@remotebridge/web`) are at `1.0.0`.
+This file starts tracking changes from the 2026-06 comprehensive code review
+(`.full-review/05-final-report.md`) onward.
 
 ## [1.3.11] - 2026-08-20
 
@@ -11,180 +12,10 @@ comprehensive code review (`.full-review/05-final-report.md`) onward.
 
 - **Fixed web client unable to connect** (Axios Network Error): web client moved to port 9666
   (port 3000 occupied by Docker) but relay CORS only allowed `localhost:3000`, blocking all API
-  requests from the new origin. Changed `@fastify/cors` to `origin: true` (reflects request origin)
-  so any localhost port works (`apps/server/src/utils/cors.ts`).
+  requests from the new origin. Changed `@fastify/cors` to use a `validateOrigin()`
+  callback that allows any `localhost`/`127.0.0.1` origin (any port) plus a configurable
+  `ALLOWED_ORIGINS` list (`apps/server/src/utils/cors.ts`).
 
-## [1.3.10] - 2026-08-20
-
-### Desktop — relay connection fix
-
-- **Fixed desktop unable to connect to relay server** (WebSocket close 4001): desktop connected to
-  `ws://127.0.0.1:3002/ws` without the `type` query parameter, but the relay handler requires
-  `?type=host` (or `?type=client` for web) and rejects the handshake with "Missing or invalid
-  parameters" otherwise. Web client already appended `&type=client`; desktop now appends
-  `?type=host` at connect time (`apps/desktop/src/main/ws-client/client.ts`), so it works regardless
-  of the configured relay URL in Settings.
-
- ## [1.3.9] - 2026-08-20
-
-### Desktop — critical startup fix
-
-- **Fixed desktop failing to start** (`diagnostics_channel.tracingChannel is not a function`):
-  Electron 28 bundles Node 18 which lacks `tracingChannel` (added in Node 19.7); fastify@5 /
-  pino@10 use it and crashed the main process on boot. Upgraded `electron` `^28.3.0` → `^29.0.0`
-  (bundles Node 20.17) in `apps/desktop/package.json`; rebuilt `better-sqlite3` for the new ABI.
-- **Fixed white-screen on launch**: Vite dev server bound IPv6 `[::1]:5173` only, while Electron
-  Chromium tried IPv4 `127.0.0.1` first → `ERR_CONNECTION_REFUSED`. Set `server.host: true` in
-  `electron.vite.config.ts` so the dev server listens on all interfaces; added exponential-backoff
-  retry on `did-fail-load` in `src/main/window.ts` as a safety net.
-- **Fixed missing app icon**: `BrowserWindow` never set `icon`, so both dev and the dock/taskbar
-  showed the default Electron icon despite `resources/icon.ico` existing. Added `icon` path
-  (`src/main/window.ts`).
-- **Fixed shared-package import crash** (`does not provide an export named 'EVENT_TYPE_COLORS'` /
-  `process is not defined`): workspace symlink resolves outside the Vite root, so `@remotebridge/shared`
-  was served raw CJS via `/@fs/` and broke ESM named-export analysis. Added a `resolve.alias`
-  pointing directly to the compiled dist, forced `optimizeDeps.include`, and injected a
-  `process` polyfill via `define` so the CJS module evaluates in the browser context
-  (`electron.vite.config.ts`).
-
- ## [1.3.8] - 2026-08-19
-
-### Desktop UI/UX
-
-- Applied ui-ux-pro-max 10-priority framework across the desktop renderer: ARIA live
-  regions, dialog semantics (`role="dialog"`, `aria-modal`, `aria-labelledby`), Escape-to-close,
-  click-outside-to-close, focus lock, WCAG AA contrast (≥4.5:1) on `muted-foreground`,
-  CSS-variable scrollbars, `prefers-reduced-motion`, semantic status-light tokens
-  (`--status-online` / `--status-offline` / `--status-connecting`)
-  (`App.tsx`, `Messages.tsx`, `Settings.tsx`, `components/FileList.tsx`,
-  `components/Breadcrumb.tsx`, `globals.css`, `theme.ts`).
-- Replaced Google Fonts Inter with a cross-platform system font stack (SF Pro → Segoe UI →
-  Roboto → Noto Sans CJK → PingFang SC / Microsoft YaHei → emoji): zero network dependency,
-  native rendering, no FOIT/FOUT (`web/src/app/layout.tsx`, `web/tailwind.config.ts`,
-  `desktop/tailwind.config.ts`, `globals.css`, `packages/shared/src/ui-fonts.ts`).
-
-### Production / Docker hardening
-
-- Relay Server now sets `trustProxy: true` so `@fastify/rate-limit` counts by the real
-  client IP behind Caddy, not the proxy IP; added `bodyLimit: 1_048_576` (1 MB request cap)
-  (`apps/server/src/index.ts`).
-- Both Dockerfiles create a non-root runtime user (uid 1001: `relayuser` / `nextjs`) to
-  shrink the blast radius of a container breakout (`apps/server/Dockerfile`,
-  `apps/web/Dockerfile`).
-- Web container adds a `HEALTHCHECK` (`node -e` inline, 30s interval, 5s timeout, 20s
-  start period, 3 retries); `docker-compose.yml` switches `depends_on` to
-  `condition: service_healthy` so Caddy only accepts traffic once server and web are truly
-  ready, avoiding startup 502s.
-- All containers now cap resources (server ≤1 CPU / 512 MB, web ≤0.5 CPU / 256 MB), rotate
-  logs (`max-size: 10m`, `max-file: 3~5`), and set `no-new-privileges:true`
-  (`docker-compose.yml`).
-- `Caddyfile` completes the security-header set: HSTS (`max-age=31536000; includeSubDomains;
-  preload`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
-  `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` disabling
-  geolocation/microphone/camera/payment, and `-Server` to hide Caddy's version.
-- `apps/web/next.config.mjs` mirrors the same headers (CSP, X-Content-Type-Options,
-  X-Frame-Options, Referrer-Policy, Permissions-Policy) for defense in depth.
-
-### Security & code quality
-
-- Path allowlist matching is now case-insensitive on Windows (`packages/shared/src/security.ts`).
-- Symlink escape prevention via `realpathSync` resolution before allowlist check
-  (`packages/shared/src/security.ts`).
-- `RATE_LIMIT_CONFIG` guards against `NaN` from missing/non-numeric env vars, falling back to
-  safe defaults (`packages/shared/src/security.ts`).
-- File-tunnel codec validates frame length field on decode to reject malformed/over-sized
-  frames (`packages/shared/src/file-tunnel-codec.ts`).
-- Host JWT is now sent via `Authorization: Bearer` header instead of WS URL query parameter,
-  preventing token leakage into logs/proxy history (`apps/desktop/src/main/ws-client/client.ts`).
-- Removed the `dlopen` ABI fallback in `electron-binding.ts` — the Electron prebuilt binary
-  from `.cache/` is loaded directly, avoiding ABI mismatch crashes.
-- Upload handler validates chunk bounds before writes (`apps/desktop/src/main/ws-client/handlers.ts`).
-- Zombie WebSocket instances and listeners are fully cleaned up on disconnect to prevent
-  memory leaks.
-- `streamDownload` now uses `AbortController` so in-flight downloads can be cancelled on
-  component unmount.
-- Tunnel codec validates version and flags fields on encode/decode, rejecting incompatible frames.
-
-### DevOps / docs
-
-- Added missing `HOST_TOKEN_ROTATION_THRESHOLD_DAYS: 30` to `JWT_CONFIG`
-  (`packages/shared/src/security.ts`) so the desktop token-rotator fires at the correct threshold.
-- `packages/shared` lazy-loads `fs` via `getNodeFs()` with a webpack `fs:false` fallback,
-  fixing browser-bundle builds that previously crashed on static `fs` imports
-  (`packages/shared/src/` various, `apps/web/next.config.mjs`).
-- Rewrote `生产环境部署与使用指南.md` to match the current codebase (version numbers, rate-limit
-  variables, port override logic, local-relay feature, auto-update, installer download links,
-  data-retention monitoring).
-
-### Assets
-
-- Desktop version bumped to 1.3.8 (`apps/desktop/package.json`).
-
-## [1.3.2] - 2026-06-28
-
-### Desktop
-
-- **首次启动自动引导**：首次打开桌面端时，自动启动本地中继服务器，并在屏幕中央显示启动进度模态框；就绪后提示用户前往「设置 → 本地中继服务器」开启「随桌面端启动」，降低普通用户学习成本（`config/store.ts` 新增 `firstLaunchDone` 标志，主进程检测并调用 `startLocalRelay`）
-- **设置页自动滚动修复**：进入「设置」页面时，日志面板初始加载触发 `scrollIntoView` 导致整页下滚；改为直接设置日志容器 `scrollTop`，仅在容器内部滚动，不影响页面位置
-- **连接状态一致性**：主页「连接状态」卡片新增「本地中继」行，与设置页的本地中继状态保持一致（`stopped/starting/running/error`）；原「Relay 状态」重命名为「Relay 连接」以区分 WS 连接状态与本地进程状态
-- **共享目录重置**：目录页新增「清空目录」按钮，一键将所有共享目录标记为非活跃（软删除），支持将桌面端重置为初始状态
-
-### Web
-
-- **连接页布局优化**：右侧连接表单面板由 `max-w-sm`（384px）扩大至 `max-w-lg`（512px），卡片内边距从 `p-8` 增至 `p-10`，显著减少页面左右留白，使表单更突出
-
-## [1.3.1] - 2026-06-28
-
-### Bug Fixes (desktop renderer)
-
-- **PIN 生成无反应**：`handleGeneratePin` 在 relay 返回 `success: false` 时静默忽略错误；现在添加 `pinError` 状态，在"生成连接码"按钮下方显示具体错误信息（如"未连接到 Relay"）
-- **断线后旧 PIN 残留**：连接状态变为非 `connected` 时，自动清除已生成的连接码和错误信息
-- **别名不持久化**：`handleSaveAlias` 只更新本地 React state，未调用 `window.electronAPI.saveAlias()`；IPC handler `dirs:save-alias` 早已存在，现在正确调用
-- **消息中心显示混乱**：无客户端时 `filteredMessages` 返回所有历史消息（因 `selectedClient === ''`），导致旧消息全部显示而侧边栏为空；现在优先判断 `clients.length === 0`，显示"暂无已连接客户端"引导信息
-- **Clients 页面破坏主页实时事件**：`Clients.tsx` 调用 `onClientJoined`/`onClientLeft` 时（preload 使用 `removeAllListeners`）会替换 `App.tsx` 注册的监听器，卸载时又 `removeAllListeners` 删除所有监听器，永久破坏主页客户端计数的实时更新；将 Clients 页改为 10s 轮询（与 Messages.tsx 同模式），消除监听器所有权冲突
-
-## [1.3.0] - 2026-06-27
-
-Fixes from the 2026-06-14 and 2026-06-27 comprehensive code reviews.
-
-### Security
-- Replace bcrypt with `@node-rs/bcrypt` (10× faster, no native build issues)
-- Add HMAC-SHA256 pre-filter before bcrypt PIN comparison to prevent DoS via expensive hash
-- httpOnly cookie token storage for web client (XSS hardening, 02a-S11)
-- Host JWT rotation shortened to 90d, proactive rotation at ≤30d remaining (02a-S13)
-- Rate limit config now env-var-configurable (`RL_*`); production defaults unchanged
-
-### Performance & Reliability
-- Audit log writes are now fire-and-forget (no longer blocking the relay message loop)
-- `fs.stat` calls in path-guard converted to async (no more sync I/O in the message path)
-- TTL cache for allowed-directory lookups
-- Zombie client cleanup on host disconnect
-
-### Code Quality
-- `routes/proxy.ts`: extracted `proxyFileRequest()`, eliminating ~200 lines of duplication between download and preview routes (409→314 lines)
-- CORS policy consolidated to `utils/cors.ts` (single source of truth)
-
-### Tests
-- `auth-cookie.test.ts`: verifies cookie-path refresh does not leak plaintext JWT in body (SEC-C1)
-- `handlers.test.ts`: upload quota regression (SEC-H1), path-traversal defense, 2-chunk assembly
-- `file-server.test.ts`: 20 tests covering token validation, Range requests, MIME types, access logging
-- `rate-limit.test.ts`: 429 enforcement on register-host / auth/connect / ws-ticket via isolated relay
-
-### CI / DevOps
-- Add `.github/workflows/codeql.yml` (weekly CodeQL security scan, `security-and-quality` queries)
-- Add `.github/dependabot.yml` (npm weekly, GitHub Actions weekly, Docker monthly)
-- CI: Windows runner job for Windows-specific path-blacklist validation
-- CI: coverage gate on `@remotebridge/shared` (statements ≥70%, actual ~91%)
-- `docker-compose.yml`: document single-instance constraint (ADR-005)
-- Main branch protection: force-push / deletion blocked; `build-and-test` + `test-windows` required
-
-### Dependencies
-- drizzle-orm 0.29 → 0.40.1, drizzle-kit 0.20 → 0.30.x
-
-### Assets
-- App icon updated to rainbow bridge design (multi-size ICO: 16/32/48/64/128/256 px)
-
-## [Unreleased]
 
 ### Security
 
@@ -591,10 +422,10 @@ Fixes from the 2026-06-14 and 2026-06-27 comprehensive code reviews.
   different id than the server's `messages` row (no dedup), and the web client to render
   host-sent REST-fallback messages with the wrong `direction`. Both are now included, with
   `id`/`payload.messageId` set to the same id already written to the `messages` table.
-  `ws/rooms.ts`'s `sendToClient`/`sendToHost`/`broadcastToHostClients` now delegate to
+  `relay.ts`'s `sendToClient`/`sendToHost`/`broadcastToHostClients` now delegate to
   `relay.ts::sendWSMessage` instead of a separate hand-rolled `JSON.stringify`, unifying
   two of the three serialization paths. The remaining architectural split (room state
-  push-injected into `relay.ts` vs. pull-imported by `rooms.ts`, ADR-005's single-instance
+  push-injected into `relay.ts` vs. pull-imported by `connection-registry.ts`, ADR-005's single-instance
   trade-off being structural) was scoped as a follow-up in
   `docs/relay-room-state-design.md` (P1-7) and has since been implemented — see the P1-7
   entry above.
@@ -607,7 +438,7 @@ Fixes from the 2026-06-14 and 2026-06-27 comprehensive code reviews.
   `/access-logs` now uses the same helper, so client tokens can read their host's access
   logs just like they can read its security logs.
 - **`getRoomInfo()` now populates `hostName` from the database** (P3-7):
-  `apps/server/src/ws/rooms.ts`'s `getRoomInfo()` previously left `hostName` as an empty
+  `apps/server/src/ws/connection-registry.ts`'s `getRoomInfo()` previously left `hostName` as an empty
   string with a TODO. It now queries `hosts.name` via Drizzle and is `async`, matching the
   await pattern used everywhere else in `apps/server`. The function currently has no
   callers, but is now correct for future use.
@@ -894,8 +725,178 @@ Fixes from the 2026-06-14 and 2026-06-27 comprehensive code reviews.
   `apps/web/src/hooks/useWebSocket.ts` is now exported to make it directly testable. CI now
   runs `pnpm --filter @remotebridge/web test` as a final step. The other non-backpressure
   half of P0-9 — `token-manager.test.ts`'s `TOKEN_EXPIRED`/`TOKEN_USED`/`CLIENT_MISMATCH`
-  branches — was already covered by P0-8's test additions; the prior "Known issues" note
-  claiming otherwise was stale.
+
+## [1.3.10] - 2026-08-20
+
+### Desktop — relay connection fix
+
+- **Fixed desktop unable to connect to relay server** (WebSocket close 4001): desktop connected to
+  `ws://127.0.0.1:3002/ws` without the `type` query parameter, but the relay handler requires
+  `?type=host` (or `?type=client` for web) and rejects the handshake with "Missing or invalid
+  parameters" otherwise. Web client already appended `&type=client`; desktop now appends
+  `?type=host` at connect time (`apps/desktop/src/main/ws-client/client.ts`), so it works regardless
+  of the configured relay URL in Settings.
+
+ ## [1.3.9] - 2026-08-20
+
+### Desktop — critical startup fix
+
+- **Fixed desktop failing to start** (`diagnostics_channel.tracingChannel is not a function`):
+  Electron 28 bundles Node 18 which lacks `tracingChannel` (added in Node 19.7); fastify@5 /
+  pino@10 use it and crashed the main process on boot. Upgraded `electron` `^28.3.0` → `^29.0.0`
+  (bundles Node 20.17) in `apps/desktop/package.json`; rebuilt `better-sqlite3` for the new ABI.
+- **Fixed white-screen on launch**: Vite dev server bound IPv6 `[::1]:5173` only, while Electron
+  Chromium tried IPv4 `127.0.0.1` first → `ERR_CONNECTION_REFUSED`. Set `server.host: true` in
+  `electron.vite.config.ts` so the dev server listens on all interfaces; added exponential-backoff
+  retry on `did-fail-load` in `src/main/window.ts` as a safety net.
+- **Fixed missing app icon**: `BrowserWindow` never set `icon`, so both dev and the dock/taskbar
+  showed the default Electron icon despite `resources/icon.ico` existing. Added `icon` path
+  (`src/main/window.ts`).
+- **Fixed shared-package import crash** (`does not provide an export named 'EVENT_TYPE_COLORS'` /
+  `process is not defined`): workspace symlink resolves outside the Vite root, so `@remotebridge/shared`
+  was served raw CJS via `/@fs/` and broke ESM named-export analysis. Added a `resolve.alias`
+  pointing directly to the compiled dist, forced `optimizeDeps.include`, and injected a
+  `process` polyfill via `define` so the CJS module evaluates in the browser context
+  (`electron.vite.config.ts`).
+
+ ## [1.3.8] - 2026-08-19
+
+### Desktop UI/UX
+
+- Applied ui-ux-pro-max 10-priority framework across the desktop renderer: ARIA live
+  regions, dialog semantics (`role="dialog"`, `aria-modal`, `aria-labelledby`), Escape-to-close,
+  click-outside-to-close, focus lock, WCAG AA contrast (≥4.5:1) on `muted-foreground`,
+  CSS-variable scrollbars, `prefers-reduced-motion`, semantic status-light tokens
+  (`--status-online` / `--status-offline` / `--status-connecting`)
+  (`App.tsx`, `Messages.tsx`, `Settings.tsx`, `components/FileList.tsx`,
+  `components/Breadcrumb.tsx`, `globals.css`, `theme.ts`).
+- Replaced Google Fonts Inter with a cross-platform system font stack (SF Pro → Segoe UI →
+  Roboto → Noto Sans CJK → PingFang SC / Microsoft YaHei → emoji): zero network dependency,
+  native rendering, no FOIT/FOUT (`web/src/app/layout.tsx`, `web/tailwind.config.ts`,
+  `desktop/tailwind.config.ts`, `globals.css`, `packages/shared/src/ui-fonts.ts`).
+
+### Production / Docker hardening
+
+- Relay Server now sets `trustProxy: true` so `@fastify/rate-limit` counts by the real
+  client IP behind Caddy, not the proxy IP; added `bodyLimit: 1_048_576` (1 MB request cap)
+  (`apps/server/src/index.ts`).
+- Both Dockerfiles create a non-root runtime user (uid 1001: `relayuser` / `nextjs`) to
+  shrink the blast radius of a container breakout (`apps/server/Dockerfile`,
+  `apps/web/Dockerfile`).
+- Web container adds a `HEALTHCHECK` (`node -e` inline, 30s interval, 5s timeout, 20s
+  start period, 3 retries); `docker-compose.yml` switches `depends_on` to
+  `condition: service_healthy` so Caddy only accepts traffic once server and web are truly
+  ready, avoiding startup 502s.
+- All containers now cap resources (server ≤1 CPU / 512 MB, web ≤0.5 CPU / 256 MB), rotate
+  logs (`max-size: 10m`, `max-file: 3~5`), and set `no-new-privileges:true`
+  (`docker-compose.yml`).
+- `Caddyfile` completes the security-header set: HSTS (`max-age=31536000; includeSubDomains;
+  preload`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` disabling
+  geolocation/microphone/camera/payment, and `-Server` to hide Caddy's version.
+- `apps/web/next.config.mjs` mirrors the same headers (CSP, X-Content-Type-Options,
+  X-Frame-Options, Referrer-Policy, Permissions-Policy) for defense in depth.
+
+### Security & code quality
+
+- Path allowlist matching is now case-insensitive on Windows (`packages/shared/src/security.ts`).
+- Symlink escape prevention via `realpathSync` resolution before allowlist check
+  (`packages/shared/src/security.ts`).
+- `RATE_LIMIT_CONFIG` guards against `NaN` from missing/non-numeric env vars, falling back to
+  safe defaults (`packages/shared/src/security.ts`).
+- File-tunnel codec validates frame length field on decode to reject malformed/over-sized
+  frames (`packages/shared/src/file-tunnel-codec.ts`).
+- Host JWT is now sent via `Authorization: Bearer` header instead of WS URL query parameter,
+  preventing token leakage into logs/proxy history (`apps/desktop/src/main/ws-client/client.ts`).
+- Removed the `dlopen` ABI fallback in `electron-binding.ts` — the Electron prebuilt binary
+  from `.cache/` is loaded directly, avoiding ABI mismatch crashes.
+- Upload handler validates chunk bounds before writes (`apps/desktop/src/main/ws-client/handlers.ts`).
+- Zombie WebSocket instances and listeners are fully cleaned up on disconnect to prevent
+  memory leaks.
+- `streamDownload` now uses `AbortController` so in-flight downloads can be cancelled on
+  component unmount.
+- Tunnel codec validates version and flags fields on encode/decode, rejecting incompatible frames.
+
+### DevOps / docs
+
+- Added missing `HOST_TOKEN_ROTATION_THRESHOLD_DAYS: 30` to `JWT_CONFIG`
+  (`packages/shared/src/security.ts`) so the desktop token-rotator fires at the correct threshold.
+- `packages/shared` lazy-loads `fs` via `getNodeFs()` with a webpack `fs:false` fallback,
+  fixing browser-bundle builds that previously crashed on static `fs` imports
+  (`packages/shared/src/` various, `apps/web/next.config.mjs`).
+- Rewrote `生产环境部署与使用指南.md` to match the current codebase (version numbers, rate-limit
+  variables, port override logic, local-relay feature, auto-update, installer download links,
+  data-retention monitoring).
+
+### Assets
+
+- Desktop version bumped to 1.3.8 (`apps/desktop/package.json`).
+
+## [1.3.2] - 2026-06-28
+
+### Desktop
+
+- **首次启动自动引导**：首次打开桌面端时，自动启动本地中继服务器，并在屏幕中央显示启动进度模态框；就绪后提示用户前往「设置 → 本地中继服务器」开启「随桌面端启动」，降低普通用户学习成本（`config/store.ts` 新增 `firstLaunchDone` 标志，主进程检测并调用 `startLocalRelay`）
+- **设置页自动滚动修复**：进入「设置」页面时，日志面板初始加载触发 `scrollIntoView` 导致整页下滚；改为直接设置日志容器 `scrollTop`，仅在容器内部滚动，不影响页面位置
+- **连接状态一致性**：主页「连接状态」卡片新增「本地中继」行，与设置页的本地中继状态保持一致（`stopped/starting/running/error`）；原「Relay 状态」重命名为「Relay 连接」以区分 WS 连接状态与本地进程状态
+- **共享目录重置**：目录页新增「清空目录」按钮，一键将所有共享目录标记为非活跃（软删除），支持将桌面端重置为初始状态
+
+### Web
+
+- **连接页布局优化**：右侧连接表单面板由 `max-w-sm`（384px）扩大至 `max-w-lg`（512px），卡片内边距从 `p-8` 增至 `p-10`，显著减少页面左右留白，使表单更突出
+
+## [1.3.1] - 2026-06-28
+
+### Bug Fixes (desktop renderer)
+
+- **PIN 生成无反应**：`handleGeneratePin` 在 relay 返回 `success: false` 时静默忽略错误；现在添加 `pinError` 状态，在"生成连接码"按钮下方显示具体错误信息（如"未连接到 Relay"）
+- **断线后旧 PIN 残留**：连接状态变为非 `connected` 时，自动清除已生成的连接码和错误信息
+- **别名不持久化**：`handleSaveAlias` 只更新本地 React state，未调用 `window.electronAPI.saveAlias()`；IPC handler `dirs:save-alias` 早已存在，现在正确调用
+- **消息中心显示混乱**：无客户端时 `filteredMessages` 返回所有历史消息（因 `selectedClient === ''`），导致旧消息全部显示而侧边栏为空；现在优先判断 `clients.length === 0`，显示"暂无已连接客户端"引导信息
+- **Clients 页面破坏主页实时事件**：`Clients.tsx` 调用 `onClientJoined`/`onClientLeft` 时（preload 使用 `removeAllListeners`）会替换 `App.tsx` 注册的监听器，卸载时又 `removeAllListeners` 删除所有监听器，永久破坏主页客户端计数的实时更新；将 Clients 页改为 10s 轮询（与 Messages.tsx 同模式），消除监听器所有权冲突
+
+## [1.3.0] - 2026-06-27
+
+Fixes from the 2026-06-14 and 2026-06-27 comprehensive code reviews.
+
+### Security
+- Replace bcrypt with `@node-rs/bcrypt` (10× faster, no native build issues)
+- Add HMAC-SHA256 pre-filter before bcrypt PIN comparison to prevent DoS via expensive hash
+- httpOnly cookie token storage for web client (XSS hardening, 02a-S11)
+- Host JWT rotation shortened to 90d, proactive rotation at ≤30d remaining (02a-S13)
+- Rate limit config now env-var-configurable (`RL_*`); production defaults unchanged
+
+### Performance & Reliability
+- Audit log writes are now fire-and-forget (no longer blocking the relay message loop)
+- `fs.stat` calls in path-guard converted to async (no more sync I/O in the message path)
+- TTL cache for allowed-directory lookups
+- Zombie client cleanup on host disconnect
+
+### Code Quality
+- `routes/proxy.ts`: extracted `proxyFileRequest()`, eliminating ~200 lines of duplication between download and preview routes (409→314 lines)
+- CORS policy consolidated to `utils/cors.ts` (single source of truth)
+
+### Tests
+- `auth-cookie.test.ts`: verifies cookie-path refresh does not leak plaintext JWT in body (SEC-C1)
+- `handlers.test.ts`: upload quota regression (SEC-H1), path-traversal defense, 2-chunk assembly
+- `file-server.test.ts`: 20 tests covering token validation, Range requests, MIME types, access logging
+- `rate-limit.test.ts`: 429 enforcement on register-host / auth/connect / ws-ticket via isolated relay
+
+### CI / DevOps
+- Add `.github/workflows/codeql.yml` (weekly CodeQL security scan, `security-and-quality` queries)
+- Add `.github/dependabot.yml` (npm weekly, GitHub Actions weekly, Docker monthly)
+- CI: Windows runner job for Windows-specific path-blacklist validation
+- CI: coverage gate on `@remotebridge/shared` (statements ≥70%, actual ~91%)
+- `docker-compose.yml`: document single-instance constraint (ADR-005)
+- Main branch protection: force-push / deletion blocked; `build-and-test` + `test-windows` required
+
+### Dependencies
+- drizzle-orm 0.29 → 0.40.1, drizzle-kit 0.20 → 0.30.x
+
+### Assets
+- App icon updated to rainbow bridge design (multi-size ICO: 16/32/48/64/128/256 px)
+
+## [Unreleased]
 
 ## [1.1.8] — 2026-06-22
 
@@ -1010,4 +1011,4 @@ P3-18). All P1 items are addressed (P1-1 structured logging, P1-12 binary file-t
 framing, P1-23 auto-update pipeline, and the rest in Fixed above). The "test/doc gaps"
 (#19) and relay room-state (P1-7) items are also done. All P2 items are fixed — Tracks
 A–F in Security/Fixed above plus 02a-S13 (Host JWT rotation) and 02a-S11 (httpOnly cookie
-tokens, implemented in the Unreleased section above).
+tokens, implemented in [1.3.11] above).
