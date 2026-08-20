@@ -24,6 +24,10 @@ const RENDERER_CSP =
 export function createWindow(): BrowserWindow {
   // 从 config store 恢复窗口位置和大小
   const savedBounds = config.getWindowBounds();
+  // 读取主题偏好，避免启动时 background 色与主题不符导致闪烁
+  const theme = config.getTheme();
+  const bgByTheme = { dark: 'hsl(222 28% 8%)', light: 'hsl(220 22% 97%)' };
+  const bg = bgByTheme[theme] || bgByTheme.dark;
 
   mainWindow = new BrowserWindow({
     width: savedBounds?.width || 1100,
@@ -34,7 +38,7 @@ export function createWindow(): BrowserWindow {
     minHeight: 600,
     title: 'RemoteBridge Desktop',
     icon: path.join(__dirname, '../../resources/icon.ico'),
-    backgroundColor: '#0a0a0a', // 暗色背景，避免启动时白屏闪烁
+    backgroundColor: bg,
     show: false, // 加载完成后再显示，避免黑屏→UI 的粗糙过渡
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),

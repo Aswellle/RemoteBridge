@@ -664,7 +664,7 @@ export default function App() {
                       </div>
                     </div>
                     <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">本地中继</span>
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">内置中继</span>
                       <div className="mt-1 flex items-center gap-2">
                         <div className={'w-2.5 h-2.5 rounded-full ' + (lrStatus === 'running' ? 'bg-success shadow shadow-success/50' : lrStatus === 'starting' ? 'bg-warning shadow shadow-warning/50' : lrStatus === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40') + ' ' + (lrStatus === 'running' || lrStatus === 'starting' ? 'animate-pulse' : '')} />
                         <span className={`text-sm ${
@@ -673,9 +673,10 @@ export default function App() {
                           lrStatus === 'error' ? 'text-destructive' :
                           'text-muted-foreground'
                         }`}>
-                          {lrStatus === 'running' ? '已运行' :
+                          {lrStatus === 'running' ? '运行中' :
                            lrStatus === 'starting' ? '启动中...' :
-                           lrStatus === 'error' ? '错误' : '未运行'}
+                           lrStatus === 'error' ? '错误' :
+                           connectionStatus === 'connected' ? '未使用' : '未运行'}
                         </span>
                         <button
                           onClick={() => setActiveTab('settings')}
