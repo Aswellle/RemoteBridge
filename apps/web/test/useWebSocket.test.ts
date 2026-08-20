@@ -228,7 +228,7 @@ describe('WebSocketManager', () => {
 
     abnormalClose(ws, 4003, 'revoked');
 
-    expect(toast.error).toHaveBeenCalledWith('连接已断开', { description: '会话已被主机吊销' });
+    expect(toast.error).toHaveBeenCalledWith('连接已断开', { description: '会话已被主机吊销', id: 'session-terminated' });
     expect(store.state.disconnect).toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(60000);
@@ -280,7 +280,7 @@ describe('WebSocketManager', () => {
     abnormalClose(ws, 4001, 'unauthorized');
 
     await vi.waitFor(() => expect(store.state.disconnect).toHaveBeenCalled());
-    expect(toast.error).toHaveBeenCalledWith('连接已断开', { description: '会话已过期，请重新连接' });
+    expect(toast.error).toHaveBeenCalledWith('连接已断开', { description: '会话已过期，请重新连接', id: 'session-terminated' });
     expect(MockWebSocket.instances).toHaveLength(1);
   });
 
