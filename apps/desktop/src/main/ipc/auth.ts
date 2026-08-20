@@ -187,11 +187,26 @@ export function registerAuthHandlers(
     return { connected: !!client?.isConnected() };
   });
 
+  // 等待 WS 连接就绪（轮询），启动后立即操作时避免失败
+  async function waitForConnection(client: { isConnected(): boolean } | null, timeoutMs: number): Promise<boolean> {
+    if (client && client.isConnected()) return true;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (client && client.isConnected()) return true;
+      await new Promise(r => setTimeout(r, 200));
+    }
+    return !!(client && client.isConnected());
+  }
+
   ipcMain.handle('auth:generate-pin', async (_, expiresIn: number) => {
     try {
       const client = getRelayClient();
+      // 等待连接就绪（最多 10s），避免启动后立即点击生成码失败
       if (!client || !client.isConnected()) {
-        return { success: false, error: '未连接到 Relay 服务器' };
+        const connected = await waitForConnection(client, 10000);
+        if (!connected) {
+          return { success: false, error: '未连接到 Relay 服务器，请稍后重试' };
+        }
       }
 
       const response = await axios.post(`${getRelayApi()}/auth/generate-pin`, {

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { WSMessageType, FileCategory } from '@remotebridge/shared';
+import { WSMessageType, UploadCategory, FileCategory } from '@remotebridge/shared';
 import { BrowserWindow, Notification } from 'electron';
 import { getRelayClient } from './client';
 import { db } from '../db/client';
@@ -30,7 +30,7 @@ const MAX_TOTAL_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
 let totalBufferedBytes = 0;
 
 // SL4: 合法分类枚举
-const VALID_CATEGORIES: FileCategory[] = ['images', 'videos', 'documents', 'archives', 'markdown'];
+const VALID_CATEGORIES: UploadCategory[] = ['images', 'videos', 'documents', 'archives', 'markdown'];
 
 // 上传目录路径不存在时自动创建，并将重名文件改名（追加序号）
 // P0-1: 内部强制取 basename，防止 fileName 含 ../ 导致路径穿越
@@ -244,7 +244,7 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
         // 确定保存目录
         const stored = config.getUploadPaths();
         const paths = stored ?? await getDefaultUploadPaths();
-        const saveDir = paths[transfer.category as FileCategory] ?? paths.documents;
+        const saveDir = paths[transfer.category as UploadCategory] ?? paths.documents;
 
         const savePath = await getUniqueSavePath(saveDir, transfer.fileName);
         await fs.writeFile(savePath, fileBuffer);

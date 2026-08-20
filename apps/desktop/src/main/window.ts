@@ -34,6 +34,8 @@ export function createWindow(): BrowserWindow {
     minHeight: 600,
     title: 'RemoteBridge Desktop',
     icon: path.join(__dirname, '../../resources/icon.ico'),
+    backgroundColor: '#0a0a0a', // 暗色背景，避免启动时白屏闪烁
+    show: false, // 加载完成后再显示，避免黑屏→UI 的粗糙过渡
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -42,6 +44,11 @@ export function createWindow(): BrowserWindow {
       // 在 sandbox 下仍可用。
       sandbox: true,
     },
+  });
+
+  // 渲染进程首次绘制完成后显示窗口，过渡平滑
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
   });
 
   const devServerUrl = process.env.ELECTRON_RENDERER_URL;

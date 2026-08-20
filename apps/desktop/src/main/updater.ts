@@ -36,9 +36,10 @@ function broadcast(getWin: () => BrowserWindow | null, status: UpdateStatus): vo
 }
 
 // ===== 初始化自动更新 =====
+let isManualCheck = false;
 export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): void {
   autoUpdater.on('checking-for-update', () => {
-    broadcast(getMainWindow, { state: 'checking' });
+    if (isManualCheck) broadcast(getMainWindow, { state: 'checking' });
   });
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
@@ -70,18 +71,22 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
 
   autoUpdater.on('error', (err: Error) => {
     log.error('自动更新错误:', err.message);
-    broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
+    // 仅用户手动检查时才广播错误，避免启动时弹出干扰通知
+    if (isManualCheck) {
+      broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
+    }
   });
-
-  // ===== IPC 处理器 =====
   ipcMain.handle('updater:get-status', () => currentStatus);
 
   ipcMain.handle('updater:check', async () => {
     try {
+      isManualCheck = true;
       await autoUpdater.checkForUpdates();
     } catch (err: any) {
       log.error('检查更新失败:', err.message);
       broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
+    } finally {
+      isManualCheck = false;
     }
   });
 
