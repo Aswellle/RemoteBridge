@@ -89,7 +89,8 @@ export function initDatabase(): void {
   try { sqlite.exec('ALTER TABLE sessions DROP COLUMN access_token'); } catch {}
   try { sqlite.exec('ALTER TABLE sessions DROP COLUMN refresh_token'); } catch {}
 
-  // BP-M1: 为已有库的 hosts 表添加 pin_hmac 列（新库建表时不含此列，等效向后兼容）。
+  // BP-M1: 为已有库的 hosts 表添加 pin_hmac 列。
+  // CREATE TABLE 已包含 pin_hmac TEXT（新库自带此列），此 ALTER TABLE 仅用于预迁移库（pre-existing databases）；
   // 列已存在时 SQLite 会报错，catch 忽略；NULL 表示旧记录，connect 路由降级为 bcrypt-only。
   try { sqlite.exec('ALTER TABLE hosts ADD COLUMN pin_hmac TEXT'); } catch {}
 

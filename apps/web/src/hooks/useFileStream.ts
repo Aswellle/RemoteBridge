@@ -9,10 +9,13 @@ import {
 } from '@remotebridge/shared';
 import { useAppStore } from '@/store/app-store';
 import { RELAY_WS_URL } from '@/lib/env';
+import api from '@/lib/api';
 
 /**
  * 独立预览页的文件流式获取 Hook。
  * 通过 WS → relay → host 下载文件二进制，组装为 Blob 后返回 object URL。
+ *
+ * 使用共享 axios 实例（api）获取 WS 票据，自动携带 httpOnly cookie 和正确的 RELAY_API_URL。
  */
 export function useFileStream(filePath: string | null) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -63,12 +66,10 @@ export function useFileStream(filePath: string | null) {
       return;
     }
     try {
-      // 1. 获取 WS 票据
-      const ticketRes = await fetch('/auth/ws-ticket', { credentials: 'include' });
-      if (!ticketRes.ok) throw new Error('获取连接票据失败');
-      const ticketData = await ticketRes.json();
-      if (!ticketData.success) throw new Error(ticketData.error?.message || '获取票据失败');
-      const ticket = ticketData.data?.ticket ?? ticketData.data?.ticket;
+      // 1. 获取 WS 票据（使用共享 axios 实例，自动携带 httpOnly cookie + 401 刷新）
+      const ticketRes = await api.get('/auth/ws-ticket');
+      if (!ticketRes.data.success) throw new Error(ticketRes.data.error?.message || '获取票据失败');
+      const ticket = ticketRes.data.data?.ticket;
       if (!ticket) throw new Error('票据为空');
 
       // 2. 建立 WS 连接
@@ -144,10 +145,10 @@ export function useFileStream(filePath: string | null) {
           const sorted = Array.from(chunks.entries()).sort((a, b) => a[0] - b[0]);
           const totalLen = sorted.reduce((s, [, c]) => s + c.length, 0);
           const assembled = new Uint8Array(totalLen);
-          let offset = 0;
+          let writeOffset = 0;
           for (const [, chunk] of sorted) {
-            assembled.set(chunk, offset);
-            offset += chunk.length;
+            assembled.set(chunk, writeOffset);
+            writeOffset += chunk.length;
           }
           const blob = new Blob([assembled]);
           // 释放旧 blob URL 后创建新 URL（防止内存泄漏）
@@ -161,8 +162,9 @@ export function useFileStream(filePath: string | null) {
       ws.close(1000, 'done');
       wsRef.current = null;
       cleanup(); // 成功完成，移除飞行标记
-    } catch (err: any) {
-      setError(err.message || '下载失败');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '下载失败';
+      setError(message);
       setLoading(false);
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
       cleanup(); // 失败也移除标记，允许重试

@@ -117,6 +117,10 @@ export async function startFileServer(): Promise<number> {
       const parts = rangeHeader.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      // D4: 验证 Range 参数
+      if (isNaN(start) || isNaN(end) || start < 0 || end >= stat.size || start > end) {
+        return reply.code(416).send({ error: "Invalid Range header" });
+      }
       const chunkSize = end - start + 1;
 
       reply.code(206);
@@ -178,26 +182,32 @@ export async function startFileServer(): Promise<number> {
     const fileName = path.basename(filePath);
     const ext = path.extname(fileName).slice(1).toLowerCase();
 
-    // 6. 设置 Content-Type
-    reply.header('Content-Type', getContentTypeForExt(ext));
-    reply.header('Accept-Ranges', 'bytes');
-    reply.header('Cache-Control', 'no-store'); // 预览内容不缓存
-
-    // 7. 支持 Range 请求（用于大文本文件分段加载）
+    // 6. 支持 Range 请求（用于大文本文件分段加载）
+    // NOTE: Range 校验必须在设置 Content-Type 之前，否则 Fastify v5 会因
+    // Content-Type 已设为二进制类型而拒绝序列化 JSON 错误体，返回 500。
     const rangeHeader = request.headers.range;
     if (rangeHeader) {
       const parts = rangeHeader.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      // D4: 验证 Range 参数
+      if (isNaN(start) || isNaN(end) || start < 0 || end >= stat.size || start > end) {
+        return reply.code(416).send({ error: "Invalid Range header" });
+      }
       const chunkSize = end - start + 1;
 
       reply.code(206);
+      reply.header('Content-Type', getContentTypeForExt(ext));
       reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
       reply.header('Content-Length', chunkSize);
 
       return reply.send(createReadStream(filePath, { start, end }));
     }
 
+    // 7. 设置 Content-Type（无 Range 或 Range 已处理）
+    reply.header('Content-Type', getContentTypeForExt(ext));
+    reply.header('Accept-Ranges', 'bytes');
+    reply.header('Cache-Control', 'no-store'); // 预览内容不缓存
     reply.header('Content-Length', stat.size);
     return reply.send(createReadStream(filePath));
   });
@@ -218,6 +228,12 @@ export async function stopFileServer(): Promise<void> {
     fileServer = null;
     fileServerPort = 0;
   }
+}
+
+// ===== 获取文件服务器端口 =====
+// ===== 检查文件服务器是否运行 =====
+export function isFileServerRunning(): boolean {
+  return fileServer !== null;
 }
 
 // ===== 获取文件服务器端口 =====

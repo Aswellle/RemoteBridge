@@ -27,6 +27,7 @@ const uploadBuffer = new Map<string, UploadTransfer>();
 // PH1: 并发上传上限与内存配额
 const MAX_CONCURRENT_UPLOADS = 5;
 const MAX_TOTAL_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
+const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file cap
 let totalBufferedBytes = 0;
 
 // SL4: 合法分类枚举
@@ -154,7 +155,7 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
     // 初始化缓冲区（首个分块到达时）
     if (!uploadBuffer.has(uploadId)) {
       // PH1: 并发上传数量与总内存配额检查
-      if (uploadBuffer.size >= MAX_CONCURRENT_UPLOADS || totalBufferedBytes + totalSize > MAX_TOTAL_UPLOAD_BYTES) {
+      if (uploadBuffer.size >= MAX_CONCURRENT_UPLOADS || totalBufferedBytes > MAX_TOTAL_UPLOAD_BYTES) {
         log.warn('文件上传：配额已满，拒绝 uploadId:', uploadId);
         client.send({
           type: WSMessageType.RESP_UPLOAD_ERROR,
@@ -211,6 +212,18 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
 
     if (!transfer.chunks[chunkIndex]) {
       const chunkBuf = Buffer.from(data, 'base64');
+      // SEC: per-chunk cap — reject if this chunk would exceed MAX_FILE_BYTES or total quota
+      if (transfer.actualBytes + chunkBuf.length > MAX_FILE_BYTES || totalBufferedBytes + chunkBuf.length > MAX_TOTAL_UPLOAD_BYTES) {
+        log.warn(`文件上传：超出上限，丢弃 uploadId: ${uploadId} (file=${transfer.actualBytes + chunkBuf.length}, total=${totalBufferedBytes + chunkBuf.length})`);
+        totalBufferedBytes -= transfer.actualBytes;
+        uploadBuffer.delete(uploadId);
+        clearTimeout(transfer.timer);
+        client.send({
+          type: WSMessageType.RESP_UPLOAD_ERROR,
+          payload: { uploadId, code: "QUOTA_EXCEEDED", message: "文件过大或内存配额已满", clientId, sessionId },
+        });
+        return;
+      }
       transfer.chunks[chunkIndex] = chunkBuf;
       transfer.actualBytes += chunkBuf.length; // SEC-H1: 累加实际字节
       totalBufferedBytes += chunkBuf.length;

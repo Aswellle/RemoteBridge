@@ -16,9 +16,7 @@ function PreviewContent() {
   const filePath = params.get('path');
   const fileName = params.get('name') || 'file';
   const fileExt = params.get('ext') || '';
-  const size = Number(params.get('size') || 0);
   const category = getFileCategory(fileExt);
-
   const { blobUrl, loading, error, progress, fetchFile } = useFileStream(filePath);
 
   useEffect(() => {

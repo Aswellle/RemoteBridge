@@ -303,11 +303,27 @@ async function proxyFileRequest(
 export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Params: { sessionId: string }; Querystring: { filePath: string } }>(
     '/proxy/download/:sessionId',
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+        },
+      },
+    },
     (request, reply) => proxyFileRequest(request, reply, 'download'),
   );
 
   fastify.get<{ Params: { sessionId: string }; Querystring: { filePath: string } }>(
     '/proxy/preview/:sessionId',
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+        },
+      },
+    },
     (request, reply) => proxyFileRequest(request, reply, 'preview'),
   );
 }

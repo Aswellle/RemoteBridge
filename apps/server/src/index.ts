@@ -62,7 +62,8 @@ async function registerPlugins() {
   });
 
   // WebSocket
-  await app.register(websocket);
+  const wsOpts: any = { maxPayload: 1024 * 1024 };
+  await app.register(websocket, wsOpts);
 }
 
 // ===== 注册路由 =====

@@ -23,12 +23,12 @@ export default function PdfViewer({ url, fileName }: PdfViewerProps) {
             </div>
           </div>
         )}
-        {/* Chrome 的内置 PDF 查看器以浏览器扩展形式实现，任何 sandbox 属性都会
-            阻止该扩展加载，导致"该页面已被 Chrome 屏蔽"。此处不加 sandbox：
-            内容来自用户自己的 Host，经过令牌鉴权；blob: URL 天然同源，
-            无外部来源污染风险。 */}
+        {/* 沙箱隔离：限制 iframe 内 blob: 内容的权限，防止非 PDF 文件访问父页面资源。
+            allow-scripts 允许 PDF 查看器执行脚本；allow-same-origin 允许 Chrome 内置 PDF 扩展加载。
+            生产环境应在服务端验证文件确实是 PDF（magic bytes）后再提供 blob: URL。 */}
         <iframe
           src={url}
+          sandbox="allow-scripts allow-same-origin"
           className="w-full h-full border-0"
           onLoad={() => setLoading(false)}
           title={fileName}

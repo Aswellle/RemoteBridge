@@ -6,7 +6,7 @@ import * as nodeOs from 'os';
 import { createWindow, getMainWindow, setAppQuitting } from './window';
 import { initTray, updateTrayStatus } from './tray';
 import { getRelayClient } from './ws-client/client';
-import { startFileServer, stopFileServer } from './file-server/server';
+import { startFileServer, stopFileServer, isFileServerRunning } from './file-server/server';
 import { cleanExpiredTokens } from './file-server/token-manager';
 import { config } from './config/store';
 import db, { initDatabase } from './db/client';
@@ -51,12 +51,7 @@ app.whenReady().then(async () => {
 
   // 定期清理过期下载令牌，防止 download_tokens 表无限增长
   const tokenCleaner = setInterval(() => {
-    try {
-      const removed = cleanExpiredTokens();
-      if (removed > 0) log.info(`已清理过期下载令牌: ${removed} 条`);
-    } catch (err) {
-      log.error('清理过期下载令牌失败:', err);
-    }
+    cleanExpiredTokens();
   }, 60 * 60 * 1000);
   tokenCleaner.unref?.();
 
@@ -64,21 +59,15 @@ app.whenReady().then(async () => {
   setupAutoUpdater(getMainWindow);
 
   // 初始化 Host JWT 定期轮换（注册 IPC + 启动后 30s 首次检查 + 每日检查）
-  setupTokenRotator(getRelayApi);
+  setupTokenRotator(() => getRelayApi());
 
   // 本地 Relay 就绪后自动重连（解决 autoStart / 首次启动时 Relay 尚未就绪的竞态）
   onRelayReady(() => {
-    const existing = getRelayClient();
-    if (existing && existing.isConnected()) return;
-    ensureHostRegisteredAndConnected(getMainWindow, getRelayApi, getRelayUrl)
-      .then((r) => {
-        if (r.success) log.info(`本地 Relay 就绪后自动连接成功 (hostId: ${r.data?.hostId})`);
-        else log.warn('本地 Relay 就绪后自动连接失败:', r.error);
-      })
-      .catch((err) => log.error('本地 Relay 就绪后连接异常:', err));
+    ensureHostRegisteredAndConnected(() => getMainWindow(), () => getRelayApi(), () => getRelayUrl())
+      .catch((err) => log.error('autoConnect after relayReady failed:', err));
   });
 
-  // 注册所有 IPC 处理器（registerLocalRelayHandlers 内若 autoStart=true 会启动 Relay，须在 onRelayReady 之后）
+  // 注册所有 IPC 处理器
   registerIpcHandlers();
 
   // 首次启动或版本升级（且 autoStart 未开）：自动运行本地中继，确保用户能看到引导流程
@@ -89,17 +78,20 @@ app.whenReady().then(async () => {
   }
 
   // 启动时自动注册/连接 Relay（复用持久化身份；失败不阻塞启动，UI 可手动重试）
-  ensureHostRegisteredAndConnected(getMainWindow, getRelayApi, getRelayUrl)
+  ensureHostRegisteredAndConnected(() => getMainWindow(), () => getRelayApi(), () => getRelayUrl())
     .then((result) => {
-      if (result.success) {
-        log.info(`已自动连接 Relay (hostId: ${result.data?.hostId})`);
-      } else {
-        log.warn(`自动连接 Relay 失败: ${result.error}`);
+      if (result?.success) {
+        log.info('已连接到 Relay:', result.data?.hostId);
       }
     })
     .catch((err) => log.error('自动连接 Relay 异常:', err));
 
-  app.on('activate', () => {
+  app.on('activate', async () => {
+    // macOS: 重启文件服务器（如果已停止）
+    if (!isFileServerRunning()) {
+      const filePort = await startFileServer();
+      log.info(`文件服务器已重启，端口: ${filePort}`);
+    }
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
@@ -121,120 +113,10 @@ app.on('window-all-closed', async () => {
 
 // ===== IPC 处理器注册 =====
 function registerIpcHandlers(): void {
-  // --- 系统信息 ---
-  ipcMain.handle('system:info', () => ({
-    hostname: nodeOs.hostname(),
-    platform: nodeOs.platform(),
-    arch: nodeOs.arch(),
-    release: nodeOs.release(),
-    // os.version() 给出友好的系统名（如 "Windows 11 Home"），release 是内核版本号
-    osVersion: nodeOs.version(),
-    uptime: nodeOs.uptime(),
-    userInfo: nodeOs.userInfo().username,
-    appVersion: app.getVersion(),
-    electronVersion: process.versions.electron,
-    nodeVersion: process.versions.node,
-    chromeVersion: process.versions.chrome,
-  }));
-
-  // --- Host Token ---
-  ipcMain.handle('host:get-token', () => {
-    return config.getHostToken();
-  });
-
-  // --- Relay URL ---
-  ipcMain.handle('host:get-relay-url', () => {
-    return getRelayUrl();
-  });
-
-  // --- 发送通知 ---
-  ipcMain.handle('notification:send', (_, title: string, body: string) => {
-    if (Notification.isSupported()) {
-      new Notification({ title, body }).show();
-    }
-  });
-
-  // --- 获取本地访问日志 ---
-  ipcMain.handle('logs:access', (_, limit?: number) => {
-    try {
-      return db.getAccessLogs(limit || 100);
-    } catch (error: any) {
-      log.error('获取访问日志失败:', error);
-      return [];
-    }
-  });
-
-  // --- 获取安全日志（从 Relay 服务器拉取，支持分页与筛选） ---
-  // 渲染端必须经此 IPC 访问 Relay：file:// 页面里相对路径 fetch 会解析成
-  // file:///api/... 直接 Failed to fetch，绝对地址又会被 CORS 拦截。
-  ipcMain.handle(
-    'logs:security',
-    async (_, query?: { page?: number; pageSize?: number; eventType?: string; clientId?: string }) => {
-      // 尚未注册到中继（token 为空）→ 返回空列表，不报错
-      if (!config.getHostToken()) {
-        return { success: true, data: { logs: [], total: 0, page: query?.page || 1, pageSize: query?.pageSize || 20, totalPages: 0 } };
-      }
-      try {
-        const params: Record<string, string | number> = {
-          page: query?.page || 1,
-          pageSize: query?.pageSize || 20,
-        };
-        if (query?.eventType) params.eventType = query.eventType;
-        if (query?.clientId) params.clientId = query.clientId;
-
-        const response = await axios.get(`${getRelayApi()}/security-logs`, {
-          params,
-          headers: { Authorization: `Bearer ${config.getHostToken()}` },
-          timeout: 8000,
-        });
-        return { success: true, data: response.data.data };
-      } catch (error: any) {
-        const code: string = error?.code ?? '';
-        const httpStatus: number = error?.response?.status ?? 0;
-        let msg: string;
-        if (code === 'ECONNREFUSED') {
-          msg = `无法连接到中继服务器（${getRelayApi()}），请确认服务器是否正在运行`;
-        } else if (code === 'ENOTFOUND') {
-          msg = `无法解析中继服务器地址（${getRelayApi()}），请检查域名或 IP 配置`;
-        } else if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') {
-          msg = '连接中继服务器超时，请稍后重试';
-        } else if (httpStatus === 401) {
-          // Token 已失效 → 后台重新注册，本次返回空列表而非错误，避免在 UI 上显示误导性错误
-          ensureHostRegisteredAndConnected(getMainWindow, getRelayApi, getRelayUrl).catch(() => {});
-          return { success: true, data: { logs: [], total: 0, page: query?.page || 1, pageSize: query?.pageSize || 20, totalPages: 0 } };
-        } else {
-          msg = error?.response?.data?.error?.message ?? error.message;
-        }
-        log.error('获取安全日志失败:', msg);
-        return { success: false, error: msg };
-      }
-    },
-  );
-
-  // --- 获取延迟 ---
-  ipcMain.handle('relay:get-latency', () => {
-    const client = getRelayClient();
-    return client ? client.getAverageRtt() : 0;
-  });
-
-  // --- 注册来自各模块的 IPC 处理器 ---
   registerAuthHandlers(getMainWindow, getRelayApi, getRelayUrl);
   registerDirsHandlers(getMainWindow);
   registerClientsHandlers(getRelayApi);
   registerMessagesHandlers();
   registerSettingsHandlers(getMainWindow, getRelayApi, getRelayUrl);
   registerLocalRelayHandlers(getMainWindow);
-
-  // --- 首次启动检测（版本升级 + autoStart 未开时也重新触发引导） ---
-  ipcMain.handle('system:is-first-launch', () => {
-    if (!config.getFirstLaunchDone()) return true;
-    // autoStart 已开 → relay 自动启动，无需再显示引导
-    if (config.getLocalRelayAutoStart()) return false;
-    // autoStart 未开 → 新版本首次启动时再次显示引导
-    return config.getLastLaunchVersion() !== app.getVersion();
-  });
-  ipcMain.handle('system:mark-first-launch-done', () => {
-    config.setFirstLaunchDone(true);
-    config.setLastLaunchVersion(app.getVersion());
-  });
 }

@@ -215,12 +215,20 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         timestamp: Date.now(),
       });
     }
-
     if (!clientId) {
       return reply.code(400).send({
         success: false,
         data: null,
         error: { code: 'MISSING_CLIENT_ID', message: '缺少客户端 ID' },
+        timestamp: Date.now(),
+      });
+    }
+
+    if (clientId.length > 128) {
+      return reply.code(400).send({
+        success: false,
+        data: null,
+        error: { code: 'INVALID_CLIENT_ID', message: '客户端 ID 无效（最大 128 字符）' },
         timestamp: Date.now(),
       });
     }
@@ -284,11 +292,22 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       expiresAt,
       createdAt: now,
     });
+    // 原子消费 PIN：仅当 pinHash 仍非空时才清除，防止并发请求重复使用同一 PIN
+    // drizzle better-sqlite3 的 update 返回 RunResult {changes,lastInsertRowid}（恒 truthy），
+    // 必须判 .changes 而非对象本身，否则并发场景下 409 分支永远不会触发（PIN 可被重复使用）
+    const pinConsumed = await db.update(hosts)
+      .set({ pinHash: '', pinHmac: '', pinExpiresAt: null })
+      .where(and(eq(hosts.id, matchedHost.id), ne(hosts.pinHash, '')));
 
-    // 清除 PIN（一次性使用）
-    await db.update(hosts)
-      .set({ pinHash: '', pinExpiresAt: null })
-      .where(eq(hosts.id, matchedHost.id));
+    if (!pinConsumed.changes) {
+      // 另一个并发请求已消费此 PIN
+      return reply.code(409).send({
+        success: false,
+        data: null,
+        error: { code: 'PIN_ALREADY_USED', message: 'PIN 码已被使用，请重新生成' },
+        timestamp: Date.now(),
+      });
+    }
 
     // 记录会话创建
     await db.insert(securityLogs).values({
@@ -374,6 +393,17 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
         success: false,
         data: null,
         error: { code: 'SESSION_REVOKED', message: '会话已被吊销' },
+        timestamp: Date.now(),
+      });
+    }
+    // S5: absolute session lifetime check (30 days from creation)
+    const MAX_SESSION_AGE_SECONDS = 30 * 24 * 60 * 60;
+    const now = Math.floor(Date.now() / 1000);
+    if (session[0].createdAt && (now - session[0].createdAt) > MAX_SESSION_AGE_SECONDS) {
+      return reply.code(401).send({
+        success: false,
+        data: null,
+        error: { code: 'SESSION_EXPIRED', message: '会话已过期，请重新连接' },
         timestamp: Date.now(),
       });
     }

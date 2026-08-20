@@ -82,12 +82,12 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
         })
       );
 
-      await logAccess({
+      logAccess({
         clientId,
         action: 'LIST_ALLOWED',
         path: '',
         status: 'OK',
-      });
+      }).catch(() => {});
 
       client.send({
         type: WSMessageType.RESP_DIR_LIST,
@@ -126,12 +126,12 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
 
       if (!validation.allowed) {
         // 写安全日志
-        await logAccess({
+        logAccess({
           clientId,
           action: 'LIST_DIR',
           path: requestedPath,
           status: 'BLOCKED',
-        });
+        }).catch(() => {});
 
         client.send({
           type: WSMessageType.RESP_DIR_ERROR,
@@ -202,12 +202,12 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
       const validEntries = fileEntries.filter(Boolean);
 
       // 5. 写访问日志
-      await logAccess({
+      logAccess({
         clientId,
         action: 'LIST_DIR',
         path: requestedPath,
         status: 'OK',
-      });
+      }).catch(() => {});
 
       // 6. 返回结果
       const parentPath = path.dirname(requestedPath) !== requestedPath
@@ -248,12 +248,12 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
       const validation = validatePath(filePath, allowedDirs as any);
 
       if (!validation.allowed) {
-        await logAccess({
+        logAccess({
           clientId,
           action: 'DOWNLOAD',
           path: filePath,
           status: 'BLOCKED',
-        });
+        }).catch(() => {});
 
         client.send({
           type: WSMessageType.RESP_DOWNLOAD_ERROR,
@@ -312,12 +312,12 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
       const downloadUrl = `http://127.0.0.1:${port}/download?token=${token.token}`;
 
       // 6. 写访问日志
-      await logAccess({
+      logAccess({
         clientId,
         action: 'DOWNLOAD',
         path: filePath,
         status: 'OK',
-      });
+      }).catch(() => {});
 
       // 7. 返回下载信息
       client.send({
@@ -356,12 +356,12 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
 
       if (!validation.allowed) {
         // 写安全日志
-        await logAccess({
+        logAccess({
           clientId,
           action: 'PREVIEW',
           path: filePath,
           status: 'BLOCKED',
-        });
+        }).catch(() => {});
 
         client.send({
           type: WSMessageType.RESP_PREVIEW_ERROR,
@@ -414,12 +414,12 @@ export function setupDirWsHandlers(mainWindow: BrowserWindow | null): void {
       const previewUrl = `http://127.0.0.1:${port}/preview?token=${token.token}`;
 
       // 6. 写访问日志
-      await logAccess({
+      logAccess({
         clientId,
         action: 'PREVIEW',
         path: filePath,
         status: 'OK',
-      });
+      }).catch(() => {});
 
       // 7. 返回预览信息
       client.send({

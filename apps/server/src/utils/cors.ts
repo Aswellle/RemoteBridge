@@ -11,9 +11,19 @@ export const ALLOWED_ORIGINS: string[] =
   process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:9666'];
 
 // @fastify/cors 插件选项
-// origin: true = 反射请求的 Origin 头（开发环境友好，允许任意来源+凭证）
+// 验证 origin 是否在白名单或 localhost，不再反射任意 Origin
+function validateOrigin(origin: string | undefined): boolean {
+  if (!origin) return false;
+  if (origin.includes('localhost') || origin.includes('127.0.0.1')) return true;
+  return ALLOWED_ORIGINS.includes(origin);
+}
+
 export const CORS_OPTIONS: FastifyCorsOptions = {
-  origin: true,
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (validateOrigin(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'), false);
+  },
   credentials: true,
 };
 
