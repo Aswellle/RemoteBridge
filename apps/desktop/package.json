@@ -30,7 +30,7 @@
     "electron-updater": "^6.8.9",
     "fastify": "^5.8.5",
     "nanoid": "^5.1.16",
-    "ws": "^8.17.0"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
@@ -38,11 +38,11 @@
     "@types/react-dom": "18.2.0",
     "@types/ws": "^8.5.10",
     "@vitejs/plugin-react": "^4.2.0",
-    "autoprefixer": "^10.4.17",
+    "autoprefixer": "^10.5.4",
     "electron": "^29.0.0",
     "electron-builder": "^24.13.0",
     "electron-vite": "^2.1.0",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "lucide-react": "^0.400.0",
     "postcss": "^8.5.18",
     "react": "^18.3.0",
