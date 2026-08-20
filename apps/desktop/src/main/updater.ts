@@ -36,10 +36,11 @@ function broadcast(getWin: () => BrowserWindow | null, status: UpdateStatus): vo
 }
 
 // ===== 初始化自动更新 =====
-let isManualCheck = false;
+// 计数器替代布尔标志，避免并发手动检查时 finally 过早重置
+let manualCheckCount = 0;
 export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): void {
   autoUpdater.on('checking-for-update', () => {
-    if (isManualCheck) broadcast(getMainWindow, { state: 'checking' });
+    if (manualCheckCount > 0) broadcast(getMainWindow, { state: 'checking' });
   });
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
@@ -72,7 +73,7 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
   autoUpdater.on('error', (err: Error) => {
     log.error('自动更新错误:', err.message);
     // 仅用户手动检查时才广播错误，避免启动时弹出干扰通知
-    if (isManualCheck) {
+    if (manualCheckCount > 0) {
       broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
     }
   });
@@ -80,13 +81,13 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
 
   ipcMain.handle('updater:check', async () => {
     try {
-      isManualCheck = true;
+      manualCheckCount++;
       await autoUpdater.checkForUpdates();
     } catch (err: any) {
       log.error('检查更新失败:', err.message);
       broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
     } finally {
-      isManualCheck = false;
+      manualCheckCount = Math.max(0, manualCheckCount - 1);
     }
   });
 

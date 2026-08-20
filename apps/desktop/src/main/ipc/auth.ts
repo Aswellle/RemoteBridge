@@ -188,14 +188,18 @@ export function registerAuthHandlers(
   });
 
   // 等待 WS 连接就绪（轮询），启动后立即操作时避免失败
-  async function waitForConnection(client: { isConnected(): boolean } | null, timeoutMs: number): Promise<boolean> {
-    if (client && client.isConnected()) return true;
+  async function waitForConnection(client: { isConnected?: () => boolean; connect?: () => Promise<void> } | null, timeoutMs: number): Promise<boolean> {
+    if (client && client.isConnected?.()) return true;
+    // 主动触发连接（如果客户端尚未连接且有 connect 方法）
+    if (client && !client.isConnected?.() && client.connect) {
+      try { await client.connect(); } catch { /* 等待轮询继续 */ }
+    }
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      if (client && client.isConnected()) return true;
+      if (client && client.isConnected?.()) return true;
       await new Promise(r => setTimeout(r, 200));
     }
-    return !!(client && client.isConnected());
+    return !!(client && client.isConnected?.());
   }
 
   ipcMain.handle('auth:generate-pin', async (_, expiresIn: number) => {

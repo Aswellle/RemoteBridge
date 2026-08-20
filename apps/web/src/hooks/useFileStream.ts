@@ -22,11 +22,16 @@ export function useFileStream(filePath: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const chunksRef = useRef<Map<number, Uint8Array>>(new Map());
   const totalSizeRef = useRef<number>(0);
-  const doneRef = useRef<Set<string>>(new Set());
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const blobUrlRef = useRef<string | null>(null);
 
-  // 清理
+  // 清理：关闭 WS + 释放 blob URL 防止内存泄漏
   useEffect(() => {
     return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.close(1000, 'cleanup');
         wsRef.current = null;
@@ -37,24 +42,26 @@ export function useFileStream(filePath: string | null) {
   const fetchFile = useCallback(async () => {
     if (!filePath) return;
 
-    // 防止 React StrictMode 双重调用
+    // 防止 StrictMode 并发双重调用（仅保护同一次渲染周期内的重入）
     const key = filePath;
-    if (doneRef.current.has(key)) return;
-    doneRef.current.add(key);
+    if (inFlightRef.current.has(key)) return;
+    inFlightRef.current.add(key);
 
     setLoading(true);
     setError(null);
     setProgress(0);
     chunksRef.current.clear();
     totalSizeRef.current = 0;
+    // 失败时移除标记，允许用户重试
+    const cleanup = () => inFlightRef.current.delete(key);
 
     const { sessionId } = useAppStore.getState();
     if (!sessionId) {
       setError('未连接');
       setLoading(false);
+      cleanup();
       return;
     }
-
     try {
       // 1. 获取 WS 票据
       const ticketRes = await fetch('/auth/ws-ticket', { credentials: 'include' });
@@ -143,20 +150,22 @@ export function useFileStream(filePath: string | null) {
             offset += chunk.length;
           }
           const blob = new Blob([assembled]);
+          // 释放旧 blob URL 后创建新 URL（防止内存泄漏）
+          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
           const url = URL.createObjectURL(blob);
+          blobUrlRef.current = url;
           setBlobUrl(url);
-          setProgress(100);
-          setLoading(false);
-          res();
         };
       });
 
       ws.close(1000, 'done');
       wsRef.current = null;
+      cleanup(); // 成功完成，移除飞行标记
     } catch (err: any) {
       setError(err.message || '下载失败');
       setLoading(false);
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
+      cleanup(); // 失败也移除标记，允许重试
     }
   }, [filePath]);
 
