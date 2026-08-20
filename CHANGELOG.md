@@ -5,6 +5,15 @@ All notable changes to RemoteBridge are documented here. All four workspace pack
 are currently pinned at `1.0.0`; this file starts tracking changes from the 2026-06
 comprehensive code review (`.full-review/05-final-report.md`) onward.
 
+## [1.3.11] - 2026-08-20
+
+### Server / Web — CORS fix & port migration
+
+- **Fixed web client unable to connect** (Axios Network Error): web client moved to port 9666
+  (port 3000 occupied by Docker) but relay CORS only allowed `localhost:3000`, blocking all API
+  requests from the new origin. Changed `@fastify/cors` to `origin: true` (reflects request origin)
+  so any localhost port works (`apps/server/src/utils/cors.ts`).
+
 ## [1.3.10] - 2026-08-20
 
 ### Desktop — relay connection fix

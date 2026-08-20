@@ -11,18 +11,23 @@ export const ALLOWED_ORIGINS: string[] =
   process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:9666'];
 
 // @fastify/cors 插件选项
+// origin: true = 反射请求的 Origin 头（开发环境友好，允许任意来源+凭证）
 export const CORS_OPTIONS: FastifyCorsOptions = {
-  origin: ALLOWED_ORIGINS,
+  origin: true,
   credentials: true,
 };
 
 // 为接管（hijack）的原始响应手动生成 CORS 头；来源不在白名单时返回空对象
 // （不带头 = 浏览器拦截，与插件对未授权来源的行为一致）
 export function corsHeadersFor(origin: string | undefined): Record<string, string> {
-  if (!origin || !ALLOWED_ORIGINS.includes(origin)) return {};
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Credentials': 'true',
-    'Vary': 'Origin',
-  };
+  if (!origin) return {};
+  // 允许 localhost 任意端口 + 白名单
+  if (origin.includes('localhost') || origin.includes('127.0.0.1') || ALLOWED_ORIGINS.includes(origin)) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Credentials': 'true',
+      'Vary': 'Origin',
+    };
+  }
+  return {};
 }
