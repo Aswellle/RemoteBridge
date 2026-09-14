@@ -9,6 +9,7 @@ import { WSMessage, WSMessageType, validateMessage } from '@remotebridge/shared'
 import {
   sendWSMessage,
   relayMessage,
+  relayBinaryToHost,
   relayToClient,
   notifyHost,
   broadcastToHostClients,
@@ -170,21 +171,28 @@ export function setupWebSocket(app: FastifyInstance): void {
 
     // 消息处理
     socket.on('message', (data, isBinary) => {
-      // 二进制帧（P1-12）：文件隧道分块的首选格式，自描述头部见 file-tunnel-codec.ts。
-      // 仅服务端代理 ↔ Host 之间使用，永不出现在 Client 连接上。
+      // 二进制帧：V2 有两种用途：
+      // 1. Host → Relay 文件隧道分块（decodeFileChunkFrame）
+      // 2. Client → Relay → Host 上传分块（upload chunk binary frame）
       if (isBinary) {
-        // SEC-M2: 二进制帧仅 Host→Relay 文件隧道使用；client 类型连接发来的直接丢弃，
-        // 防止 Web 端发送任意 binary 帧触发文件隧道逻辑。
-        if (meta.type !== 'host') return;
-        try {
-          const decoded = decodeFileChunkFrame(data as Buffer);
-          void resolveFileTunnelBinaryFrame(decoded);
-        } catch (err) {
-          app.log.error('解析文件隧道二进制帧失败:', err as any);
+        if (meta.type === 'host') {
+          // Host → Relay: 文件隧道帧
+          try {
+            const decoded = decodeFileChunkFrame(data as Buffer);
+            void resolveFileTunnelBinaryFrame(decoded);
+          } catch (err) {
+            app.log.error('解析文件隧道二进制帧失败:', err as any);
+          }
+        } else {
+          // Client → Relay → Host: V2 upload binary chunk forwarding
+          // 直接以 binary 帧原样转发给 Host，Host 端 onBinary 处理器解码
+          const sent = relayBinaryToHost(data as Buffer, meta.id);
+          if (!sent) {
+            app.log.warn('转发上传二进制帧失败：Host 不在线');
+          }
         }
         return;
       }
-
       try {
         const raw = JSON.parse(data.toString());
         const message = validateMessage(raw);
@@ -377,9 +385,11 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
     case WSMessageType.CMD_REQUEST_DOWNLOAD:
     case WSMessageType.CMD_REQUEST_PREVIEW:
     case WSMessageType.CMD_UPLOAD_FILE_CHUNK:
+    case WSMessageType.UPLOAD_START:
+    case WSMessageType.UPLOAD_END:
+    case WSMessageType.UPLOAD_CANCEL:
       relayMessage(socket, message, meta);
       break;
-
     case WSMessageType.CMD_CANCEL_TRANSFER: {
       // P0-02: Relay forwards cancel to Host
       if (meta.type === 'host') {

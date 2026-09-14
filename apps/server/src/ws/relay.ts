@@ -24,12 +24,23 @@ export function sendWSMessage(ws: WebSocket, message: Partial<WSMessage>): void 
     }));
   }
 }
-
 // ===== 中继消息到 Host =====
 export function relayToHost(msg: WSMessage, hostId: string, _sessionId?: string): boolean {
   const hostWs = getHostSocket(hostId);
   if (hostWs) {
     sendWSMessage(hostWs, msg);
+    return true;
+  }
+  return false;
+}
+
+// ===== 中继二进制帧到 Host（V2 Upload Chunk P1-01） =====
+export function relayBinaryToHost(buffer: Buffer, clientId: string): boolean {
+  const hostId = getClientHost(clientId);
+  if (!hostId) return false;
+  const hostWs = getHostSocket(hostId);
+  if (hostWs && hostWs.readyState === WebSocket.OPEN) {
+    hostWs.send(buffer);
     return true;
   }
   return false;
