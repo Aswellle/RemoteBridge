@@ -23,7 +23,7 @@ interface FilePreviewPageProps {
 }
 
 export default function FilePreview({ filePath, fileName, fileExtension, onClose }: FilePreviewPageProps) {
-  const { previewUrl, rawBytes, category, loading, error, requestPreview, clearPreview } = usePreview();
+  const { previewUrl, rawBytes, category, loading, error, isPartial, requestPreview, clearPreview } = usePreview();
 
   // 判断文件类别（usePreview 返回的 category 来自服务器，本地兜底）
   const localCategory = getFileCategory(fileExtension);
@@ -225,8 +225,8 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
             ) : (previewUrl || rawBytes) ? (
               <div className="h-full">
                 {effectiveCategory === 'image' && previewUrl && <ImageViewer url={previewUrl} fileName={fileName} />}
-                {effectiveCategory === 'text' && rawBytes && <TextViewer rawBytes={rawBytes} fileName={fileName} />}
-                {/* PDF: 由上方 useEffect 直接在新标签页打开，此处不渲染 */}
+                {effectiveCategory === 'text' && rawBytes && <TextViewer rawBytes={rawBytes} fileName={fileName} isPartial={isPartial} />}
+
               </div>
             ) : null}
           </div>

@@ -7,11 +7,21 @@ import { RELAY_API_URL as RELAY_API_BASE } from '@/lib/env';
 
 
 // ===== 预览状态 =====
+// ===== V2: 大文件预览分段阈值 =====
+/** 大文件阈值：超过此大小启用分段预览（50MB） */
+export const PREVIEW_SIZE_THRESHOLD = 50 * 1024 * 1024;
+/** 大文件分段预览时获取的字节数（前 1MB） */
+export const PREVIEW_PARTIAL_BYTES = 1024 * 1024;
+
+
 interface PreviewState {
   previewUrl: string | null;
   // 文本文件直接保存原始字节（避免 blob URL 在 StrictMode 二次 effect 时被吊销导致
   // TextViewer fetch 失败）；非文本文件仍用 blob URL（ImageViewer/PdfViewer 需要 URL）
   rawBytes: Uint8Array | null;
+  /** 是否为大文件分段预览 */
+  isPartial: boolean;
+
   fileName: string;
   fileSize: number;
   extension: string;
@@ -21,6 +31,8 @@ interface PreviewState {
   error: string | null;
 }
 const INITIAL_STATE: PreviewState = {
+  isPartial: false,
+
   previewUrl: null,
   rawBytes: null,
   fileName: '',
@@ -96,6 +108,8 @@ export function usePreview() {
                 extension: payload.extension,
                 category: payload.category,
                 expiresAt: payload.expiresAt,
+                isPartial: false,
+
                 loading: false,
                 error: null,
               });
@@ -104,8 +118,17 @@ export function usePreview() {
 
             const proxyUrl = `${RELAY_API_BASE}/proxy/preview/${sessionId}?filePath=${encodeURIComponent(filePath)}`;
 
-            // httpOnly cookie 认证（02a-S11）：withCredentials 自动携带 rb_access cookie
-            fetch(proxyUrl, { credentials: 'include' })
+            // P1-08: 大文件分段预览 — 超过阈值时使用 Range 头获取部分内容
+            const isLargeFile = (payload.fileSize || 0) > PREVIEW_SIZE_THRESHOLD;
+            const fetchHeaders: Record<string, string> = {};
+            if (isLargeFile) {
+              fetchHeaders['Range'] = `bytes=0-${PREVIEW_PARTIAL_BYTES - 1}`;
+            }
+            fetch(proxyUrl, { credentials: 'include', headers: fetchHeaders })
+
+
+
+
               .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.blob();
@@ -129,6 +152,8 @@ export function usePreview() {
                     category: 'text',
                     expiresAt: payload.expiresAt,
                     loading: false,
+                    isPartial: isLargeFile,
+
                     error: null,
                   });
                 } else {
@@ -147,6 +172,8 @@ export function usePreview() {
                     fileSize: payload.fileSize,
                     extension: payload.extension,
                     category: payload.category,
+                    isPartial: isLargeFile,
+
                     expiresAt: payload.expiresAt,
                     loading: false,
                     error: null,

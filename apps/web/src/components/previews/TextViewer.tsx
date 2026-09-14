@@ -7,6 +7,9 @@ interface TextViewerProps {
   // 原始文件字节（BOM 未剥离），由 usePreview 直接传入，无需二次 fetch blob URL
   rawBytes: Uint8Array;
   fileName: string;
+  /** Whether this is a partial preview of a large file */
+  isPartial?: boolean;
+
 }
 
 type TextEncoding = 'utf-8' | 'gbk' | 'utf-16le';
@@ -33,8 +36,10 @@ function decodeBytes(bytes: Uint8Array, enc: string): string {
   }
 }
 
-export default function TextViewer({ rawBytes, fileName }: TextViewerProps) {
+export default function TextViewer({ rawBytes, fileName, isPartial }: TextViewerProps) {
   const [content, setContent]             = useState('');
+
+
   const [encoding, setEncoding]           = useState<TextEncoding>('utf-8');
   const [bodyBytes, setBodyBytes]         = useState<Uint8Array | null>(null); // BOM 已剥离
   const [lineCount, setLineCount]         = useState(0);
@@ -85,6 +90,13 @@ export default function TextViewer({ rawBytes, fileName }: TextViewerProps) {
   return (
     <div className="flex flex-col h-full">
       {/* 工具栏 */}
+      {/* P1-08: 大文件分段预览提示 */}
+      {isPartial && (
+        <div className="px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/30 text-xs text-yellow-700 dark:text-yellow-400">
+          ⚠️ 文件过大，仅显示前 1MB 内容。完整内容请下载后查看。
+        </div>
+      )}
+
       <div className="flex items-center justify-between px-4 py-2 bg-card border-b border-border">
         <div className="flex items-center space-x-3">
           <span className="text-sm text-muted-foreground">{lineCount} 行</span>
