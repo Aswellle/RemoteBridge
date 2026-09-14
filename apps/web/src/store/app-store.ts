@@ -300,8 +300,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  // 发送文件至桌面端
-  sendFile: async (file) => {
+  // 发送文件至桌面端（V2 Binary Streaming, P1-01）
+  sendFile: async (file: File) => {
     const { wsInstance, sessionId } = get();
     if (!wsInstance || wsInstance.readyState !== WebSocket.OPEN) {
       showErrorToast('发送失败', '未连接到远程主机');
@@ -327,55 +327,105 @@ export const useAppStore = create<AppState>((set, get) => ({
       uploadProgress: 0,
     });
 
+    // V2: Send UPLOAD_START control message (JSON)
+    const startMsg: WSMessage = {
+      id: crypto.randomUUID(),
+      type: WSMessageType.UPLOAD_START,
+      payload: {
+        uploadId,
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        category,
+        totalSize: file.size,
+        clientId: getOrCreateClientId(),
+      },
+      timestamp: Date.now(),
+      sessionId: sessionId || undefined,
+    };
+    wsInstance.send(JSON.stringify(startMsg));
+
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8 = new Uint8Array(arrayBuffer);
-      const CHUNK_SIZE = 512 * 1024; // 512KB/chunk → ~683KB base64
-      const totalChunks = Math.max(1, Math.ceil(uint8.length / CHUNK_SIZE));
+      // V2: Stream file in binary chunks instead of loading entire file into memory
+      const CHUNK_SIZE = 256 * 1024; // 256KB raw bytes → ~256KB binary frame
+      const stream = file.stream();
+      const reader = stream.getReader();
+      let seq = 0;
+      let sentBytes = 0;
+      let done = false;
 
-      for (let i = 0; i < totalChunks; i++) {
-        // 每轮检查连接状态：中途断连时立即中断，避免向死 socket 写入
-        const cur = get().wsInstance;
-        if (!cur || cur.readyState !== WebSocket.OPEN) {
-          get().updateFileMessage(uploadId, { uploadStatus: 'error' });
-          showErrorToast('发送中断', '连接已断开');
-          return;
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        if (readerDone || !value) break;
+        const data = value as Uint8Array;
+
+        // Split value into CHUNK_SIZE pieces
+        let offset = 0;
+        while (offset < data.length) {
+          // V2: Check connection state before each frame
+          const cur = get().wsInstance;
+          if (!cur || cur.readyState !== WebSocket.OPEN) {
+            get().updateFileMessage(uploadId, { uploadStatus: 'error' });
+            showErrorToast('发送中断', '连接已断开');
+            // Send cancel to host
+            wsInstance.send(JSON.stringify({
+              type: WSMessageType.UPLOAD_CANCEL,
+              payload: { uploadId, reason: 'client_disconnect' },
+              timestamp: Date.now(),
+              sessionId: sessionId || undefined,
+            }));
+            return;
+          }
+          const slice = data.subarray(offset, offset + CHUNK_SIZE);
+          offset += slice.length;
+          sentBytes += slice.length;
+          const isEof = readerDone && offset >= data.length;
+
+          // V2: Build binary frame (browser-compatible, no Buffer dependency)
+          const transferIdBytes = new TextEncoder().encode(uploadId);
+          const headerLen = 1 + 1 + 2 + transferIdBytes.length + 4 + 4;
+          const frameLen = headerLen + slice.length;
+          const frame = new Uint8Array(frameLen);
+          const view = new DataView(frame.buffer);
+          let pos = 0;
+          view.setUint8(pos, 1); pos += 1;           // version
+          view.setUint8(pos, isEof ? 0b01 : 0); pos += 1; // flags
+          view.setUint16(pos, transferIdBytes.length); pos += 2; // transferIdLen
+          frame.set(transferIdBytes, pos); pos += transferIdBytes.length;
+          view.setUint32(pos, seq); pos += 4;         // seq
+          view.setUint32(pos, slice.length); pos += 4; // dataLen
+          frame.set(slice, pos);                      // payload
+          wsInstance.send(frame.buffer);
+          // Update progress
+          get().updateFileMessage(uploadId, {
+            uploadProgress: Math.min(99, Math.round((sentBytes / file.size) * 100)),
+          });
+
+          seq++;
+          if (isEof) {
+            done = true;
+            break;
+          }
         }
-        const slice = uint8.subarray(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-        const data = uint8ToBase64(slice);
-
-        const wsMsg: WSMessage = {
-          id: crypto.randomUUID(),
-          type: WSMessageType.CMD_UPLOAD_FILE_CHUNK,
-          payload: {
-            uploadId,
-            fileName: file.name,
-            mimeType: file.type || 'application/octet-stream',
-            category,
-            chunkIndex: i,
-            totalChunks,
-            totalSize: file.size,
-            data,
-          },
-          timestamp: Date.now(),
-          sessionId: sessionId || undefined,
-        };
-
-        cur.send(JSON.stringify(wsMsg));
-
-        // 更新进度（前 90% 为分块发送阶段；收到 ACK 后置 100%）
-        get().updateFileMessage(uploadId, {
-          uploadProgress: Math.round(((i + 1) / totalChunks) * 90),
-        });
       }
+
+      // V2: Send UPLOAD_END control message
+      const endMsg: WSMessage = {
+        id: crypto.randomUUID(),
+        type: WSMessageType.UPLOAD_END,
+        payload: { uploadId, clientId: getOrCreateClientId(), sessionId: sessionId || undefined },
+        timestamp: Date.now(),
+        sessionId: sessionId || undefined,
+      };
+      wsInstance.send(JSON.stringify(endMsg));
+
+      get().updateFileMessage(uploadId, { uploadProgress: 100 });
     } catch (err: any) {
       logger.error('文件发送失败:', err);
       get().updateFileMessage(uploadId, { uploadStatus: 'error' });
-      showErrorToast('文件发送失败', err?.message);
+      showErrorToast('发送失败', err.message || '文件发送失败');
     }
   },
 
-  // 连接到远程主机
   connect: async (pin, clientLabel) => {
     set({ connectionStatus: 'connecting' });
 
