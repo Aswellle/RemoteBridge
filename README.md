@@ -67,8 +67,6 @@ RemoteBridge 采用**中继服务器架构**：运行在你电脑上的 Electron
 
 ## 核心特性
 
-| 类别 | 特性 |
-|------|------|
 | 🔌 **零配置连接** | 桌面端仅发起出站连接，无需端口转发、VPN、动态 DNS |
 | 🔑 **PIN 码配对** | 8 位短效 PIN 码（默认 5 分钟，可配置至 24 小时），浏览器输入即连 |
 | 📁 **文件浏览与下载** | 白名单目录浏览，HTTP Range 断点续传，256 KB 二进制帧流式传输 |
@@ -81,6 +79,8 @@ RemoteBridge 采用**中继服务器架构**：运行在你电脑上的 Electron
 | 🔄 **自动更新** | 桌面端启动时检查 GitHub Releases 新版本 |
 | 🐳 **完全自托管** | Docker Compose 一条命令部署，Caddy 自动 TLS |
 | 🛡️ **生产级安全** | httpOnly Cookie 令牌、CSP、非 root 容器、资源限制、安全响应头 |
+| ⚡ **V2 传输引擎** | 有状态传输生命周期（取消/背压/完整性校验），端到端背压反馈至磁盘读取 |
+| 🛡️ **主动内容隔离** | HTML/SVG 等主动内容强制下载附件，永不内联执行；运行时 WS 消息校验 |
 
 ---
 
@@ -198,13 +198,11 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 
 | 组件 | 技术 |
 |------|------|
-| 桌面 Host | Electron 28 · Fastify（本地文件服务器）· better-sqlite3 |
+| 桌面 Host | Electron 29 · Fastify（本地文件服务器）· better-sqlite3 |
 | 中继服务器 | Fastify · `@fastify/websocket` · better-sqlite3 · Drizzle ORM |
-| 网页客户端 | Next.js 14 App Router · Zustand · Tailwind CSS |
-| 共享协议层 | TypeScript 协议类型定义 · 路径安全校验 |
+| 网页客户端 | Next.js 15 App Router · Zustand · Tailwind CSS |
+| 共享协议层 | TypeScript 协议类型定义 · 运行时消息校验器 · 路径安全校验 |
 | 工程化 | pnpm workspaces · Turborepo · Vitest · electron-vite |
-
----
 
 ## 文档
 
@@ -226,7 +224,7 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 - **httpOnly Cookie**：网页客户端令牌存储在 `HttpOnly; SameSite=Strict` Cookie 中，JavaScript 不可读，防御 XSS 凭据窃取
 - **Electron 沙盒**：渲染进程 `sandbox: true` + 严格 CSP；PDF 预览使用无 `allow-same-origin` 的沙盒 iframe
 - **生产加固**：`trustProxy: true`（反向代理后限流按真实 IP 计数）、1 MB 请求体上限、非 root 容器、资源限制、安全响应头
-
+- **V2 传输安全**：有状态传输生命周期（取消/背压/完整性校验），端到端背压反馈至磁盘读取；主动内容（HTML/SVG）强制附件下载，永不内联执行；运行时 WS 消息 schema 校验；严格 Range 语义（416 拒绝不可满足范围）
 ---
 
 ## 测试
@@ -249,12 +247,9 @@ pnpm --filter @remotebridge/web test
 推送版本 tag 触发发布流水线：
 
 ```sh
-git tag v1.3.8
-git push origin v1.3.8
+git tag v1.3.11
+git push origin v1.3.11
 ```
-
-GitHub Actions 并行构建 Windows / macOS / Linux 安装包，发布到 GitHub Releases。桌面端启动时自动检查更新。
-
 ---
 
 ## 贡献指南

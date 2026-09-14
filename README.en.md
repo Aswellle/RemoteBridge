@@ -67,8 +67,6 @@ Your PC never listens on a public port — NAT and firewall traversal is inheren
 
 ## Key Features
 
-| Category | Feature |
-|----------|---------|
 | 🔌 **Zero-config connection** | Desktop app initiates outbound connections only — no port forwarding, VPN, or dynamic DNS |
 | 🔑 **PIN-based pairing** | Short-lived 8-character PIN (default 5 min, configurable up to 24 hours), enter in browser to connect |
 | 📁 **File browsing & download** | Whitelisted directory browsing, HTTP Range resume, 256 KB binary frame streaming |
@@ -81,6 +79,8 @@ Your PC never listens on a public port — NAT and firewall traversal is inheren
 | 🔄 **Auto-update** | Desktop app checks GitHub Releases for new versions on startup |
 | 🐳 **Fully self-hosted** | One-command Docker Compose deploy, Caddy automatic TLS |
 | 🛡️ **Production-grade security** | httpOnly Cookie tokens, CSP, non-root containers, resource limits, security headers |
+| ⚡ **V2 Transfer Engine** | Stateful transfer lifecycle (cancel/backpressure/integrity), end-to-end backpressure to disk read |
+| 🛡️ **Active content isolation** | HTML/SVG forced to attachment download, never inline; runtime WS message validation |
 
 ---
 
@@ -197,13 +197,11 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 ## Tech Stack
 
 | Component | Technology |
-|-----------|------------|
-| Desktop Host | Electron 28 · Fastify (local file server) · better-sqlite3 |
+| Desktop Host | Electron 29 · Fastify (local file server) · better-sqlite3 |
 | Relay Server | Fastify · `@fastify/websocket` · better-sqlite3 · Drizzle ORM |
-| Web Client | Next.js 14 App Router · Zustand · Tailwind CSS |
-| Shared Protocol | TypeScript protocol types · path security validation |
+| Web Client | Next.js 15 App Router · Zustand · Tailwind CSS |
+| Shared Protocol | TypeScript protocol types · runtime message validators · path security |
 | Tooling | pnpm workspaces · Turborepo · Vitest · electron-vite |
-
 ---
 
 ## Documentation
@@ -226,9 +224,7 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 - **httpOnly Cookies**: Web client tokens stored in `HttpOnly; SameSite=Strict` cookies — invisible to JavaScript, defending against XSS credential theft
 - **Electron sandbox**: Renderer runs with `sandbox: true` + strict CSP; PDF preview uses iframe without `allow-same-origin`
 - **Production hardening**: `trustProxy: true` (rate limiting counts by real client IP behind reverse proxy), 1 MB body limit, non-root containers, resource limits, security headers |
-
----
-
+- **V2 transfer security**: Stateful transfer lifecycle (cancel/backpressure/integrity), end-to-end backpressure to disk read; active content (HTML/SVG) forced to attachment, never inline; runtime WS message schema validation; strict Range semantics (416 for unsatisfiable ranges) |
 ## Testing
 
 All four packages have Vitest suites. The server suite auto-spawns a relay on `:3099` — no manual setup:
@@ -249,12 +245,9 @@ Every push and PR triggers the full CI pipeline (build → typecheck → lint �
 Pushing a version tag triggers the release pipeline:
 
 ```sh
-git tag v1.3.8
-git push origin v1.3.8
+git tag v1.3.11
+git push origin v1.3.11
 ```
-
-GitHub Actions builds Windows / macOS / Linux installers in parallel and publishes to GitHub Releases. The desktop app checks this feed for updates on startup.
-
 ---
 
 ## Contributing
