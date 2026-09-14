@@ -533,7 +533,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     wsInstance.send(JSON.stringify(message));
   },
 
-  // 请求下载
+  // 请求下载（V2: P1-04 — relay 签发 opaque resourceId，URL 中不再出现 filePath）
   requestDownload: (filePath) => {
     const { wsInstance, sessionId } = get();
     if (!wsInstance || wsInstance.readyState !== WebSocket.OPEN) {
@@ -559,6 +559,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       payload: {
         filePath,
         requestId: downloadId,
+        clientId: getOrCreateClientId(),
+        sessionId: sessionId || undefined,
       },
       timestamp: Date.now(),
       sessionId: sessionId || undefined,
@@ -566,6 +568,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     wsInstance.send(JSON.stringify(message));
   },
+
 
   // 请求文件预览
   requestPreview: (filePath) => {

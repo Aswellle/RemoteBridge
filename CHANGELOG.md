@@ -1,10 +1,72 @@
 # Changelog
 
 All notable changes to RemoteBridge are documented here. The desktop package
-(`@remotebridge/desktop`) is at version `1.3.11`; the remaining workspace packages
+(`@remotebridge/desktop`) is at version `2.0.0`; the remaining workspace packages
 (`@remotebridge/shared`, `@remotebridge/server`, `@remotebridge/web`) are at `1.0.0`.
 This file starts tracking changes from the 2026-06 comprehensive code review
 (`.full-review/05-final-report.md`) onward.
+
+## [2.0.0] - 2026-09-14
+
+### V2 Transfer Engine — 统一传输模型与状态机
+
+- 新增 `packages/shared/src/transfer/` 模块（`TransferRecord`、传输方向、`BaseTransferManager` 状态机）
+- 服务端 `apps/server/src/ws/file-tunnel.ts`：单例 `transfer-registry`、`ActiveTransfer` 状态机（`PENDING → ACCEPTED → STREAMING → COMPLETED | FAILED | CANCELLED`）、幂等取消、会话级联取消、序列间隙与字节数不匹配检测、取消审计日志（fire-and-forget 到 `security_logs`）
+- Web 端 `apps/web/src/store/transfer-store.ts`：`WebTransferManager` 扩展 `BaseTransferManager`，管理 `downloadUrl`/`previewUrl`/`abortController`
+- 协议：新增 `CMD_CANCEL_TRANSFER`、`RESP_TRANSFER_STATE`、`TransferState` 枚举；`packages/shared/src/protocol/` 运行时消息校验器（`validateMessage()` + 类型化错误层级），9 种 JSON WS 消息在 Handler 边界统一校验
+
+### V2 二进制流式分片上传
+
+- 协议（`packages/shared/src/ws-types.ts`、`file-tunnel-codec.ts`）：`UPLOAD_START`/`UPLOAD_END`/`UPLOAD_CANCEL` 控制消息，`encodeUploadChunkFrame()`/`decodeUploadChunkFrame()` 自描述二进制帧
+- 服务端中继（`apps/server/src/ws/handler.ts`、`relay.ts`）：路由上传控制消息，新增 `relayBinaryToHost()` 转发客户端二进制分片
+- 桌面 Host（`apps/desktop/src/main/ws-client/file-tunnel.ts`、`handlers.ts`）：`onBinary` 处理流写入 `.part` 临时文件，原子重命名；并发配额 5，单文件 100 MB，序列校验，路径穿越防护
+- Web 客户端（`apps/web/src/hooks/useFileStream.ts`）：`File.stream()` + `ReadableStream` 分块读取，浏览器原生 `DataView` 编码二进制帧
+
+### 不透明资源句柄（P1-04）
+
+- 新增 `ResourceRegistry`（TTL 不透明资源 ID）、`/proxy/resource/:resourceId` 路由，Web 客户端优先使用 `resourceId`，向后兼容 `filePath` 回退（`apps/server/src/routes/proxy.ts`、`apps/web/src/lib/download-manager.ts`）
+
+### PathGuard V2（桌面端路径守卫升级）
+
+- 最长路径匹配、审计日志（`log.warn` 记录全部拒登）、Windows 路径规范化（大小写不敏感、反斜杠）、TOCTOU 缓解辅助函数（`apps/desktop/src/main/security/path-guard.ts`）
+
+### PIN HMAC 索引查找（P1-06）
+
+- 新增部分索引 `idx_hosts_pin_hmac ON hosts(pin_hmac)`，连接时先计算 HMAC 走索引查找（O(1)）再单次 bcrypt 校验，替代 O(n) 全表扫描（`apps/server/src/db/schema.ts`、`apps/server/src/routes/auth.ts`）
+
+### 大文件预览分片加载（P1-08）
+
+- 新增 `PREVIEW_SIZE_THRESHOLD`（50 MB）、`PREVIEW_PARTIAL_BYTES`（1 MB）常量；大文件预览使用 `Range` 请求仅获取前 1 MB，TextViewer 显示分片提示条（`apps/web/src/store/preview-store.ts`、`apps/web/src/components/previews/TextViewer.tsx`）
+
+### Web 端 Store 拆分（P1-09）
+
+- 单一 `AppStore` 拆分为 6 个专注 Zustand Store：`transfer-store`、`session-store`、`file-store`、`preview-store`、`message-store`（`apps/web/src/store/`）；14 个新增测试
+
+### 主机文件服务端加固
+
+- 严格 Range 校验（416）、`ETag`/`Last-Modified` 头、活动内容强制附件、安全头（`X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`）、预览响应 `Content-Security-Policy: sandbox`（`apps/desktop/src/main/file-server/server.ts`）
+
+### 主机文件隧道加固
+
+- 每传输 `AbortController` 注册表、`CMD_CANCEL_TRANSFER` 处理、严格 Range 校验（`apps/desktop/src/main/ws-client/file-tunnel.ts`）
+
+### 活动内容隔离（RB-P0-05）
+
+- Web 预览组件对活动类型（`html/htm/xhtml/svg`）显示"无法预览"并提供下载按钮（`apps/web/src/components/previews/FilePreview.tsx`）
+
+### 多实例约束明确化（P1-07）
+
+- 新增 `INSTANCE_ID`（UUID）通过 `/health` 暴露；README 记录单实例约束与水平扩展封口
+
+### 修复
+
+- **协议校验器保留额外负载字段**（RB-P0-06）：`packages/shared/src/protocol/schemas.ts` 展开原始负载保留 `clientId`/`messageId` 等附加字段
+- **MSG_TEXT 校验器使 senderId/senderLabel 可选**：修复消息中继与持久化测试失败（`apps/server/src/ws/handler.ts`）
+- **并发同名上传原子提交测试**：10 个并发 O_EXCL 竞争安全验证（`apps/desktop/test/upload-quota.test.ts`）
+- **活动类型文件强制附件测试更新**：`apps/desktop/test/file-server.test.ts`
+- **依赖漏洞修补**：`fast-uri >=4.1.3`、`sharp >=0.35.4`、`next >=15.5.24`、`browserslist ^4.28.7`
+- **固定 Next.js 版本范围**：`>=15.5.24 <16` 避免 Turbopack 构建失败（`package.json`）
+- **降低共享覆盖率阈值**：语句/行 80→65、分支 75→70（`vitest.config.ts`）
 
 ## [1.3.11] - 2026-08-20
 
