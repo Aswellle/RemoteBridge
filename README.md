@@ -203,6 +203,35 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 | 网页客户端 | Next.js 15 App Router · Zustand · Tailwind CSS |
 | 共享协议层 | TypeScript 协议类型定义 · 运行时消息校验器 · 路径安全校验 |
 | 工程化 | pnpm workspaces · Turborepo · Vitest · electron-vite |
+| 实例身份 | 启动时生成 UUID，/health 端点暴露 `instance_id` |
+
+### 多实例部署（水平扩展封口）
+
+Relay 设计为**单实例无状态**：所有房间状态存于内存（`connection-registry.ts`，ADR-005），多实例部署需外部 Redis 作为房间状态后端（未实现，当前架构封口）。
+
+**当前约束**：
+- 单实例部署：一个 Relay 服务处理所有 WS 连接和文件代理
+- 实例身份：通过 `RB_INSTANCE_ID` 环境变量指定，或启动时自动生成 UUID
+- `/health` 响应包含 `instance_id`，用于负载均衡器区分实例
+- 水平扩展需 Redis 化房间状态（未来工作，当前无计划）
+
+**反向代理配置**（单实例 + Caddy/Nginx）：
+```nginx
+# Nginx 示例：WebSocket 长连接 + 文件代理
+location /ws {
+    proxy_pass http://127.0.0.1:3002;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+}
+location /api/v1/proxy {
+    proxy_pass http://127.0.0.1:3002;
+    proxy_buffering off;
+    proxy_read_timeout 300s;
+}
+```
+
 
 ## 文档
 

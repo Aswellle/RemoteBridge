@@ -1,3 +1,8 @@
+// ===== 实例身份（P1-07: 多实例架构封口） =====
+import { randomUUID } from 'node:crypto';
+/** 实例唯一标识，启动时生成，用于多实例部署区分和客户端重连路由 */
+export const INSTANCE_ID = process.env.RB_INSTANCE_ID || randomUUID();
+
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import Fastify from 'fastify';
@@ -68,7 +73,7 @@ async function registerPlugins() {
 
 // ===== 注册路由 =====
 async function registerRoutes() {
-  // 健康检查（含数据库可写性检查与表行数/体积统计，便于尽早发现无限增长）
+
   app.get('/health', async (_request, reply) => {
     const db = getHealthStats();
 
@@ -77,6 +82,8 @@ async function registerRoutes() {
       return {
         status: 'error',
         timestamp: Date.now(),
+        instance_id: INSTANCE_ID,
+
         version: APP_VERSION,
         db,
       };
@@ -84,6 +91,8 @@ async function registerRoutes() {
 
     return {
       status: 'ok',
+      instance_id: INSTANCE_ID,
+
       timestamp: Date.now(),
       version: APP_VERSION,
       db,
@@ -141,6 +150,8 @@ async function start() {
 
     // 启动服务器
     await app.listen({ port: PORT, host: HOST });
+
+    app.log.info(`🆔 实例 ID: ${INSTANCE_ID}`);
 
     app.log.info(`🚀 RemoteBridge Relay Server 启动于 http://${HOST}:${PORT}`);
     app.log.info(`📡 WebSocket 端点: ws://${HOST}:${PORT}/ws`);
