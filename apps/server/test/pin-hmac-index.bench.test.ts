@@ -47,8 +47,9 @@ describe('P1-06: PIN HMAC indexed lookup benchmark', () => {
 
     // Token is delivered via Set-Cookie (02a-S11), verify sessionId in body and accessToken in cookie
     expect(connectRes.data).toBeDefined();
-    expect(connectRes.data.sessionId).toBeDefined();
+    expect(connectRes.data.data.sessionId).toBeDefined();
     expect(connectRes.accessToken).toBeDefined();
+
 
     // With HMAC index, connect should be fast (< 500ms even with 50 hosts)
     // Without index, this would be O(n) bcrypt comparisons
