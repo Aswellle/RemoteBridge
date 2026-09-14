@@ -37,12 +37,13 @@ vi.mock('../src/main/ws-client/client', () => ({
   }),
 }));
 
-vi.mock('../src/main/db/client', () => ({
-  default: {
-    insertMessage: vi.fn(),
-    upsertConnectedClient: vi.fn(),
-  },
-}));
+vi.mock('../src/main/db/client', () => {
+  const db = {
+    insertMessage: vi.fn(() => {}),
+    upsertConnectedClient: vi.fn(() => {}),
+  };
+  return { db, default: db };
+});
 
 vi.mock('../src/main/config/store', () => ({
   config: { getUploadPaths: vi.fn(() => null) },
@@ -55,7 +56,7 @@ vi.mock('../src/main/config/store', () => ({
   }),
 }));
 
-import { setupMessageHandlers } from '../src/main/ws-client/handlers';
+import { setupMessageHandlers, resetUploadTransfersForTests } from '../src/main/ws-client/handlers';
 
 // 100 MB + 1 byte — one byte over the per-file cap.
 const OVER_FILE_CAP = 100 * 1024 * 1024 + 1;
@@ -89,6 +90,7 @@ beforeEach(() => {
   sentMessages = [];
   jsonHandlers = new Map();
   binaryHandlers = [];
+  resetUploadTransfersForTests();
   setupMessageHandlers(null);
 });
 
@@ -158,6 +160,52 @@ describe('V2 Upload Quota (PH1 / SEC-H1)', () => {
     );
     expect(acks).toHaveLength(1);
     expect(acks[0].payload.fileSize).toBe(exactSize);
+  });
+
+  it('rejects UPLOAD_START when totalSize is exactly 100 MB + 1 byte', async () => {
+    const uploadId = 'uid-one-byte-over-cap';
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
+
+    const overSize = 100 * 1024 * 1024 + 1;
+    await startHandler!({
+      uploadId,
+      fileName: 'over.bin',
+      mimeType: 'application/octet-stream',
+      category: 'documents',
+      totalSize: overSize,
+      clientId: 'c1',
+      sessionId: 's1',
+    });
+
+    const errors = sentMessages.filter(
+      (m) =>
+        m.type === WSMessageType.RESP_UPLOAD_ERROR &&
+        m.payload.uploadId === uploadId &&
+        m.payload.code === 'INVALID_UPLOAD_SIZE',
+    );
+    expect(errors).toHaveLength(1);
+  });
+
+  it('rejects UPLOAD_START when totalSize exceeds MAX_FILE_BYTES but chunk stream stays within cap', async () => {
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
+    // totalSize over cap → rejected immediately at UPLOAD_START
+    const overSize = 100 * 1024 * 1024 + 1;
+    await startHandler!({
+      uploadId: 'uid-total-over',
+      fileName: 'over.bin',
+      mimeType: 'application/octet-stream',
+      category: 'documents',
+      totalSize: overSize,
+      clientId: 'c1',
+      sessionId: 's1',
+    });
+    const startErrors = sentMessages.filter(
+      (m) =>
+        m.type === WSMessageType.RESP_UPLOAD_ERROR &&
+        m.payload.uploadId === 'uid-total-over' &&
+        m.payload.code === 'INVALID_UPLOAD_SIZE',
+    );
+    expect(startErrors).toHaveLength(1);
   });
 
   it('blocks the 6th concurrent upload once MAX_CONCURRENT_UPLOADS (5) is reached', async () => {

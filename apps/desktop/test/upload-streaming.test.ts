@@ -35,12 +35,13 @@ vi.mock('../src/main/ws-client/client', () => ({
   }),
 }));
 
-vi.mock('../src/main/db/client', () => ({
-  default: {
+vi.mock('../src/main/db/client', () => {
+  const db = {
     insertMessage: vi.fn(() => {}),
     upsertConnectedClient: vi.fn(() => {}),
-  },
-}));
+  };
+  return { db, default: db };
+});
 
 vi.mock('../src/main/config/store', () => ({
   config: {
@@ -67,7 +68,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { setupMessageHandlers } from '../src/main/ws-client/handlers';
+import { setupMessageHandlers, resetUploadTransfersForTests } from '../src/main/ws-client/handlers';
 
 const TEST_FILE_SIZE = 600 * 1024; // 600KB — spans multiple 256KB chunks
 
@@ -81,6 +82,7 @@ describe('V2 Upload Binary Streaming (P1-01)', () => {
     binaryFrames = [];
     jsonHandlers = new Map();
     binaryHandlers = [];
+    resetUploadTransfersForTests();
     // Re-register handlers after reset
     setupMessageHandlers(null);
   });
@@ -279,5 +281,56 @@ describe('V2 Upload Binary Streaming (P1-01)', () => {
     for (let i = 0; i < 5; i++) {
       await cancelHandler!({ uploadId: `upload-quota-${i}`, reason: 'test_end' });
     }
+  });
+
+  it('closes upload stream before atomic rename (Windows race regression)', async () => {
+    const uploadId = 'uid-windows-close-race';
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
+    const cancelHandler = jsonHandlers.get(WSMessageType.UPLOAD_CANCEL);
+
+    // Use 8 MB — large enough to exercise write stream buffering
+    const FILE_SIZE = 8 * 1024 * 1024;
+
+    await startHandler!({
+      uploadId,
+      fileName: 'win-race.bin',
+      mimeType: 'application/octet-stream',
+      category: 'documents',
+      totalSize: FILE_SIZE,
+      clientId: 'client-1',
+      sessionId: 'session-1',
+    });
+
+    // Stream in 256 KB chunks
+    const CHUNK = 256 * 1024;
+    let seq = 0;
+    let offset = 0;
+    while (offset < FILE_SIZE) {
+      const end = Math.min(offset + CHUNK, FILE_SIZE);
+      const chunk = Buffer.alloc(end - offset, 0xAB);
+      const isEof = end >= FILE_SIZE;
+      const frame = encodeUploadChunkFrame({ transferId: uploadId, seq, eof: isEof }, chunk);
+      for (const handler of binaryHandlers) {
+        // eslint-disable-next-line no-await-in-loop
+        await handler(frame);
+      }
+      offset = end;
+      seq++;
+    }
+
+    const acks = jsonMessages.filter(
+      (m) => m.type === WSMessageType.RESP_UPLOAD_ACK && m.payload.uploadId === uploadId,
+    );
+    expect(acks).toHaveLength(1);
+
+    // Verify the file was actually saved with correct size (proves stream was closed before rename)
+    const savedPath = acks[0].payload.savedPath;
+    expect(fs.existsSync(savedPath)).toBe(true);
+    const stat = fs.statSync(savedPath);
+    expect(stat.size).toBe(FILE_SIZE);
+
+    // Clean up
+    fs.unlinkSync(savedPath);
+    await cancelHandler!({ uploadId, reason: 'test_end' });
   });
 });

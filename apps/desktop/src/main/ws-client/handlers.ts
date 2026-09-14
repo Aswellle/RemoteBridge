@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, type WriteStream } from 'node:fs';
 import { open as fsOpen, mkdir, rename, unlink } from 'node:fs/promises';
@@ -6,10 +7,10 @@ import { BrowserWindow, Notification } from 'electron';
 import { getRelayClient } from './client';
 import { db } from '../db/client';
 import { config, getDefaultUploadPaths } from '../config/store';
-import fs from 'fs/promises';
 import path from 'path';
 import os from 'node:os';
 import log from '../logger';
+
 // ===== V2 Upload Streaming (P1-01) =====
 // Streams upload chunks directly to a temp file instead of buffering in memory.
 interface UploadTransferV2 {
@@ -67,27 +68,182 @@ async function getUniqueSavePathV2(dir: string, fileName: string): Promise<strin
   }
 }
 
+// P1-01: Write chunk with backpressure — waits for 'drain' if kernel buffer is full
+async function writeUploadChunk(
+  transfer: UploadTransferV2,
+  chunk: Buffer,
+): Promise<void> {
+  const ws = transfer.writeStream;
+  if (!ws || ws.destroyed) {
+    throw new Error('上传写入流不可用');
+  }
+  if (!ws.write(chunk)) {
+    // Backpressure: wait for drain, but don't let it block forever
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(); // proceed even if drain times out
+        }
+      }, 5000);
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        ws.removeListener('drain', onDrain);
+        ws.removeListener('error', onError);
+        ws.removeListener('close', onClose);
+      };
+
+      const onDrain = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+
+      const onError = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      };
+
+      const onClose = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(); // stream closed, proceed
+      };
+
+      ws.once('drain', onDrain);
+      ws.once('error', onError);
+      ws.once('close', onClose);
+    });
+  }
+}
+
+// P1-03: Close write stream and wait for OS handle release before rename
+async function closeUploadWriteStream(
+  transfer: UploadTransferV2,
+): Promise<void> {
+  const ws = transfer.writeStream;
+  if (!ws || ws.destroyed) {
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        reject(new Error('关闭上传写入流超时'));
+      }
+    }, 30000);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.removeListener('error', onError);
+      ws.removeListener('close', onClose);
+    };
+
+    const onError = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    const onClose = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    ws.once('error', onError);
+    ws.once('close', onClose);
+
+    ws.end();
+  });
+
+  transfer.writeStream = null;
+}
+
+// Unified abort: destroy stream, cleanup temp, remove from map, notify peer
+async function abortUploadTransfer(
+  uploadId: string,
+  code: string,
+  message: string,
+): Promise<void> {
+  const transfer = uploadTransfers.get(uploadId);
+  if (!transfer) return;
+
+  transfer.completed = true;
+  clearTimeout(transfer.timer);
+
+  try {
+    transfer.writeStream?.destroy();
+  } catch {
+    // ignore cleanup errors
+  }
+  transfer.writeStream = null;
+
+  uploadTransfers.delete(uploadId);
+
+  try {
+    await unlink(transfer.tempPath);
+  } catch {
+    // temp file may already have been renamed/removed
+  }
+
+  const client = getRelayClient();
+  client?.send({
+    type: WSMessageType.RESP_UPLOAD_ERROR,
+    payload: {
+      uploadId,
+      code,
+      message,
+      clientId: transfer.clientId,
+      sessionId: transfer.sessionId,
+    },
+  });
+}
+
+// PH1: 并发上传上限与内存配额
+const MAX_CONCURRENT_UPLOADS = 5;
+const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file cap
+
 // V2: Finalize streaming upload — close stream, atomic rename, notify
 async function uploadFinalize(uploadId: string): Promise<void> {
   const transfer = uploadTransfers.get(uploadId);
-  if (!transfer || transfer.completed) return;
+  if (!transfer || transfer.completed) {
+    return;
+  }
+
+  // Integrity check: declared size must match actual bytes written
+  if (transfer.actualBytes !== transfer.totalSize) {
+    await abortUploadTransfer(
+      uploadId,
+      'SIZE_MISMATCH',
+      `上传大小不一致: expected=${transfer.totalSize}, actual=${transfer.actualBytes}`,
+    );
+    return;
+  }
+
   transfer.completed = true;
   clearTimeout(transfer.timer);
 
   const client = getRelayClient();
 
   try {
-    // Close write stream
-    const ws = transfer.writeStream;
-    if (ws) {
-      await new Promise<void>((resolve, reject) => {
-        ws.on('finish', () => resolve());
-        ws.on('error', (err) => reject(err));
-        ws.end();
-      });
-    }
+    // P1-03: Close stream and wait for OS handle release before rename
+    await closeUploadWriteStream(transfer);
 
-    // SEC-H1: actual byte count check
+    // SEC-H1: actual byte count check (final guard)
     if (transfer.actualBytes > MAX_FILE_BYTES) {
       throw new Error(`文件过大: ${transfer.actualBytes} > ${MAX_FILE_BYTES}`);
     }
@@ -102,6 +258,9 @@ async function uploadFinalize(uploadId: string): Promise<void> {
 
     // Atomic rename: temp → final
     await rename(transfer.tempPath, savePath);
+
+    // Remove from map only AFTER successful rename (file is committed)
+    uploadTransfers.delete(uploadId);
 
     log.info(`文件已保存: ${savePath}`);
 
@@ -146,14 +305,21 @@ async function uploadFinalize(uploadId: string): Promise<void> {
     });
   } catch (err: any) {
     log.error('保存上传文件失败:', err);
-    // Clean up temp file on failure
+
+    // Ensure map entry is removed and temp file cleaned up on failure
+    uploadTransfers.delete(uploadId);
+    try {
+      await unlink(transfer.tempPath);
+    } catch {
+      // already moved/deleted
+    }
 
     client?.send({
       type: WSMessageType.RESP_UPLOAD_ERROR,
       payload: {
         uploadId,
         code: 'SAVE_ERROR',
-        message: err.message || '文件保存失败',
+        message: err?.message || '文件保存失败',
         clientId: transfer.clientId,
         sessionId: transfer.sessionId,
       },
@@ -161,13 +327,6 @@ async function uploadFinalize(uploadId: string): Promise<void> {
   }
 }
 
-// PH1: 并发上传上限与内存配额
-const MAX_CONCURRENT_UPLOADS = 5;
-// Helper: send JSON control message (for upload lifecycle)
-function sendJson(client: ReturnType<typeof getRelayClient>, type: string, payload: Record<string, unknown>, sessionId?: string): void {
-  client?.send({ type, payload, timestamp: Date.now(), sessionId });
-}
-const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file cap
 // ===== 设置消息处理器 =====
 export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
   const client = getRelayClient();
@@ -226,12 +385,25 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
     // 通知渲染进程
     mainWindow?.webContents.send('event:new-message', payload);
   });
+
   // --- V2 UPLOAD_START: begin streaming upload (P1-01) ---
   client.on(WSMessageType.UPLOAD_START, async (rawPayload: any) => {
     const { uploadId, fileName, mimeType, category, totalSize, clientId, sessionId } = rawPayload || {};
 
-    if (!uploadId || !fileName || typeof totalSize !== 'number') {
-      log.warn('收到无效的 UPLOAD_START 消息');
+    // Strict validation: totalSize must be a safe integer within allowed range
+    if (
+      !uploadId ||
+      typeof uploadId !== 'string' ||
+      !fileName ||
+      typeof fileName !== 'string' ||
+      !Number.isSafeInteger(totalSize) ||
+      totalSize < 0 ||
+      totalSize > MAX_FILE_BYTES
+    ) {
+      client?.send({
+        type: WSMessageType.RESP_UPLOAD_ERROR,
+        payload: { uploadId, code: 'INVALID_UPLOAD_SIZE', message: '上传文件大小无效或超过允许上限', clientId, sessionId },
+      });
       return;
     }
 
@@ -255,6 +427,16 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
       });
       return;
     }
+
+    // Guard: reject duplicate uploadId
+    if (uploadTransfers.has(uploadId)) {
+      client?.send({
+        type: WSMessageType.RESP_UPLOAD_ERROR,
+        payload: { uploadId, code: 'DUPLICATE_UPLOAD_ID', message: '上传任务 ID 已存在', clientId, sessionId },
+      });
+      return;
+    }
+
     try {
       const tmpDir = await getUploadTempDir();
       const tempPath = path.join(tmpDir, `${uploadId}.part`);
@@ -266,13 +448,7 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
         const t = uploadTransfers.get(uploadId);
         if (t && !t.completed) {
           log.warn('文件上传超时，丢弃 uploadId:', uploadId);
-          t.writeStream?.destroy();
-          unlink(tempPath).catch(() => {});
-          uploadTransfers.delete(uploadId);
-          client?.send({
-            type: WSMessageType.RESP_UPLOAD_ERROR,
-            payload: { uploadId, code: 'TIMEOUT', message: '上传超时', clientId: t.clientId, sessionId: t.sessionId },
-          });
+          abortUploadTransfer(uploadId, 'TIMEOUT', '上传超时').catch(() => {});
         }
       }, 5 * 60 * 1000);
 
@@ -320,20 +496,12 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
       // SEC: per-chunk cap
       if (transfer.actualBytes + chunkData.length > MAX_FILE_BYTES) {
         log.warn(`文件上传超出上限，丢弃 uploadId: ${transferId}`);
-        transfer.completed = true;
-        transfer.writeStream?.destroy();
-        unlink(transfer.tempPath).catch(() => {});
-        uploadTransfers.delete(transferId);
-        clearTimeout(transfer.timer);
-        client?.send({
-          type: WSMessageType.RESP_UPLOAD_ERROR,
-          payload: { transferId, code: 'QUOTA_EXCEEDED', message: '文件过大', clientId: transfer.clientId, sessionId: transfer.sessionId },
-        });
+        await abortUploadTransfer(transferId, 'QUOTA_EXCEEDED', '文件过大');
         return;
       }
 
-      // Write chunk to temp file
-      transfer.writeStream?.write(chunkData);
+      // Write chunk to temp file with backpressure handling
+      await writeUploadChunk(transfer, chunkData);
       transfer.actualBytes += chunkData.length;
       transfer.seq++;
 
@@ -343,18 +511,17 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
         const t = uploadTransfers.get(transferId);
         if (t && !t.completed) {
           log.warn('文件上传超时，丢弃 uploadId:', transferId);
-          t.writeStream?.destroy();
-          unlink(t.tempPath).catch(() => {});
-          uploadTransfers.delete(transferId);
-          client?.send({
-            type: WSMessageType.RESP_UPLOAD_ERROR,
-            payload: { transferId, code: 'TIMEOUT', message: '上传超时', clientId: t.clientId, sessionId: t.sessionId },
-          });
+          abortUploadTransfer(transferId, 'TIMEOUT', '上传超时').catch(() => {});
         }
       }, 5 * 60 * 1000);
 
-      // EOF received — finalize
+      // EOF received — validate size consistency then finalize
       if (eof) {
+        if (transfer.actualBytes !== transfer.totalSize) {
+          log.warn(`上传大小不匹配: ${transferId}, expected=${transfer.totalSize}, actual=${transfer.actualBytes}`);
+          await abortUploadTransfer(transferId, 'SIZE_MISMATCH', '上传文件大小与声明大小不一致');
+          return;
+        }
         await uploadFinalize(transferId);
       }
     } catch (err: any) {
@@ -376,11 +543,7 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
     const transfer = uploadTransfers.get(uploadId);
     if (transfer && !transfer.completed) {
       log.info(`上传已取消: ${uploadId}, reason: ${reason || 'unknown'}`);
-      transfer.completed = true;
-      transfer.writeStream?.destroy();
-      unlink(transfer.tempPath).catch(() => {});
-      uploadTransfers.delete(uploadId);
-      clearTimeout(transfer.timer);
+      await abortUploadTransfer(uploadId, 'CANCELLED', '上传已取消');
     }
   });
 
@@ -400,4 +563,11 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
   });
 }
 
-// ===== 辅助函数 =====
+// Test-only: clear all transfer state between tests to prevent cross-test pollution
+export function resetUploadTransfersForTests(): void {
+  for (const transfer of uploadTransfers.values()) {
+    clearTimeout(transfer.timer);
+    transfer.writeStream?.destroy();
+  }
+  uploadTransfers.clear();
+}
