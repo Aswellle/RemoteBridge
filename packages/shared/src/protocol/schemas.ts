@@ -77,6 +77,7 @@ function asBase64(v: unknown, field: string): string {
 function validateCmdFetchFilePayload(payload: unknown): CmdFetchFilePayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.CMD_FETCH_FILE, 'payload must be object');
   return {
+    ...payload,
     transferId: asString(payload.transferId, 'transferId'),
     token: asString(payload.token, 'token'),
     rangeStart: asOptionalNonNegativeInt(payload.rangeStart, 'rangeStart'),
@@ -94,6 +95,7 @@ function validateCmdCancelTransferPayload(payload: unknown): CmdCancelTransferPa
     throw new InvalidPayloadError(WSMessageType.CMD_CANCEL_TRANSFER, 'invalid reason: ' + String(reason));
   }
   return {
+    ...payload,
     transferId: asString(payload.transferId, 'transferId'),
     reason,
   };
@@ -102,6 +104,7 @@ function validateCmdCancelTransferPayload(payload: unknown): CmdCancelTransferPa
 function validateCmdListDirPayload(payload: unknown): CmdListDirPayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.CMD_LIST_DIR, 'payload must be object');
   return {
+    ...payload,
     path: asString(payload.path, 'path'),
     requestId: asString(payload.requestId, 'requestId'),
     clientId: asOptionalString(payload.clientId, 'clientId'),
@@ -112,6 +115,7 @@ function validateCmdListDirPayload(payload: unknown): CmdListDirPayload {
 function validateCmdRequestDownloadPayload(payload: unknown): CmdRequestDownloadPayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.CMD_REQUEST_DOWNLOAD, 'payload must be object');
   return {
+    ...payload,
     filePath: asString(payload.filePath, 'filePath'),
     requestId: asString(payload.requestId, 'requestId'),
     clientId: asOptionalString(payload.clientId, 'clientId'),
@@ -122,6 +126,7 @@ function validateCmdRequestDownloadPayload(payload: unknown): CmdRequestDownload
 function validateCmdRequestPreviewPayload(payload: unknown): CmdRequestPreviewPayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.CMD_REQUEST_PREVIEW, 'payload must be object');
   return {
+    ...payload,
     filePath: asString(payload.filePath, 'filePath'),
     requestId: asString(payload.requestId, 'requestId'),
     clientId: asOptionalString(payload.clientId, 'clientId'),
@@ -132,6 +137,7 @@ function validateCmdRequestPreviewPayload(payload: unknown): CmdRequestPreviewPa
 function validateCmdUploadFileChunkPayload(payload: unknown): CmdUploadFileChunkPayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.CMD_UPLOAD_FILE_CHUNK, 'payload must be object');
   return {
+    ...payload,
     uploadId: asString(payload.uploadId, 'uploadId'),
     fileName: asString(payload.fileName, 'fileName'),
     mimeType: asString(payload.mimeType, 'mimeType'),
@@ -148,6 +154,7 @@ function validateCmdUploadFileChunkPayload(payload: unknown): CmdUploadFileChunk
 function validateMsgTextPayload(payload: unknown): MsgTextPayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.MSG_TEXT, 'payload must be object');
   return {
+    ...payload,
     content: asString(payload.content, 'content'),
     senderId: asOptionalString(payload.senderId, 'senderId'),
     senderLabel: asOptionalString(payload.senderLabel, 'senderLabel'),
@@ -157,6 +164,7 @@ function validateMsgTextPayload(payload: unknown): MsgTextPayload {
 function validateRespFileChunkPayload(payload: unknown): RespFileChunkPayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.RESP_FILE_CHUNK, 'payload must be object');
   return {
+    ...payload,
     transferId: asString(payload.transferId, 'transferId'),
     seq: asNonNegativeInt(payload.seq, 'seq'),
     data: asBase64(payload.data, 'data'),
@@ -172,6 +180,7 @@ function validateRespFileChunkPayload(payload: unknown): RespFileChunkPayload {
 function validateRespFileErrorPayload(payload: unknown): RespFileErrorPayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.RESP_FILE_ERROR, 'payload must be object');
   return {
+    ...payload,
     transferId: asString(payload.transferId, 'transferId'),
     code: asString(payload.code, 'code'),
     message: asString(payload.message, 'message'),
