@@ -42,14 +42,17 @@ export enum WSMessageType {
   MSG_SYSTEM = 'MSG_SYSTEM',
   MSG_NOTIFICATION = 'MSG_NOTIFICATION',
 
+  // 文件传输生命周期（V2 Transfer Engine）
+  CMD_CANCEL_TRANSFER = 'CMD_CANCEL_TRANSFER',
+  RESP_TRANSFER_STATE = 'RESP_TRANSFER_STATE',
+
   // 文件上传（Web → Desktop）
   CMD_UPLOAD_FILE_CHUNK = 'CMD_UPLOAD_FILE_CHUNK',
   RESP_UPLOAD_ACK = 'RESP_UPLOAD_ACK',
   RESP_UPLOAD_ERROR = 'RESP_UPLOAD_ERROR',
 
-  // 目录变更推送（Host → Relay → All Clients）
-  HOST_DIRS_UPDATED = 'HOST_DIRS_UPDATED',
-
+   // 目录变更推送（Host → Relay → All Clients）
+   HOST_DIRS_UPDATED = 'HOST_DIRS_UPDATED',
   // 错误处理
   ERROR = 'ERROR',
   ACK = 'ACK',
@@ -198,6 +201,46 @@ export interface RespFileErrorPayload {
   message: string;
 }
 
+
+// ===== 传输生命周期协议（V2 Transfer Engine） =====
+
+/** 传输状态枚举 —— 所有 transfer 状态切换必须使用这些值 */
+export enum TransferState {
+  PENDING = 'pending',
+  ACCEPTED = 'accepted',
+  STREAMING = 'streaming',
+  PAUSED = 'paused',
+  CANCELLED = 'cancelled',
+  FAILED = 'failed',
+  COMPLETED = 'completed',
+}
+
+/** 取消传输命令 payload */
+export interface CmdCancelTransferPayload {
+  transferId: string;
+  reason?:
+    | 'user_cancel'
+    | 'client_disconnect'
+    | 'session_revoked'
+    | 'proxy_closed'
+    | 'timeout';
+}
+
+/** 传输状态通知 payload */
+export interface RespTransferStatePayload {
+  transferId: string;
+  state: TransferState;
+  /** 已传输字节数（可选，用于进度追踪） */
+  transferredBytes?: number;
+  /** 期望总字节数（可选） */
+  expectedBytes?: number;
+  /** 失败或取消时的错误码 */
+  errorCode?: string;
+  /** 失败或取消时的可读消息 */
+  errorMessage?: string;
+  /** 取消原因（仅 CANCELLED 状态） */
+  cancelReason?: CmdCancelTransferPayload['reason'];
+}
 // ===== 消息 Payload =====
 export interface MsgTextPayload {
   content: string;

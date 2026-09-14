@@ -21,3 +21,6 @@ export * from './security-log-ui';
 // 跨平台系统字体栈（零网络依赖）
 export * from './ui-fonts';
 export * from './file-tunnel-codec';
+// Protocol validators (V2 Transfer Engine)
+export * from './protocol/schemas';
+export * from './protocol/errors';
