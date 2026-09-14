@@ -15,12 +15,10 @@ All four packages share protocol types from `@remotebridge/shared`.
 
 ### Packages (pnpm workspace + Turborepo)
 
-|Package|Path|Role|
-|---|---|---|
-|`shared`|`packages/shared`|WS message types, REST API types, path-security utils, file-tunnel codec, JWT/rate-limit config constants|
-|`server`|`apps/server`|Fastify relay — auth, routing, file proxy/tunnel, SQLite (Drizzle), security logs|
-|`desktop`|`apps/desktop`|Electron 29 host — WS client to relay, local Fastify file server, auto-updater, embedded local relay|
-|`web`|`apps/web`|Next.js 15 App Router client — Zustand store, WS manager, file browser/download UI|
+|`shared`|`packages/shared`|WS message types, REST API types, path-security utils, file-tunnel codec, JWT/rate-limit config constants, **protocol validators (V2)**, **range validation helpers (V2)**|
+|`server`|`apps/server`|Fastify relay — auth, routing, file proxy/tunnel, SQLite (Drizzle), security logs, **Transfer Engine registry (V2)**|
+|`desktop`|`apps/desktop`|Electron 29 host — WS client to relay, local Fastify file server, auto-updater, embedded local relay, **per-transfer AbortController (V2)**|
+|`web`|`apps/web`|Next.js 15 App Router client — Zustand store, WS manager, file browser/download UI, **active content isolation (V2)**|
 
 ### Connection flow
 
@@ -46,13 +44,45 @@ All four packages share protocol types from `@remotebridge/shared`.
 ### State
 
 - **Relay:** in-memory single-instance room state (`connection-registry.ts`, ADR-005); restart self-heals via reconnect
+- **Transfer Engine (V2):** in-memory transfer registry (`server/ws/file-tunnel.ts`) with per-transfer state machine, sequence/byte integrity validation, and session-scoped cancellation
 - **Web:** Zustand store (`app-store.ts`) + `electron-store`-style localStorage for session metadata and host history
-- **Desktop:** `electron-store` (config) + `better-sqlite3` (download tokens, auth)
+- **Desktop:** `electron-store` (config) + `better-sqlite3` (download tokens, auth); per-transfer `AbortController` registry (`desktop/ws-client/file-tunnel.ts`)
 
----
+### Transfer Engine (V2 — RB-P0-01/02/03)
 
-## Key Directories
+Protocol state machine:
+```
+CMD_FETCH_FILE → TRANSFER_ACCEPTED → STREAMING → COMPLETED
+                                           ├── FAILED
+                                           └── CANCELLED (via CMD_CANCEL_TRANSFER)
+```
 
+Key invariants:
+- Each transfer has a unique `transferId` and explicit `TransferState` (PENDING → ACCEPTED → STREAMING → COMPLETED | FAILED | CANCELLED)
+- Cancel is protocol-level (`CMD_CANCEL_TRANSFER`), idempotent, and propagates: browser close → Relay sends cancel → Host aborts disk read via `AbortController`
+- Session revoke cancels all session-bound transfers before disconnecting client
+- Sequence gaps and byte-count mismatches trigger `FAILED` state
+- HTTP writable backpressure (`raw.write()` drain) propagates to Host disk read
+- Audit log written on each cancellation (fire-and-forget to `security_logs`)
+
+```
+packages/shared/src
+  index.ts                public barrel export
+  ws-types.ts             WS message type enums (WSMessageType) + payload interfaces
+  ws-types-preview.ts     preview-specific message types
+  file-tunnel-codec.ts    binary frame encode/decode (version, flags, transferId, seq)
+  security.ts             path allowlist/blocklist validation
+  api-types.ts            REST DTOs
+  file-utils.ts           file-category + size helpers
+  ui-fonts.ts             shared font constants
+  security-log-ui.ts      security log UI formatting helpers
+  protocol/               V2: runtime WS-message validators (schemas.ts) + typed errors (errors.ts) + range validation
+apps/server/src
+  index.ts                Fastify bootstrap, plugin/route registration, /health
+  routes/                 auth, hosts, messages, security-logs, proxy (REST API)
+  ws/                     handler (WS lifecycle), relay (routing), connection-registry,
+                          file-tunnel (V2: Transfer Engine registry + state machine + cancellation),
+                          pending-requests, tickets
 ```
 packages/shared/src
   index.ts                public barrel export
@@ -160,17 +190,12 @@ pnpm --filter @remotebridge/web test        # happy-dom env
 - Server tests use **ordered** `it()` blocks with file-level mutable state (intentional, not concurrent)
 - `rate-limit.test.ts` spawns its own dedicated relay on a free port for real limit testing
 
-### Test files (28 automated)
-
-|Package|Files|Tests|
-|---|---|---|
 |server|e2e, relay-roundtrip, session-flows, rate-limit, auth-cookie, startup-secrets, security-logs, messages-auth, host-token-refresh, pin-race, cors-whitelist, clientid-validation, proxy-ratelimit, session-lifetime|89|
 |web|useWebSocket (reconnect, revoke, backoff), MessagesPage.browser|20|
 |desktop|file-server, handlers, path-guard, path-guard-symlink, upload-quota, range-validation, token-manager, file-tunnel, audit-log-nonblocking|66|
-|shared|security, file-tunnel-codec, file-utils|42|
+|shared|security, file-tunnel-codec, file-utils, protocol-schemas (V2), range-validation (V2)|56|
 
 Recent fixes covered by tests: PIN atomic consumption (`pin-race.test.ts`), CORS whitelist (`cors-whitelist.test.ts`), upload quota enforcement (`upload-quota.test.ts`), path-guard symlink resolution (`path-guard-symlink.test.ts`), proxy rate limiting (`proxy-ratelimit.test.ts`), clientid validation (`clientid-validation.test.ts`), session lifetime expiry (`session-lifetime.test.ts`).
-
 ---
 
 ## Code Conventions & Patterns
@@ -180,6 +205,8 @@ Recent fixes covered by tests: PIN atomic consumption (`pin-race.test.ts`), CORS
 - `@remotebridge/shared` is imported by server, web, and desktop. Edit it first, then `pnpm --filter @remotebridge/shared build` before other packages see changes.
 - WS message types live in `ws-types.ts`; extend the `WSMessageType` enum rather than ad-hoc strings.
 - Binary frame changes must follow `file-tunnel-codec.ts` version/flags scheme (ADR-004).
+- **Protocol validation (V2):** all incoming JSON WS messages are validated via `validateMessage()` from `shared/protocol/schemas.ts` at the handler boundary; never use `payload: any` — use typed payloads from `ws-types.ts`.
+- **Range validation (V2):** use shared `parseRangeHeader()` + `validateRangeAgainstSize()` for all Range header parsing; never silently clamp unsatisfiable ranges — return 416.
 
 ### Server (Fastify + Drizzle)
 
@@ -192,9 +219,8 @@ Recent fixes covered by tests: PIN atomic consumption (`pin-race.test.ts`), CORS
 ### Web (Next.js 15 + Zustand)
 
 - State: single `useAppStore` (Zustand, `store/app-store.ts`). WS manager is separate (`hooks/useWebSocket.ts`).
-- API client: `lib/api.ts` (axios). WS URL from `NEXT_PUBLIC_WS_URL` (build-time embedded — requires rebuild to change).
-- Security: tokens are **httpOnly cookies** — never read or store tokens in JS. Session metadata only in localStorage.
 - StrictMode-safe: WS connect must collapse concurrent calls.
+- **Preview security (V2):** active content (html/htm/xhtml/svg) must be forced to attachment (`Content-Disposition: attachment; application/octet-stream`), never inline preview. All preview/download responses include `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Preview responses add `Content-Security-Policy: sandbox`.
 
 ### Desktop (Electron 29 + electron-vite)
 
@@ -218,7 +244,10 @@ Recent fixes covered by tests: PIN atomic consumption (`pin-race.test.ts`), CORS
 |`packages/shared/src/ws-types.ts`|Single source of truth for all WS message types|
 |`packages/shared/src/file-tunnel-codec.ts`|Binary frame wire format|
 |`packages/shared/src/security.ts`|Path allowlist/blocklist|
-|`apps/server/src/index.ts`|Relay entry point, `/health`, graceful shutdown|
+|`packages/shared/src/protocol/schemas.ts`|V2: runtime WS-message validators (validateMessage, validatePayload)|
+|`packages/shared/src/protocol/errors.ts`|V2: typed protocol errors (ProtocolError, InvalidEnvelopeError, InvalidPayloadError)|
+|`apps/server/src/ws/file-tunnel.ts`|V2: Transfer Engine registry (begin/cancel/endFileTransfer, state machine, sequence/byte integrity)|
+|`apps/desktop/src/main/ws-client/file-tunnel.ts`|V2: Host file tunnel with per-transfer AbortController cancellation|
 |`apps/server/src/routes/auth.ts`|PIN, register, connect, refresh, WS ticket|
 |`apps/server/src/routes/proxy.ts`|File download/preview proxy + tunnel streaming|
 |`apps/server/src/ws/handler.ts`|WS connection lifecycle, room routing|
@@ -283,3 +312,19 @@ Auto-update: desktop checks GitHub Releases on startup (electron-updater).
 - `docs/runbook.md` (Chinese) — ops runbook: crash recovery (P1), register-host abuse (P2), rollback procedure, known limitations
 - `docs/adr/` — architecture decision records
 - `.full-review/` — periodic repo-wide review reports (latest `05-final-report.md`)
+
+### Git 提交规则
+
+  - commit message 中禁止包含任何 `Co-Authored-By` 署名（包括但不限于 Claude、Anthropic、noreply@anthropic.com 等任何 AI 相关署名）
+
+  - 所有提交仅保留用户本人的 git 作者信息（`用户名 <邮箱>`）
+
+  - 创建 PR 时同样不添加任何 AI 合作者信息
+
+### 仓库管理硬性规则（永远不可违反）
+
+  - **禁止修改公共仓库的可见性**：不得将任何公开（public）仓库切换为私有（private）或内部（internal），即使是为了清除 contributor 缓存、刷新索引或其他任何原因。此操作会导致 star 和 fork 数据永久丢失。
+
+  - **禁止通过 `gh repo edit --visibility` 切换任何仓库的可见性**：除非用户明确要求且已书面确认接受丢失 star/fork 的后果。
+
+  - **禁止通过其他任何手段（API、浏览器设置等）修改仓库可见性**：本规则覆盖所有可能的可见性修改方式。
