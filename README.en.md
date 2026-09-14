@@ -67,23 +67,30 @@ Your PC never listens on a public port — NAT and firewall traversal is inheren
 
 ---
 
+## Key Features
+
+### Connection & Pairing
 | 🔌 **Zero-config connection** | Desktop app initiates outbound connections only — no port forwarding, VPN, or dynamic DNS |
 | 🔑 **PIN-based pairing** | Short-lived 8-character PIN (default 5 min, configurable up to 24 hours), enter in browser to connect; HMAC indexed lookup O(1) auth |
-| 📁 **File browsing & download** | Whitelisted directory browsing, HTTP Range resume, 256 KB binary frame streaming |
-| 👁️ **In-browser preview** | Image, PDF, text preview; PDF opens in sandboxed iframe; large files (>50 MB) auto partial-load first 1 MB |
-| 💬 **Real-time messaging** | Persistent message history, automatic REST fallback when WebSocket unavailable |
-| 🔒 **Session management** | Revoke any client session instantly from desktop; old tokens invalidated immediately |
-| 📊 **Security audit** | All file access attempts (allowed/denied) logged; viewable in web client; PathGuard V2 longest-match + audit logging |
 | 🖥️ **Built-in local Relay** | One-click start/stop Relay server inside the desktop app — no separate deployment needed |
+
+### File Transfer
+| 📁 **File browsing & download** | Whitelisted directory browsing, HTTP Range resume, 256 KB binary frame streaming |
 | 📤 **Streaming file upload** | Browser → Host binary chunked streaming (File.stream + self-describing frames), atomic write, concurrent quota 5 / 100 MB per file |
+| 👁️ **In-browser preview** | Image, PDF, text preview; PDF opens in sandboxed iframe; large files (>50 MB) auto partial-load first 1 MB |
+| ⚡ **V2 Transfer Engine** | Stateful transfer lifecycle (cancel/backpressure/integrity), end-to-end backpressure to disk read; runtime WS message schema validation |
+
+### Security & Isolation
+| 🔒 **Session management** | Revoke any client session instantly from desktop; old tokens invalidated immediately |
+| 🛡️ **Active content isolation** | HTML/SVG forced to attachment download, never inline; PathGuard V2 (longest-match/audit-log/Windows-normalize/TOCTOU-mitigation) |
 | 🔗 **Opaque resource handle** | File paths no longer appear in URLs; Relay issues TTL-bound opaque resourceId |
+
+### Deployment & Experience
+| 💬 **Real-time messaging** | Persistent message history, automatic REST fallback when WebSocket unavailable |
+| 📊 **Security audit** | All file access attempts (allowed/denied) logged; viewable in web client |
 | 🔄 **Auto-update** | Desktop app checks GitHub Releases for new versions on startup |
 | 🐳 **Fully self-hosted** | One-command Docker Compose deploy, Caddy automatic TLS |
 | 🛡️ **Production-grade security** | httpOnly Cookie tokens, CSP, non-root containers, resource limits, security headers |
-| ⚡ **V2 Transfer Engine** | Stateful transfer lifecycle (cancel/backpressure/integrity), end-to-end backpressure to disk read; runtime WS message schema validation |
-| 🛡️ **Active content isolation** | HTML/SVG forced to attachment download, never inline; PathGuard V2 (longest-match/audit-log/Windows-normalize/TOCTOU-mitigation) |
-
----
 
 ## Quick Start
 
@@ -194,15 +201,25 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 ```
 
 ---
-
 ## Tech Stack
 
-| Component | Technology |
-| Desktop Host | Electron 29 · Fastify (local file server) · better-sqlite3 · per-transfer AbortController cancellation |
-| Relay Server | Fastify · `@fastify/websocket` · better-sqlite3 · Drizzle ORM · V2 Transfer Engine state machine |
-| Web Client | Next.js 15 App Router · 6 focused Zustand stores (transfer/session/file/preview/message) · Tailwind CSS |
-| Shared Protocol | TypeScript protocol types · runtime message validators · path security · V2 transfer engine (TransferRecord / BaseTransferManager) · opaque resource handles |
-| Tooling | pnpm workspaces · Turborepo · Vitest · electron-vite |
+| Layer | Component | Technology |
+|-------|-----------|------------|
+| **Desktop Host** | Main process | Electron 29 · Node 20 |
+| | Local file server | Fastify · per-transfer AbortController cancellation |
+| | Data storage | better-sqlite3 |
+| **Relay Server** | HTTP/WS service | Fastify · `@fastify/websocket` |
+| | Data persistence | better-sqlite3 · Drizzle ORM |
+| | Transfer engine | V2 Transfer Engine state machine (cancel/backpressure/integrity) |
+| **Web Client** | Framework | Next.js 15 App Router · Tailwind CSS |
+| | State management | 6 focused Zustand stores (transfer/session/file/preview/message) |
+| **Shared Protocol** | Protocol types | TypeScript interfaces · runtime message validators · path security |
+| | Transfer module | V2 Transfer Engine (TransferRecord / BaseTransferManager) · opaque resource handles |
+| **Tooling** | Build | pnpm workspaces · Turborepo · electron-vite |
+| | Testing | Vitest · happy-dom |
+| | Instance identity | UUID generated at startup, exposed via `/health` as `instance_id` |
+
+ ## Documentation
 | [Production Deployment Guide](生产环境部署与使用指南.md) | Docker deploy, Caddy config, ops runbook, troubleshooting |
 | [User Manual](使用说明书.md) | End-user operation manual |
 | [CHANGELOG](CHANGELOG.md) | Version history |
