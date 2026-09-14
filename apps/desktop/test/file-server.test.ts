@@ -183,7 +183,8 @@ describe('/preview — MIME types', () => {
     ['test.png', 'image/png'],
     ['test.json', 'application/json'],
     ['test.md', 'text/markdown'],
-    ['test.html', 'text/html'],
+    // PR-05: active content (html) forced to attachment with octet-stream
+    ['test.html', 'application/octet-stream'],
     ['unknown.xyz', 'application/octet-stream'],
   ];
 
@@ -205,6 +206,26 @@ describe('/preview — MIME types', () => {
     allowToken(testFilePath);
     const res = await get('/preview?token=cc');
     expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('forces active content (html) to attachment', async () => {
+    const fp = path.join(testDir, 'active.html');
+    fs.writeFileSync(fp, '<html></html>');
+    mocks.validateDownloadToken.mockReturnValueOnce({
+      valid: true,
+      token: { filePath: fp, clientId: 'c1' },
+    });
+    const res = await get('/preview?token=active');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/octet-stream');
+    expect(res.headers.get('content-disposition')).toContain('attachment');
+  });
+
+  it('sets security headers on preview responses', async () => {
+    allowToken(testFilePath);
+    const res = await get('/preview?token=sec');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
   });
 });
 
