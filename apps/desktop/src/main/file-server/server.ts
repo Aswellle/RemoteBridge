@@ -51,6 +51,15 @@ export function getContentTypeForExt(ext: string): string {
   return CONTENT_TYPES[ext.toLowerCase()] || 'application/octet-stream';
 }
 
+// ===== 活跃内容隔离（PR-05）=====
+// 这些扩展名的文件可能包含可执行内容（HTML/SVG），必须强制下载，不得内联预览
+const ACTIVE_CONTENT_EXTS: Record<string, true> = {
+  html: true,
+  htm: true,
+  xhtml: true,
+  svg: true,
+};
+
 // ===== 启动文件服务器 =====
 export async function startFileServer(): Promise<number> {
   if (fileServer) {
@@ -109,27 +118,38 @@ export async function startFileServer(): Promise<number> {
     const rangeHeader = request.headers.range;
 
     // 6. 设置响应头
+    const etag = `"${stat.size}-${stat.mtimeMs}"`;
+    reply.header('ETag', etag);
+    reply.header('Last-Modified', stat.mtime.toUTCString());
     reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
     reply.header('Accept-Ranges', 'bytes');
-
     if (rangeHeader) {
       // Range 请求（断点续传）
       const parts = rangeHeader.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-      // D4: 验证 Range 参数
-      if (isNaN(start) || isNaN(end) || start < 0 || end >= stat.size || start > end) {
-        return reply.code(416).send({ error: "Invalid Range header" });
+      // PR-04: 严格 Range 校验 — 起点 >= fileSize 也必须 416
+      if (isNaN(start) || isNaN(end) || start < 0 || start >= stat.size || end >= stat.size || start > end) {
+        reply.code(416);
+        reply.header('Content-Range', `bytes */${stat.size}`);
+        return reply.send({ error: "Invalid Range header" });
       }
       const chunkSize = end - start + 1;
 
       reply.code(206);
+      reply.header('Content-Type', 'application/octet-stream');
       reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
       reply.header('Content-Length', chunkSize);
+      // PR-05: 安全响应头
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Referrer-Policy', 'no-referrer');
 
       return reply.send(createReadStream(filePath, { start, end }));
     } else {
       // 完整文件
+      // PR-05: 安全响应头
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Referrer-Policy', 'no-referrer');
       reply.header('Content-Length', stat.size);
       return reply.send(createReadStream(filePath));
     }
@@ -178,36 +198,50 @@ export async function startFileServer(): Promise<number> {
       path: filePath,
       status: 'OK',
     });
-
     const fileName = path.basename(filePath);
     const ext = path.extname(fileName).slice(1).toLowerCase();
-
-    // 6. 支持 Range 请求（用于大文本文件分段加载）
-    // NOTE: Range 校验必须在设置 Content-Type 之前，否则 Fastify v5 会因
-    // Content-Type 已设为二进制类型而拒绝序列化 JSON 错误体，返回 500。
     const rangeHeader = request.headers.range;
+    // 6. 支持 Range 请求（用于大文本文件分段加载）
     if (rangeHeader) {
       const parts = rangeHeader.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
-      // D4: 验证 Range 参数
-      if (isNaN(start) || isNaN(end) || start < 0 || end >= stat.size || start > end) {
-        return reply.code(416).send({ error: "Invalid Range header" });
+      // PR-04: 严格 Range 校验 — 起点 >= fileSize 也必须 416
+      if (isNaN(start) || isNaN(end) || start < 0 || start >= stat.size || end >= stat.size || start > end) {
+        reply.code(416);
+        reply.header('Content-Range', `bytes */${stat.size}`);
+        return reply.send({ error: "Invalid Range header" });
       }
       const chunkSize = end - start + 1;
 
       reply.code(206);
-      reply.header('Content-Type', getContentTypeForExt(ext));
+      reply.header('Content-Type', ACTIVE_CONTENT_EXTS[ext] === true ? 'application/octet-stream' : getContentTypeForExt(ext));
       reply.header('Content-Range', `bytes ${start}-${end}/${stat.size}`);
       reply.header('Content-Length', chunkSize);
+      // PR-05: 安全响应头
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Referrer-Policy', 'no-referrer');
+      reply.header('Content-Security-Policy', 'sandbox');
 
       return reply.send(createReadStream(filePath, { start, end }));
     }
 
-    // 7. 设置 Content-Type（无 Range 或 Range 已处理）
-    reply.header('Content-Type', getContentTypeForExt(ext));
+    // 7. 设置 Content-Type / Content-Disposition（无 Range）
+    const etag = `"${stat.size}-${stat.mtimeMs}"`;
+    reply.header('ETag', etag);
+    reply.header('Last-Modified', stat.mtime.toUTCString());
+    if (ACTIVE_CONTENT_EXTS[ext] === true) {
+      reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      reply.header('Content-Type', 'application/octet-stream');
+    } else {
+      reply.header('Content-Type', getContentTypeForExt(ext));
+    }
     reply.header('Accept-Ranges', 'bytes');
     reply.header('Cache-Control', 'no-store'); // 预览内容不缓存
+    // PR-05: 安全响应头
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Referrer-Policy', 'no-referrer');
+    reply.header('Content-Security-Policy', 'sandbox');
     reply.header('Content-Length', stat.size);
     return reply.send(createReadStream(filePath));
   });

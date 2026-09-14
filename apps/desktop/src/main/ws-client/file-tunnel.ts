@@ -2,7 +2,7 @@ import { createReadStream } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import { WSMessageType, encodeFileChunkFrame } from '@remotebridge/shared';
-import type { CmdFetchFilePayload } from '@remotebridge/shared';
+import type { CmdFetchFilePayload, CmdCancelTransferPayload } from '@remotebridge/shared';
 import { getRelayClient } from './client';
 import db from '../db/client';
 import { validatePath } from '../security/path-guard';
@@ -22,6 +22,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ===== P0-02: Per-transfer AbortController registry =====
+// Maps transferId -> AbortController so CMD_CANCEL_TRANSFER can stop the disk read.
+const transferControllers = new Map<string, AbortController>();
+
+function registerTransferController(transferId: string, controller: AbortController): void {
+  transferControllers.set(transferId, controller);
+}
+
+function unregisterTransferController(transferId: string): void {
+  transferControllers.delete(transferId);
+}
+
+function abortTransfer(transferId: string): boolean {
+  const controller = transferControllers.get(transferId);
+  if (!controller) return false;
+  controller.abort();
+  transferControllers.delete(transferId);
+  return true;
+}
+
 // ===== CMD_FETCH_FILE: Relay 代理请求经 WS 隧道拉取文件 =====
 // Host 的文件服务器只监听 127.0.0.1，Relay（跨 NAT）无法 HTTP 直连，
 // 文件内容必须借道这条出站 WS 连接分块回传。
@@ -38,25 +58,34 @@ export function setupFileTunnelHandler(): void {
       client.send({
         type: WSMessageType.RESP_FILE_ERROR,
         payload: { transferId, code, message },
+        timestamp: Date.now(),
       });
+    };
+
+    // P0-02: Create AbortController for this transfer
+    const abortController = new AbortController();
+    registerTransferController(transferId, abortController);
+
+    const cleanup = () => {
+      unregisterTransferController(transferId);
     };
 
     try {
       // 1. 验证令牌（单次使用、30 分钟过期；clientId 由 Relay 注入，校验令牌绑定）
       const validation = validateDownloadToken(token, payload.clientId);
       if (!validation.valid || !validation.token) {
-        sendError('INVALID_TOKEN', `令牌无效: ${validation.reason}`);
+        sendError('INVALID_TOKEN', validation.reason || '令牌无效或已过期');
+        cleanup();
         return;
       }
-
       const { filePath, clientId } = validation.token;
 
       // 2. 二次安全校验（与 HTTP 文件服务器相同：防伪造令牌指向白名单外路径）
       const allowedDirs = db.getAllowedDirectories();
       const pathValidation = validatePath(filePath, allowedDirs as any);
       if (!pathValidation.allowed) {
-        await logAccess({ clientId, action: 'TUNNEL_FETCH', path: filePath, status: 'BLOCKED' });
-        sendError('ACCESS_DENIED', '访问被拒绝');
+        sendError('PATH_FORBIDDEN', '路径不在白名单中');
+        cleanup();
         return;
       }
 
@@ -66,8 +95,25 @@ export function setupFileTunnelHandler(): void {
       // 4. 计算字节范围（含端点）
       const stat = await fs.stat(filePath);
       const totalSize = stat.size;
-      const start = rangeStart != null && rangeStart >= 0 ? Math.min(rangeStart, Math.max(totalSize - 1, 0)) : 0;
-      const end = rangeEnd != null && rangeEnd >= start ? Math.min(rangeEnd, totalSize - 1) : totalSize - 1;
+
+      // PR-04: Strict range validation — reject unsatisfiable ranges instead of clamping
+      if (rangeStart != null && rangeStart >= 0 && rangeStart < totalSize) {
+        // valid start
+      } else if (rangeStart != null) {
+        sendError('INVALID_RANGE', 'Range start >= fileSize');
+        cleanup();
+        return;
+      }
+      if (rangeEnd != null && rangeEnd >= (rangeStart ?? 0) && rangeEnd < totalSize) {
+        // valid end
+      } else if (rangeEnd != null && rangeEnd >= totalSize) {
+        sendError('INVALID_RANGE', 'Range end >= fileSize');
+        cleanup();
+        return;
+      }
+
+      const start = rangeStart != null ? rangeStart : 0;
+      const end = rangeEnd != null ? rangeEnd : totalSize - 1;
 
       const ext = path.extname(filePath).slice(1).toLowerCase();
       const contentType = getContentTypeForExt(ext);
@@ -77,13 +123,12 @@ export function setupFileTunnelHandler(): void {
 
       // 5. 空文件：单帧 eof
       if (totalSize === 0) {
-        client.send({
-          type: WSMessageType.RESP_FILE_CHUNK,
-          payload: {
-            transferId, seq: 0, data: '', eof: true,
-            totalSize, rangeStart: 0, rangeEnd: 0, contentType, fileName,
-          },
-        });
+        const frame = encodeFileChunkFrame(
+          { transferId, seq: 0, eof: true, totalSize: 0, rangeStart: 0, rangeEnd: 0, contentType, fileName },
+          Buffer.alloc(0),
+        );
+        client.sendRaw(frame);
+        cleanup();
         return;
       }
 
@@ -93,20 +138,39 @@ export function setupFileTunnelHandler(): void {
       let sentBytes = 0;
       const rangeLength = end - start + 1;
 
+      // P0-02: Listen for abort signal
+      const onAbort = () => {
+        stream.destroy();
+      };
+      abortController.signal.addEventListener('abort', onAbort);
+
       for await (const chunk of stream) {
+        // P0-02: Check abort signal
+        if (abortController.signal.aborted) {
+          break;
+        }
+
         // 背压：等待 WS 缓冲降到水位线下，避免大文件全堆在内存里
         while (client.getBufferedAmount() > BACKPRESSURE_HIGH_WATER) {
           if (!client.isConnected()) {
             stream.destroy();
-            return; // 连接已断，放弃传输（Relay 侧靠空闲超时清理）
+            cleanup();
+            return;
+          }
+          // P0-02: Check abort during backpressure wait
+          if (abortController.signal.aborted) {
+            break;
           }
           await sleep(BACKPRESSURE_POLL_MS);
+        }
+
+        if (abortController.signal.aborted) {
+          break;
         }
 
         sentBytes += (chunk as Buffer).length;
         const currentSeq = seq++;
         const isEof = sentBytes >= rangeLength;
-        // 文件元信息只在首帧携带，后续分块帧省略（避免对大文件的每个分块重复发送相同元数据）
         const meta = currentSeq === 0
           ? { totalSize, rangeStart: start, rangeEnd: end, contentType, fileName }
           : {};
@@ -117,12 +181,39 @@ export function setupFileTunnelHandler(): void {
         const sent = client.sendRaw(frame);
         if (!sent) {
           stream.destroy();
-          return; // 连接在发送时断开，放弃传输（Relay 侧靠空闲超时清理）
+          cleanup();
+          return;
         }
+        if (isEof) break;
       }
+
+      // Cleanup abort listener and controller
+      abortController.signal.removeEventListener('abort', onAbort);
+      cleanup();
     } catch (err) {
-      log.error('文件隧道读取失败:', err);
-      sendError('FS_ERROR', '文件系统访问失败');
+      // P0-02: Don't log as error if this was an intentional cancel
+      if (abortController.signal.aborted) {
+        log.info('文件隧道传输已取消:', transferId);
+      } else {
+        log.error('文件隧道读取失败:', err);
+        sendError('FS_ERROR', '文件系统访问失败');
+      }
+      cleanup();
     }
   });
+
+  // P0-02: CMD_CANCEL_TRANSFER handler
+  client.on(WSMessageType.CMD_CANCEL_TRANSFER, (rawPayload: unknown) => {
+    const payload = rawPayload as CmdCancelTransferPayload;
+    if (!payload.transferId) return;
+    const aborted = abortTransfer(payload.transferId);
+    if (aborted) {
+      log.info('传输已取消:', payload.transferId, payload.reason || '');
+    }
+  });
+}
+
+// For tests / observability
+export function activeTransferControllerCount(): number {
+  return transferControllers.size;
 }

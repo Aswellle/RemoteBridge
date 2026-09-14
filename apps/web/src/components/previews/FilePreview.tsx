@@ -29,6 +29,15 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
   const localCategory = getFileCategory(fileExtension);
   const effectiveCategory = category !== 'unknown' ? category : localCategory;
 
+  // PR-05: 活跃内容（HTML/SVG）出于安全原因禁止内联预览，强制下载
+  const ACTIVE_CONTENT_EXTS: Record<string, true> = {
+    html: true,
+    htm: true,
+    xhtml: true,
+    svg: true,
+  };
+  const isPreviewBlocked = ACTIVE_CONTENT_EXTS[fileExtension.toLowerCase()] === true;
+
   // PDF 用新标签打开（Chrome 内置 PDF 阅读器全屏体验），防止 StrictMode 双触发
   const pdfOpenedRef = useRef(false);
   useEffect(() => {
@@ -41,16 +50,14 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
 
   // 请求预览（未知类型无需网络请求，直接展示 UnsupportedViewer）
   useEffect(() => {
-    if (localCategory === 'unknown') {
+    if (localCategory === 'unknown' || isPreviewBlocked) {
       return () => { clearPreview(); };
     }
     requestPreview(filePath);
     return () => {
       clearPreview();
     };
-  }, [filePath, requestPreview, clearPreview, localCategory]);
-
-  // ESC 关闭
+  }, [filePath, requestPreview, clearPreview, localCategory, isPreviewBlocked]);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -179,7 +186,21 @@ export default function FilePreview({ filePath, fileName, fileExtension, onClose
 
           {/* 预览内容区 */}
           <div className="flex-1 overflow-auto">
-            {localCategory === 'unknown' ? (
+            {isPreviewBlocked ? (
+              <div className="flex items-center justify-center h-96">
+                <div className="text-center">
+                  <AlertTriangle className="w-10 h-10 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-lg text-foreground mb-2">无法预览此文件类型</p>
+                  <p className="text-sm text-muted-foreground mb-4">出于安全原因，HTML/SVG 等活跃内容文件不支持预览</p>
+                  <button
+                    onClick={handleDownload}
+                    className="px-6 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition-colors"
+                  >
+                    下载文件
+                  </button>
+                </div>
+              </div>
+            ) : localCategory === 'unknown' ? (
               <UnsupportedViewer fileName={fileName} onDownload={handleDownload} />
             ) : loading ? (
               <div className="flex items-center justify-center h-96">
