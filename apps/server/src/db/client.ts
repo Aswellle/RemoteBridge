@@ -93,6 +93,8 @@ export function initDatabase(): void {
   // CREATE TABLE 已包含 pin_hmac TEXT（新库自带此列），此 ALTER TABLE 仅用于预迁移库（pre-existing databases）；
   // 列已存在时 SQLite 会报错，catch 忽略；NULL 表示旧记录，connect 路由降级为 bcrypt-only。
   try { sqlite.exec('ALTER TABLE hosts ADD COLUMN pin_hmac TEXT'); } catch {}
+  // P1-06: Index for exact HMAC lookup (avoids full table scan + bcrypt on every host)
+  try { sqlite.exec('CREATE INDEX IF NOT EXISTS idx_hosts_pin_hmac ON hosts(pin_hmac) WHERE pin_hmac IS NOT NULL AND pin_hmac != \'\''); } catch {}
 
   logger.info('数据库初始化完成');
 }

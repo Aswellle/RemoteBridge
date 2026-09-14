@@ -5,6 +5,9 @@ import { db } from '../db/client';
 import { hosts, sessions, securityLogs } from '../db/schema';
 import { eq, and, gt, isNull, ne, or } from 'drizzle-orm';
 import { generatePinWithHash, isValidPinFormat, verifyPin } from '../utils/pin';
+import { computePinHmac } from '../utils/pin';
+import { compare } from '@node-rs/bcrypt';
+
 import { signHostToken, signClientAccessToken, signClientRefreshToken, verifyHostToken, verifyRefreshToken, verifyAccessToken, extractTokenFromHeader, extractTokenFromRequest } from '../utils/jwt';
 import { notifyAndDisconnectClient } from '../ws/relay';
  import { cancelTransfersBySession } from '../ws/file-tunnel';
@@ -233,29 +236,27 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       });
     }
 
-    // 查找所有可能匹配的主机（PIN 未过期且未被封禁）
-    // 在 SQL 层过滤掉无 PIN/已过期的主机，避免对全表逐行做 bcrypt 比较
+    // P1-06: PIN HMAC 索引化 — 先计算 HMAC，再精确查找，避免全表 bcrypt
+    const pinHmac = computePinHmac(pin);
     const now = Math.floor(Date.now() / 1000);
-    const potentialHosts = await db.select()
+
+    const matchedHosts = await db.select()
       .from(hosts)
       .where(
         and(
           eq(hosts.isBanned, 0),
-          ne(hosts.pinHash, ''),
+          eq(hosts.pinHmac, pinHmac),
           or(isNull(hosts.pinExpiresAt), gt(hosts.pinExpiresAt, now)),
         )
-      );
+      )
+      .limit(1);
 
-    // 逐个验证 PIN 哈希
-    let matchedHost: typeof hosts.$inferSelect | null = null;
-    for (const host of potentialHosts) {
-      if (!host.pinHash) continue;
-      if (host.pinExpiresAt && host.pinExpiresAt < now) continue;
+    const matchedHost = matchedHosts[0] || null;
 
-      const isValid = await verifyPin(pin, host.pinHash, host.pinHmac);
-      if (isValid) {
-        matchedHost = host;
-        break;
+    if (matchedHost && matchedHost.pinHash) {
+      const isValid = await compare(pin, matchedHost.pinHash);
+      if (!isValid) {
+        return reply.code(401).send({ success: false, data: null, error: { code: 'INVALID_PIN', message: 'PIN 码无效或已过期' }, timestamp: Date.now() });
       }
     }
 
