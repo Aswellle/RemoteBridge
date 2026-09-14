@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { post, createSession } from './helpers';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { post, postWithCookies } from './helpers';
 
 /**
  * P1-06: PIN HMAC 索引化基准测试
@@ -36,17 +36,19 @@ describe('P1-06: PIN HMAC indexed lookup benchmark', () => {
     expect(pinRes.data.pin).toBeDefined();
     const pin = pinRes.data.pin;
 
-    // Measure connect time
+    // Measure connect time (token is in httpOnly cookie, not body)
     const start = Date.now();
-    const connectRes = await post('/auth/connect', {
+    const connectRes = await postWithCookies('/auth/connect', {
       pin,
       clientId: 'bench-client',
-      label: 'Benchmark Client',
+      clientLabel: 'Benchmark Client',
     });
     const elapsed = Date.now() - start;
 
+    // Token is delivered via Set-Cookie (02a-S11), verify sessionId in body and accessToken in cookie
     expect(connectRes.data).toBeDefined();
-    expect(connectRes.data.accessToken).toBeDefined();
+    expect(connectRes.data.sessionId).toBeDefined();
+    expect(connectRes.accessToken).toBeDefined();
 
     // With HMAC index, connect should be fast (< 500ms even with 50 hosts)
     // Without index, this would be O(n) bcrypt comparisons
