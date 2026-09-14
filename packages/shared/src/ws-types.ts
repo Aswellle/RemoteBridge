@@ -50,7 +50,10 @@ export enum WSMessageType {
   CMD_UPLOAD_FILE_CHUNK = 'CMD_UPLOAD_FILE_CHUNK',
   RESP_UPLOAD_ACK = 'RESP_UPLOAD_ACK',
   RESP_UPLOAD_ERROR = 'RESP_UPLOAD_ERROR',
-
+  // V2 Upload Binary Streaming (P1-01)
+  UPLOAD_START = 'UPLOAD_START',
+  UPLOAD_END = 'UPLOAD_END',
+  UPLOAD_CANCEL = 'UPLOAD_CANCEL',
    // 目录变更推送（Host → Relay → All Clients）
    HOST_DIRS_UPDATED = 'HOST_DIRS_UPDATED',
   // 错误处理
@@ -314,6 +317,24 @@ export interface RespUploadAckPayload extends RelayRoutingFields {
 
 export interface RespUploadErrorPayload extends RelayRoutingFields {
   uploadId: string;
-  code: string;
   message: string;
+}
+
+// ===== V2 Upload Binary Streaming Payload（P1-01） =====
+
+export interface UploadStartPayload extends RelayRoutingFields {
+  uploadId: string;
+  fileName: string;
+  mimeType: string;
+  category: UploadCategory;
+  totalSize: number;
+}
+
+export interface UploadEndPayload extends RelayRoutingFields {
+  uploadId: string;
+}
+
+export interface UploadCancelPayload extends RelayRoutingFields {
+  uploadId: string;
+  reason?: 'user_cancel' | 'client_disconnect' | 'timeout';
 }

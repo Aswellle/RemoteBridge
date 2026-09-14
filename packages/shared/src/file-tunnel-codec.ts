@@ -202,3 +202,103 @@ export function decodeFileChunkFrame(buf: Buffer): DecodedFileChunkFrame {
   result.data = buf.subarray(offset);
   return result;
 }
+// ===== V2 Upload Binary Chunk Codec (P1-01) =====
+// Binary frame format for streaming upload chunks:
+// [0]      version (uint8) = 1
+// [1]      flags (uint8) — bit0=eof
+// [2-3]    transferIdLen (uint16 BE)
+// [...]    transferId (ASCII)
+// [+0..3]  seq (uint32 BE)
+// [+4..7]  dataLen (uint32 BE)
+// [...]    chunk payload (dataLen bytes)
+
+const UPLOAD_VERSION = 1;
+const UPLOAD_FLAG_EOF = 0b01;
+
+export interface UploadChunkMeta {
+  transferId: string;
+  seq: number;
+  eof: boolean;
+}
+
+export interface DecodedUploadChunkFrame {
+  transferId: string;
+  seq: number;
+  eof: boolean;
+  data: Buffer;
+}
+
+export function encodeUploadChunkFrame(meta: UploadChunkMeta, chunk: Buffer): Buffer {
+  const transferIdBuf = Buffer.from(meta.transferId, 'ascii');
+  const transferIdLen = transferIdBuf.length;
+  const dataLen = chunk.length;
+
+  // 1 + 1 + 2 + transferIdLen + 4 + 4 + dataLen
+  const total = 1 + 1 + 2 + transferIdLen + 4 + 4 + dataLen;
+  const buf = Buffer.allocUnsafe(total);
+  let offset = 0;
+
+  buf.writeUInt8(UPLOAD_VERSION, offset);
+  offset += 1;
+
+  buf.writeUInt8(meta.eof ? UPLOAD_FLAG_EOF : 0, offset);
+  offset += 1;
+
+  buf.writeUInt16BE(transferIdLen, offset);
+  offset += 2;
+
+  transferIdBuf.copy(buf, offset);
+  offset += transferIdLen;
+
+  buf.writeUInt32BE(meta.seq, offset);
+  offset += 4;
+
+  buf.writeUInt32BE(dataLen, offset);
+  offset += 4;
+
+  if (dataLen > 0) {
+    chunk.copy(buf, offset);
+    offset += dataLen;
+  }
+
+  return buf;
+}
+
+export function decodeUploadChunkFrame(buf: Buffer): DecodedUploadChunkFrame {
+  if (buf.length < 12) {
+    throw new Error('upload chunk frame too short');
+  }
+  let offset = 0;
+
+  const version = buf.readUInt8(offset);
+  offset += 1;
+  if (version !== UPLOAD_VERSION) {
+    throw new Error(`unsupported upload chunk frame version: ${version}`);
+  }
+
+  const flags = buf.readUInt8(offset);
+  offset += 1;
+  const eof = (flags & UPLOAD_FLAG_EOF) !== 0;
+
+  const transferIdLen = buf.readUInt16BE(offset);
+  offset += 2;
+
+  if (offset + transferIdLen + 8 > buf.length) {
+    throw new Error('upload chunk frame truncated (header)');
+  }
+  const transferId = buf.toString('ascii', offset, offset + transferIdLen);
+  offset += transferIdLen;
+
+  const seq = buf.readUInt32BE(offset);
+  offset += 4;
+
+  const dataLen = buf.readUInt32BE(offset);
+  offset += 4;
+
+  if (offset + dataLen > buf.length) {
+    throw new Error(`upload chunk frame truncated: expected ${dataLen} bytes, got ${buf.length - offset}`);
+  }
+  const data = buf.subarray(offset, offset + dataLen);
+
+  return { transferId, seq, eof, data };
+}
