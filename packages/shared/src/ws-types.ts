@@ -244,8 +244,8 @@ export interface RespTransferStatePayload {
 // ===== 消息 Payload =====
 export interface MsgTextPayload {
   content: string;
-  senderId: string;
-  senderLabel: string;
+  senderId?: string;
+  senderLabel?: string;
 }
 
 export interface MsgSystemPayload {

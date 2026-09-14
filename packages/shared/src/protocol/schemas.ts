@@ -149,8 +149,8 @@ function validateMsgTextPayload(payload: unknown): MsgTextPayload {
   if (!isObject(payload)) throw new InvalidPayloadError(WSMessageType.MSG_TEXT, 'payload must be object');
   return {
     content: asString(payload.content, 'content'),
-    senderId: asString(payload.senderId, 'senderId'),
-    senderLabel: asString(payload.senderLabel, 'senderLabel'),
+    senderId: asOptionalString(payload.senderId, 'senderId'),
+    senderLabel: asOptionalString(payload.senderLabel, 'senderLabel'),
   };
 }
 
