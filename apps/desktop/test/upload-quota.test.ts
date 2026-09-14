@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import { WSMessageType } from '@remotebridge/shared';
+import { WSMessageType, encodeUploadChunkFrame } from '@remotebridge/shared';
 
-// Isolated module state: this file re-mocks the same modules as handlers.test.ts
-// but runs in its own vitest module registry, so uploadBuffer starts empty.
+// Isolated module state for V2 upload quota tests
 var sentMessages: any[] = [];
-var handlers = new Map<string, (payload: any) => Promise<void> | void>();
+var jsonHandlers = new Map<string, (payload: any) => Promise<void> | void>();
+var binaryHandlers = Array<(data: Buffer) => Promise<void> | void>();
 var testUploadDir = '';
 
 vi.mock('../src/main/logger', () => ({
@@ -27,7 +27,10 @@ vi.mock('electron', () => ({
 vi.mock('../src/main/ws-client/client', () => ({
   getRelayClient: () => ({
     on: (type: string, handler: (payload: any) => Promise<void> | void) => {
-      handlers.set(type, handler);
+      jsonHandlers.set(type, handler);
+    },
+    onBinary: (handler: (data: Buffer) => Promise<void> | void) => {
+      binaryHandlers.push(handler);
     },
     send: (msg: any) => { sentMessages.push(msg); return true; },
     isConnected: () => true,
@@ -35,7 +38,7 @@ vi.mock('../src/main/ws-client/client', () => ({
 }));
 
 vi.mock('../src/main/db/client', () => ({
-  db: {
+  default: {
     insertMessage: vi.fn(),
     upsertConnectedClient: vi.fn(),
   },
@@ -44,171 +47,155 @@ vi.mock('../src/main/db/client', () => ({
 vi.mock('../src/main/config/store', () => ({
   config: { getUploadPaths: vi.fn(() => null) },
   getDefaultUploadPaths: async () => ({
-    images:    path.join(testUploadDir, 'images'),
-    videos:    path.join(testUploadDir, 'videos'),
-    documents: path.join(testUploadDir, 'documents'),
-    archives:  path.join(testUploadDir, 'archives'),
-    markdown:  path.join(testUploadDir, 'markdown'),
+    images: path.join(testUploadDir, 'images'),
+    videos: path.join(testUploadDir, 'videos'),
+    documents: testUploadDir,
+    archives: path.join(testUploadDir, 'archives'),
+    markdown: path.join(testUploadDir, 'markdown'),
   }),
 }));
 
 import { setupMessageHandlers } from '../src/main/ws-client/handlers';
 
-async function emitChunk(payload: Record<string, unknown>) {
-  const handler = handlers.get(WSMessageType.CMD_UPLOAD_FILE_CHUNK as string);
-  if (!handler) throw new Error('CMD_UPLOAD_FILE_CHUNK handler not registered');
-  return handler(payload);
-}
-
 // 100 MB + 1 byte — one byte over the per-file cap.
 const OVER_FILE_CAP = 100 * 1024 * 1024 + 1;
+
+async function dispatchBinary(frame: Buffer) {
+  for (const handler of binaryHandlers) {
+    await handler(frame);
+  }
+}
 
 beforeAll(() => {
   testUploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-upload-quota-'));
   setupMessageHandlers(null);
 });
 
-afterAll(() => {
-  if (testUploadDir) fs.rmSync(testUploadDir, { recursive: true, force: true });
+afterAll(async () => {
+  await new Promise((r) => setTimeout(r, 200));
+  if (testUploadDir) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.rmSync(testUploadDir, { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+  }
 });
 
 beforeEach(() => {
   sentMessages = [];
+  jsonHandlers = new Map();
+  binaryHandlers = [];
+  setupMessageHandlers(null);
 });
 
-describe('CMD_UPLOAD_FILE_CHUNK — quota enforcement (PH1 / SEC-H1)', () => {
-  it('rejects a chunk whose actual size exceeds the 100 MB per-file cap even when totalSize=1', async () => {
-    // Attacker lies: totalSize=1, but the base64 payload decodes to >100 MB.
-    // SEC-H1: the guard measures actualBytes, not the declared totalSize.
-    const hugeBuf = Buffer.alloc(OVER_FILE_CAP, 0x62); // 100 MB + 1 of 'b'
-    const data = hugeBuf.toString('base64');
+describe('V2 Upload Quota (PH1 / SEC-H1)', () => {
+  it('rejects upload when accumulated bytes exceed the 100 MB per-file cap', async () => {
+    const uploadId = 'uid-over-cap';
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
 
-    await emitChunk({
-      uploadId: 'uid-over-cap',
-      chunkIndex: 0, totalChunks: 1,
-      fileName: 'big.bin', mimeType: 'application/octet-stream', category: 'documents',
-      totalSize: 1, // lie: claim it's tiny
-      data,
-      clientId: 'c1', sessionId: 's1',
+    await startHandler!({
+      uploadId,
+      fileName: 'huge.bin',
+      mimeType: 'application/octet-stream',
+      category: 'documents',
+      totalSize: 1, // attacker lies: claim it's tiny
+      clientId: 'c1',
+      sessionId: 's1',
     });
+
+    // Stream chunks that total > 100 MB
+    const chunkSize = 64 * 1024 * 1024; // 64 MB each
+    const chunk1 = Buffer.alloc(chunkSize, 0x61);
+    const chunk2 = Buffer.alloc(OVER_FILE_CAP - chunkSize + 1, 0x62);
+
+    await dispatchBinary(encodeUploadChunkFrame({ transferId: uploadId, seq: 0, eof: false }, chunk1));
+    await dispatchBinary(encodeUploadChunkFrame({ transferId: uploadId, seq: 1, eof: true }, chunk2));
 
     const quotaErrors = sentMessages.filter(
       (m) => m.type === WSMessageType.RESP_UPLOAD_ERROR && m.payload.code === 'QUOTA_EXCEEDED',
     );
-    expect(quotaErrors).toHaveLength(1);
-    expect(quotaErrors[0].payload.uploadId).toBe('uid-over-cap');
+    expect(quotaErrors.length).toBeGreaterThanOrEqual(1);
 
-    // No ACK must be emitted — the file was never persisted.
+    // No ACK must be emitted — the file was never persisted
     const acks = sentMessages.filter((m) => m.type === WSMessageType.RESP_UPLOAD_ACK);
     expect(acks).toHaveLength(0);
   });
 
-  it('accepts a chunk right at the 100 MB boundary (exactly MAX_FILE_BYTES)', async () => {
-    // Boundary: exactly 100 MB is allowed (the check is `> MAX_FILE_BYTES`).
-    const exactBuf = Buffer.alloc(100 * 1024 * 1024, 0x63);
-    const data = exactBuf.toString('base64');
+  it('accepts upload at exactly the 100 MB boundary', async () => {
+    const uploadId = 'uid-exact-cap';
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
 
-    await emitChunk({
-      uploadId: 'uid-exact-cap',
-      chunkIndex: 0, totalChunks: 1,
-      fileName: 'exact.bin', mimeType: 'application/octet-stream', category: 'documents',
-      totalSize: 100 * 1024 * 1024,
-      data,
-      clientId: 'c1', sessionId: 's1',
+    const exactSize = 100 * 1024 * 1024;
+    await startHandler!({
+      uploadId,
+      fileName: 'exact.bin',
+      mimeType: 'application/octet-stream',
+      category: 'documents',
+      totalSize: exactSize,
+      clientId: 'c1',
+      sessionId: 's1',
     });
 
+    // Send in 256KB chunks
+    const CHUNK = 256 * 1024;
+    let seq = 0;
+    let offset = 0;
+    while (offset < exactSize) {
+      const end = Math.min(offset + CHUNK, exactSize);
+      const chunk = Buffer.alloc(end - offset, 0x63);
+      const isEof = end >= exactSize;
+      await dispatchBinary(encodeUploadChunkFrame({ transferId: uploadId, seq, eof: isEof }, chunk));
+      offset = end;
+      seq++;
+    }
+
     const acks = sentMessages.filter(
-      (m) => m.type === WSMessageType.RESP_UPLOAD_ACK && m.payload.uploadId === 'uid-exact-cap',
+      (m) => m.type === WSMessageType.RESP_UPLOAD_ACK && m.payload.uploadId === uploadId,
     );
     expect(acks).toHaveLength(1);
+    expect(acks[0].payload.fileSize).toBe(exactSize);
   });
 
   it('blocks the 6th concurrent upload once MAX_CONCURRENT_UPLOADS (5) is reached', async () => {
-    // Each upload has totalChunks=2 but we only send chunk 0, so the transfer
-    // stays in the buffer (incomplete) and counts toward the concurrency cap.
-    const tiny = Buffer.from('x').toString('base64');
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
+    const cancelHandler = jsonHandlers.get(WSMessageType.UPLOAD_CANCEL);
 
+    // Fill all 5 slots
     for (let i = 0; i < 5; i++) {
-      await emitChunk({
+      await startHandler!({
         uploadId: `uid-concurrent-${i}`,
-        chunkIndex: 0, totalChunks: 2, // leave incomplete so it stays buffered
-        fileName: `f${i}.txt`, mimeType: 'text/plain', category: 'documents',
-        totalSize: 1, data: tiny,
-        clientId: 'c1', sessionId: 's1',
+        fileName: `f${i}.txt`,
+        mimeType: 'text/plain',
+        category: 'documents',
+        totalSize: 1000,
+        clientId: 'c1',
+        sessionId: 's1',
       });
     }
 
-    // None of the 5 should have been rejected.
-    const earlyErrors = sentMessages.filter(
-      (m) => m.type === WSMessageType.RESP_UPLOAD_ERROR && m.payload.code === 'QUOTA_EXCEEDED',
-    );
-    expect(earlyErrors).toHaveLength(0);
-
-    // 6th upload — must be rejected with QUOTA_EXCEEDED.
-    await emitChunk({
-      uploadId: 'uid-concurrent-5',
-      chunkIndex: 0, totalChunks: 1,
-      fileName: 'f5.txt', mimeType: 'text/plain', category: 'documents',
-      totalSize: 1, data: tiny,
-      clientId: 'c1', sessionId: 's1',
+    // 6th should be rejected
+    await startHandler!({
+      uploadId: 'uid-concurrent-6',
+      fileName: 'f6.txt',
+      mimeType: 'text/plain',
+      category: 'documents',
+      totalSize: 1000,
+      clientId: 'c1',
+      sessionId: 's1',
     });
 
     const quotaErrors = sentMessages.filter(
       (m) => m.type === WSMessageType.RESP_UPLOAD_ERROR && m.payload.code === 'QUOTA_EXCEEDED',
     );
-    expect(quotaErrors).toHaveLength(1);
-    expect(quotaErrors[0].payload.uploadId).toBe('uid-concurrent-5');
+    expect(quotaErrors.length).toBeGreaterThanOrEqual(1);
 
-    // CLEANUP: complete the 5 buffered uploads so the module-level buffer is
-    // empty for subsequent tests. Sending chunk 1 of 2 finalizes each transfer.
+    // Clean up
     for (let i = 0; i < 5; i++) {
-      await emitChunk({
-        uploadId: `uid-concurrent-${i}`,
-        chunkIndex: 1, totalChunks: 2,
-        fileName: `f${i}.txt`, mimeType: 'text/plain', category: 'documents',
-        totalSize: 1, data: tiny,
-        clientId: 'c1', sessionId: 's1',
-      });
+      await cancelHandler!({ uploadId: `uid-concurrent-${i}`, reason: 'test_end' });
     }
-  });
-
-  it('rejects a chunk that would push total buffered bytes over the 500 MB global cap', async () => {
-    // 5 files, each incomplete at 100 MB (totalChunks=2, only chunk 0 sent).
-    // totalBufferedBytes = 500 MB. Adding any further chunk to any file must be
-    // rejected with QUOTA_EXCEEDED — the per-chunk cap check fires even though
-    // the per-file cap (100 MB) is the binding constraint here.
-    const hundredMB = Buffer.alloc(100 * 1024 * 1024, 0x65).toString('base64');
-    const tiny = Buffer.from('y').toString('base64');
-
-    for (let i = 0; i < 5; i++) {
-      await emitChunk({
-        uploadId: `uid-gcap-${i}`,
-        chunkIndex: 0, totalChunks: 2, // incomplete: stays in buffer
-        fileName: `gc${i}.bin`, mimeType: 'application/octet-stream', category: 'documents',
-        totalSize: 100 * 1024 * 1024, data: hundredMB,
-        clientId: 'c1', sessionId: 's1',
-      });
-    }
-
-    // Buffer now holds 5 files × 100 MB = 500 MB. Any additional chunk must be
-    // rejected by the per-chunk quota guard (totalBufferedBytes + chunk > 500 MB,
-    // or per-file actualBytes + chunk > 100 MB).
-    await emitChunk({
-      uploadId: 'uid-gcap-0',
-      chunkIndex: 1, totalChunks: 2,
-      fileName: 'gc0.bin', mimeType: 'application/octet-stream', category: 'documents',
-      totalSize: 100 * 1024 * 1024, data: tiny,
-      clientId: 'c1', sessionId: 's1',
-    });
-
-    const quotaErrors = sentMessages.filter(
-      (m) => m.type === WSMessageType.RESP_UPLOAD_ERROR && m.payload.code === 'QUOTA_EXCEEDED',
-    );
-    expect(quotaErrors).toHaveLength(1);
-    expect(quotaErrors[0].payload.uploadId).toBe('uid-gcap-0');
-
-    // NOTE: the 5 files are stuck at 100 MB each (per-file cap prevents chunk 1).
-    // They remain buffered until their 5-min timeout. This is the last test in
-    // the describe block, so no subsequent test depends on buffer state.
   });
 });

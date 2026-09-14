@@ -28,8 +28,9 @@ export class RelayClient {
   private reconnectDelay = 1000;
   private maxReconnectDelay = 30000;
   private reconnectAttempts = 0;
-  private messageHandlers = new Map<string, (payload: unknown) => void>();
   private isConnecting = false;
+  private messageHandlers = new Map<string, (payload: unknown) => void>();
+  private binaryHandlers = new Array<(data: Buffer) => void>();
   private rttSamples: number[] = [];
   private pendingPings = new Map<string, number>();
   private pingInterval: NodeJS.Timeout | null = null;
@@ -68,7 +69,18 @@ export class RelayClient {
         this.startPingLoop();
       });
 
-      this.ws.on('message', (data) => {
+      this.ws.on('message', (data, isBinary) => {
+        // V2: Route binary frames to binary handlers (upload chunks)
+        if (isBinary) {
+          for (const handler of this.binaryHandlers) {
+            try {
+              handler(data as Buffer);
+            } catch (err) {
+              log.error('二进制消息处理器异常:', err);
+            }
+          }
+          return;
+        }
         try {
           const message: WSMessage = JSON.parse(data.toString());
           this.handleMessage(message);
@@ -76,7 +88,6 @@ export class RelayClient {
           log.error('解析消息失败:', err);
         }
       });
-
       this.ws.on('close', (code, reason) => {
         log.info(`连接关闭: ${code} - ${reason}`);
         this.isConnecting = false;
@@ -187,8 +198,20 @@ export class RelayClient {
   }
 
   // ===== 注册消息处理器 =====
+  // ===== 注册消息处理器 =====
   on(type: string, handler: (payload: unknown) => void): void {
     this.messageHandlers.set(type, handler);
+  }
+
+  // ===== 注册二进制消息处理器（V2 Upload Chunk） =====
+  onBinary(handler: (data: Buffer) => void): void {
+    this.binaryHandlers.push(handler);
+  }
+
+  // ===== 移除二进制消息处理器 =====
+  offBinary(handler: (data: Buffer) => void): void {
+    const idx = this.binaryHandlers.indexOf(handler);
+    if (idx >= 0) this.binaryHandlers.splice(idx, 1);
   }
 
   // ===== 移除消息处理器 =====

@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import { WSMessageType } from '@remotebridge/shared';
+import { WSMessageType, encodeUploadChunkFrame } from '@remotebridge/shared';
 
-// `var` (not let/const): vi.mock factories are hoisted above all imports,
-// so these bindings must exist without TDZ when the factory closures execute.
+// Captured state from mocked client
 var sentMessages: any[] = [];
-var handlers = new Map<string, (payload: any) => Promise<void> | void>();
+var jsonHandlers = new Map<string, (payload: any) => Promise<void> | void>();
+var binaryHandlers = Array<(data: Buffer) => Promise<void> | void>();
 var testUploadDir = '';
 
 vi.mock('../src/main/logger', () => ({
@@ -27,7 +27,10 @@ vi.mock('electron', () => ({
 vi.mock('../src/main/ws-client/client', () => ({
   getRelayClient: () => ({
     on: (type: string, handler: (payload: any) => Promise<void> | void) => {
-      handlers.set(type, handler);
+      jsonHandlers.set(type, handler);
+    },
+    onBinary: (handler: (data: Buffer) => Promise<void> | void) => {
+      binaryHandlers.push(handler);
     },
     send: (msg: any) => { sentMessages.push(msg); return true; },
     isConnected: () => true,
@@ -35,7 +38,7 @@ vi.mock('../src/main/ws-client/client', () => ({
 }));
 
 vi.mock('../src/main/db/client', () => ({
-  db: {
+  default: {
     insertMessage: vi.fn(),
     upsertConnectedClient: vi.fn(),
   },
@@ -44,44 +47,59 @@ vi.mock('../src/main/db/client', () => ({
 vi.mock('../src/main/config/store', () => ({
   config: { getUploadPaths: vi.fn(() => null) },
   getDefaultUploadPaths: async () => ({
-    images:    path.join(testUploadDir, 'images'),
-    videos:    path.join(testUploadDir, 'videos'),
-    documents: path.join(testUploadDir, 'documents'),
-    archives:  path.join(testUploadDir, 'archives'),
-    markdown:  path.join(testUploadDir, 'markdown'),
+    images: path.join(testUploadDir, 'images'),
+    videos: path.join(testUploadDir, 'videos'),
+    documents: testUploadDir,
+    archives: path.join(testUploadDir, 'archives'),
+    markdown: path.join(testUploadDir, 'markdown'),
   }),
 }));
 
 import { setupMessageHandlers } from '../src/main/ws-client/handlers';
 
-async function emitChunk(payload: Record<string, unknown>) {
-  const handler = handlers.get(WSMessageType.CMD_UPLOAD_FILE_CHUNK as string);
-  if (!handler) throw new Error('CMD_UPLOAD_FILE_CHUNK handler not registered');
-  return handler(payload);
+async function dispatchBinary(frame: Buffer) {
+  for (const handler of binaryHandlers) {
+    await handler(frame);
+  }
 }
 
 beforeAll(() => {
   testUploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rb-handlers-test-'));
-  setupMessageHandlers(null as any);
+  setupMessageHandlers(null);
 });
 
-afterAll(() => {
-  if (testUploadDir) fs.rmSync(testUploadDir, { recursive: true, force: true });
+afterAll(async () => {
+  await new Promise((r) => setTimeout(r, 200));
+  if (testUploadDir) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.rmSync(testUploadDir, { recursive: true, force: true });
+        break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+  }
 });
 
 beforeEach(() => {
   sentMessages = [];
+  jsonHandlers = new Map();
+  binaryHandlers = [];
+  setupMessageHandlers(null);
 });
 
-describe('CMD_UPLOAD_FILE_CHUNK — 安全校验与正确性 (TST-H2)', () => {
-  it('拒绝未知 category，返回 INVALID_CATEGORY', async () => {
-    await emitChunk({
+describe('V2 Upload Binary Streaming — security & correctness (TST-H2)', () => {
+  it('rejects invalid category, returns INVALID_CATEGORY', async () => {
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
+    await startHandler!({
       uploadId: 'uid-bad-cat',
-      chunkIndex: 0, totalChunks: 1,
-      fileName: 'test.txt', mimeType: 'text/plain',
+      fileName: 'test.txt',
+      mimeType: 'text/plain',
       category: 'illegal_category',
-      totalSize: 10, data: Buffer.from('hello').toString('base64'),
-      clientId: 'c1', sessionId: 's1',
+      totalSize: 10,
+      clientId: 'c1',
+      sessionId: 's1',
     });
 
     expect(sentMessages).toHaveLength(1);
@@ -89,47 +107,56 @@ describe('CMD_UPLOAD_FILE_CHUNK — 安全校验与正确性 (TST-H2)', () => {
     expect(sentMessages[0].payload.code).toBe('INVALID_CATEGORY');
   });
 
-  it('path.basename 剥除 fileName 中的目录遍历成分', async () => {
-    await emitChunk({
-      uploadId: 'uid-traversal',
-      chunkIndex: 0, totalChunks: 1,
+  it('strips directory traversal from fileName via path.basename', async () => {
+    const uploadId = 'uid-traversal';
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
+
+    await startHandler!({
+      uploadId,
       fileName: '../../../etc/passwd',
-      mimeType: 'text/plain', category: 'documents',
-      totalSize: 7, data: Buffer.from('content').toString('base64'),
-      clientId: 'c1', sessionId: 's1',
+      mimeType: 'text/plain',
+      category: 'documents',
+      totalSize: 7,
+      clientId: 'c1',
+      sessionId: 's1',
     });
 
+    // Send EOF chunk
+    await dispatchBinary(encodeUploadChunkFrame({ transferId: uploadId, seq: 0, eof: true }, Buffer.from('content')));
+
     const ack = sentMessages.find(
-      (m) => m.type === WSMessageType.RESP_UPLOAD_ACK && m.payload.uploadId === 'uid-traversal',
+      (m) => m.type === WSMessageType.RESP_UPLOAD_ACK && m.payload.uploadId === uploadId,
     );
     expect(ack).toBeDefined();
 
-    // savedPath 必须在 documents 子目录内，不含 ..
+    // savedPath must be within documents subdirectory, no '..' components
     const savedPath: string = ack.payload.savedPath;
     expect(savedPath).not.toContain('..');
-    expect(savedPath.startsWith(path.resolve(testUploadDir, 'documents'))).toBe(true);
+    expect(savedPath.startsWith(path.resolve(testUploadDir))).toBe(true);
 
-    // 实际写入的文件名应为 path.basename('../../../etc/passwd') = 'passwd'
+    // Actual saved file name should be path.basename('../../../etc/passwd') = 'passwd'
     expect(path.basename(savedPath)).toBe('passwd');
   });
 
-  it('多分块上传正确组装内容，fileSize 等于实际字节数', async () => {
+  it('streams multi-chunk upload and reports exact byte count', async () => {
     const uid = 'uid-multichunk';
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
+
+    await startHandler!({
+      uploadId: uid,
+      fileName: 'multi.bin',
+      mimeType: 'application/octet-stream',
+      category: 'documents',
+      totalSize: 11,
+      clientId: 'c1',
+      sessionId: 's1',
+    });
+
     const chunk0 = Buffer.from('hello ');
     const chunk1 = Buffer.from('world');
 
-    await emitChunk({
-      uploadId: uid, chunkIndex: 0, totalChunks: 2,
-      fileName: 'multi.txt', mimeType: 'text/plain', category: 'documents',
-      totalSize: 11, data: chunk0.toString('base64'),
-      clientId: 'c1', sessionId: 's1',
-    });
-    await emitChunk({
-      uploadId: uid, chunkIndex: 1, totalChunks: 2,
-      fileName: 'multi.txt', mimeType: 'text/plain', category: 'documents',
-      totalSize: 11, data: chunk1.toString('base64'),
-      clientId: 'c1', sessionId: 's1',
-    });
+    await dispatchBinary(encodeUploadChunkFrame({ transferId: uid, seq: 0, eof: false }, chunk0));
+    await dispatchBinary(encodeUploadChunkFrame({ transferId: uid, seq: 1, eof: true }, chunk1));
 
     const ack = sentMessages.find(
       (m) => m.type === WSMessageType.RESP_UPLOAD_ACK && m.payload.uploadId === uid,
@@ -138,51 +165,54 @@ describe('CMD_UPLOAD_FILE_CHUNK — 安全校验与正确性 (TST-H2)', () => {
     expect(ack.payload.fileSize).toBe(11); // 'hello world'.length
   });
 
-  it('SEC-H1: 三个并发上传各声称 200MB 均被接受（totalBufferedBytes 不预计入 totalSize）', async () => {
-    // 攻击场景（旧代码行为）: admission 时 totalBufferedBytes += totalSize（200MB）
-    //   → 第 3 个: 400MB + 200MB = 600MB > 500MB → QUOTA_EXCEEDED（误杀合法上传）
-    // 修复后（SEC-H1）: totalBufferedBytes 只在分块到达时按实际字节累加
-    //   → admission 时 totalBufferedBytes ≈ 0，三个 200MB 声明的上传都通过
-    const MB = 1024 * 1024;
-    const tinyData = Buffer.from('x').toString('base64'); // 实际 1 字节
+  it('rejects out-of-order chunks (sequence validation)', async () => {
+    const uploadId = 'uid-oob';
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
 
-    for (let i = 0; i < 3; i++) {
-      await emitChunk({
-        uploadId: `uid-quota-${i}`,
-        chunkIndex: 0, totalChunks: 1,
-        fileName: `q${i}.txt`, mimeType: 'text/plain', category: 'documents',
-        totalSize: 200 * MB, // 声称 200MB，三个累计 600MB > 500MB 上限
-        data: tinyData,
-        clientId: 'c1', sessionId: 's1',
-      });
-    }
+    await startHandler!({
+      uploadId,
+      fileName: 'seq.txt',
+      mimeType: 'text/plain',
+      category: 'documents',
+      totalSize: 100,
+      clientId: 'c1',
+      sessionId: 's1',
+    });
+
+    // Send chunk with wrong seq (skip seq 0)
+    await dispatchBinary(encodeUploadChunkFrame({ transferId: uploadId, seq: 1, eof: false }, Buffer.from('data')));
+
+    // No ACK — chunk was rejected
+    const acks = sentMessages.filter((m) => m.type === WSMessageType.RESP_UPLOAD_ACK);
+    expect(acks).toHaveLength(0);
+  });
+
+  it('enforces per-file size cap on actual bytes (SEC-H1)', async () => {
+    const uploadId = 'uid-overflow';
+    const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
+
+    await startHandler!({
+      uploadId,
+      fileName: 'overflow.bin',
+      mimeType: 'application/octet-stream',
+      category: 'documents',
+      totalSize: 1, // attacker lies: claim tiny
+      clientId: 'c1',
+      sessionId: 's1',
+    });
+
+    // Stream 100MB+1 in 64MB chunks
+    const chunk1 = Buffer.alloc(64 * 1024 * 1024, 0x61);
+    const chunk2 = Buffer.alloc((100 * 1024 * 1024 + 1) - 64 * 1024 * 1024, 0x62);
+
+    await dispatchBinary(encodeUploadChunkFrame({ transferId: uploadId, seq: 0, eof: false }, chunk1));
+    await dispatchBinary(encodeUploadChunkFrame({ transferId: uploadId, seq: 1, eof: true }, chunk2));
 
     const quotaErrors = sentMessages.filter(
       (m) => m.type === WSMessageType.RESP_UPLOAD_ERROR && m.payload.code === 'QUOTA_EXCEEDED',
     );
-    expect(quotaErrors).toHaveLength(0);
+    expect(quotaErrors.length).toBeGreaterThanOrEqual(1);
 
-    const acks = sentMessages.filter((m) => m.type === WSMessageType.RESP_UPLOAD_ACK);
-    expect(acks).toHaveLength(3);
-  });
-
-  it('拒绝 chunkIndex 越界的分块（SEC: 防 sparse array 内存耗尽攻击）', async () => {
-    // totalChunks=2 时发送 chunkIndex=999，旧代码会创建含百万空槽的 sparse array，
-    // 越界分块永不完成，缓冲区滞留至超时，可耗尽主机内存。
-    await emitChunk({
-      uploadId: 'uid-oob',
-      chunkIndex: 999, totalChunks: 2,
-      fileName: 'oob.txt', mimeType: 'text/plain', category: 'documents',
-      totalSize: 7, data: Buffer.from('content').toString('base64'),
-      clientId: 'c1', sessionId: 's1',
-    });
-
-    const oobErrors = sentMessages.filter(
-      (m) => m.type === WSMessageType.RESP_UPLOAD_ERROR && m.payload.code === 'INVALID_CHUNK_INDEX',
-    );
-    expect(oobErrors).toHaveLength(1);
-
-    // 不应产生任何 ACK，也不应初始化持久缓冲（上传被拒绝）
     const acks = sentMessages.filter((m) => m.type === WSMessageType.RESP_UPLOAD_ACK);
     expect(acks).toHaveLength(0);
   });

@@ -1,64 +1,173 @@
 import { randomUUID } from 'node:crypto';
-import { WSMessageType, UploadCategory, FileCategory } from '@remotebridge/shared';
+import { createWriteStream, type WriteStream } from 'node:fs';
+import { open as fsOpen, mkdir, rename, unlink } from 'node:fs/promises';
+import { WSMessageType, UploadCategory, FileCategory, decodeUploadChunkFrame } from '@remotebridge/shared';
 import { BrowserWindow, Notification } from 'electron';
 import { getRelayClient } from './client';
 import { db } from '../db/client';
 import { config, getDefaultUploadPaths } from '../config/store';
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'node:os';
 import log from '../logger';
-
-// ===== 文件上传分块缓冲区 =====
-interface UploadTransfer {
-  chunks: (Buffer | undefined)[];
-  received: number;
+// ===== V2 Upload Streaming (P1-01) =====
+// Streams upload chunks directly to a temp file instead of buffering in memory.
+interface UploadTransferV2 {
+  tempPath: string;
+  writeStream: WriteStream | null;
   fileName: string;
   mimeType: string;
   category: FileCategory;
-  totalChunks: number;
   totalSize: number;
-  actualBytes: number; // SEC-H1: 实际已接收字节数，不信任客户端声明的 totalSize
+  actualBytes: number;
+  seq: number;
   clientId?: string;
   sessionId?: string;
   timer: NodeJS.Timeout;
+  completed: boolean;
 }
-const uploadBuffer = new Map<string, UploadTransfer>();
+const uploadTransfers = new Map<string, UploadTransferV2>();
 
-// PH1: 并发上传上限与内存配额
-const MAX_CONCURRENT_UPLOADS = 5;
-const MAX_TOTAL_UPLOAD_BYTES = 500 * 1024 * 1024; // 500 MB
-const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file cap
-let totalBufferedBytes = 0;
+// Temp directory for streaming uploads
+async function getUploadTempDir(): Promise<string> {
+  const tmpDir = path.join(os.tmpdir(), 'remotebridge', 'uploads');
+  await mkdir(tmpDir, { recursive: true });
+  return tmpDir;
+}
 
-// SL4: 合法分类枚举
-const VALID_CATEGORIES: UploadCategory[] = ['images', 'videos', 'documents', 'archives', 'markdown'];
-
-// 上传目录路径不存在时自动创建，并将重名文件改名（追加序号）
-// P0-1: 内部强制取 basename，防止 fileName 含 ../ 导致路径穿越
-async function getUniqueSavePath(dir: string, fileName: string): Promise<string> {
-  const safeName = path.basename(fileName); // strip any directory components
-  await fs.mkdir(dir, { recursive: true });
+// P1-03: Race-safe unique filename allocation using O_EXCL
+async function getUniqueSavePathV2(dir: string, fileName: string): Promise<string> {
+  const safeName = path.basename(fileName);
+  await mkdir(dir, { recursive: true });
   const ext = path.extname(safeName);
   const base = path.basename(safeName, ext);
-  let candidate = path.join(dir, safeName);
-  let i = 1;
-  while (true) {
-    try {
-      await fs.access(candidate);
-      candidate = path.join(dir, `${base} (${i})${ext}`);
-      i++;
-    } catch {
-      // 兜底：确保结果路径在 dir 范围内（双重防御）
-      const resolved = path.resolve(candidate);
-      const resolvedDir = path.resolve(dir);
-      if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
-        throw new Error(`路径穿越检测: ${resolved}`);
+
+  // Try the original name first with O_EXCL via a unique temp name
+  const candidate = path.join(dir, safeName);
+  try {
+    // Use a file handle with O_EXCL to atomically check-and-create
+    const handle = await fsOpen(candidate, 'wx');
+    await handle.close();
+    return candidate;
+  } catch {
+    // File exists, try with incrementing suffix
+    let i = 1;
+    while (i < 10000) {
+      const name = `${base} (${i})${ext}`;
+      const path2 = path.join(dir, name);
+      try {
+        const handle = await fsOpen(path2, 'wx');
+        await handle.close();
+        return path2;
+      } catch {
+        i++;
       }
-      return resolved;
     }
+    throw new Error(`无法为 ${fileName} 分配唯一文件名`);
   }
 }
 
+// V2: Finalize streaming upload — close stream, atomic rename, notify
+async function uploadFinalize(uploadId: string): Promise<void> {
+  const transfer = uploadTransfers.get(uploadId);
+  if (!transfer || transfer.completed) return;
+  transfer.completed = true;
+  clearTimeout(transfer.timer);
+
+  const client = getRelayClient();
+
+  try {
+    // Close write stream
+    const ws = transfer.writeStream;
+    if (ws) {
+      await new Promise<void>((resolve, reject) => {
+        ws.on('finish', () => resolve());
+        ws.on('error', (err) => reject(err));
+        ws.end();
+      });
+    }
+
+    // SEC-H1: actual byte count check
+    if (transfer.actualBytes > MAX_FILE_BYTES) {
+      throw new Error(`文件过大: ${transfer.actualBytes} > ${MAX_FILE_BYTES}`);
+    }
+
+    // Determine save directory
+    const stored = config.getUploadPaths();
+    const paths = stored ?? await getDefaultUploadPaths();
+    const saveDir = paths[transfer.category as UploadCategory] ?? paths.documents;
+
+    // P1-03: Race-safe unique filename
+    const savePath = await getUniqueSavePathV2(saveDir, transfer.fileName);
+
+    // Atomic rename: temp → final
+    await rename(transfer.tempPath, savePath);
+
+    log.info(`文件已保存: ${savePath}`);
+
+    // Persist message to local DB
+    try {
+      db.insertMessage({
+        id: uploadId,
+        sessionId: transfer.sessionId,
+        direction: 'client_to_host',
+        content: transfer.fileName,
+        type: 'file',
+        senderId: transfer.clientId,
+      });
+    } catch (err) {
+      log.error('持久化文件接收消息失败:', err);
+    }
+
+    client?.send({
+      type: WSMessageType.RESP_UPLOAD_ACK,
+      payload: {
+        uploadId,
+        fileName: transfer.fileName,
+        savedPath: savePath,
+        fileSize: transfer.actualBytes,
+        clientId: transfer.clientId,
+        sessionId: transfer.sessionId,
+      },
+    });
+
+    // Desktop notification
+    if (Notification.isSupported()) {
+      new Notification({
+        title: 'RemoteBridge - 文件已接收',
+        body: `${transfer.fileName} 已保存至 ${savePath}`,
+      }).show();
+    }
+
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    mainWindow?.webContents.send('event:file-received', {
+      fileName: transfer.fileName,
+      savedPath: savePath,
+    });
+  } catch (err: any) {
+    log.error('保存上传文件失败:', err);
+    // Clean up temp file on failure
+
+    client?.send({
+      type: WSMessageType.RESP_UPLOAD_ERROR,
+      payload: {
+        uploadId,
+        code: 'SAVE_ERROR',
+        message: err.message || '文件保存失败',
+        clientId: transfer.clientId,
+        sessionId: transfer.sessionId,
+      },
+    });
+  }
+}
+
+// PH1: 并发上传上限与内存配额
+const MAX_CONCURRENT_UPLOADS = 5;
+// Helper: send JSON control message (for upload lifecycle)
+function sendJson(client: ReturnType<typeof getRelayClient>, type: string, payload: Record<string, unknown>, sessionId?: string): void {
+  client?.send({ type, payload, timestamp: Date.now(), sessionId });
+}
+const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB per file cap
 // ===== 设置消息处理器 =====
 export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
   const client = getRelayClient();
@@ -117,6 +226,163 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
     // 通知渲染进程
     mainWindow?.webContents.send('event:new-message', payload);
   });
+  // --- V2 UPLOAD_START: begin streaming upload (P1-01) ---
+  client.on(WSMessageType.UPLOAD_START, async (rawPayload: any) => {
+    const { uploadId, fileName, mimeType, category, totalSize, clientId, sessionId } = rawPayload || {};
+
+    if (!uploadId || !fileName || typeof totalSize !== 'number') {
+      log.warn('收到无效的 UPLOAD_START 消息');
+      return;
+    }
+
+    // SL4: 校验 category 合法性
+    const VALID_CATEGORIES: UploadCategory[] = ['images', 'videos', 'documents', 'archives', 'markdown'];
+    if (!VALID_CATEGORIES.includes(category)) {
+      log.warn('上传：非法分类:', category);
+      client?.send({
+        type: WSMessageType.RESP_UPLOAD_ERROR,
+        payload: { uploadId, code: 'INVALID_CATEGORY', message: `无效的文件分类: ${category}`, clientId, sessionId },
+      });
+      return;
+    }
+
+    // PH1: 并发上传数量检查
+    if (uploadTransfers.size >= MAX_CONCURRENT_UPLOADS) {
+      log.warn('上传配额已满，拒绝 uploadId:', uploadId);
+      client?.send({
+        type: WSMessageType.RESP_UPLOAD_ERROR,
+        payload: { uploadId, code: 'QUOTA_EXCEEDED', message: '上传配额已满，请稍后重试', clientId, sessionId },
+      });
+      return;
+    }
+    try {
+      const tmpDir = await getUploadTempDir();
+      const tempPath = path.join(tmpDir, `${uploadId}.part`);
+
+      // Create write stream to temp file
+      const writeStream = createWriteStream(tempPath);
+
+      const timer = setTimeout(() => {
+        const t = uploadTransfers.get(uploadId);
+        if (t && !t.completed) {
+          log.warn('文件上传超时，丢弃 uploadId:', uploadId);
+          t.writeStream?.destroy();
+          unlink(tempPath).catch(() => {});
+          uploadTransfers.delete(uploadId);
+          client?.send({
+            type: WSMessageType.RESP_UPLOAD_ERROR,
+            payload: { uploadId, code: 'TIMEOUT', message: '上传超时', clientId: t.clientId, sessionId: t.sessionId },
+          });
+        }
+      }, 5 * 60 * 1000);
+
+      uploadTransfers.set(uploadId, {
+        tempPath,
+        writeStream,
+        fileName,
+        mimeType,
+        category,
+        totalSize,
+        actualBytes: 0,
+        seq: 0,
+        clientId,
+        sessionId,
+        timer,
+        completed: false,
+      });
+    } catch (err: any) {
+      log.error('初始化上传失败:', err);
+      client?.send({
+        type: WSMessageType.RESP_UPLOAD_ERROR,
+        payload: { uploadId, code: 'INIT_ERROR', message: err.message || '初始化上传失败', clientId, sessionId },
+      });
+    }
+  });
+
+  // --- V2 UPLOAD_CHUNK (binary frame): write chunk to temp file ---
+  client.onBinary(async (data: Buffer) => {
+    try {
+      const frame = decodeUploadChunkFrame(data);
+      const { transferId, seq, eof, data: chunkData } = frame;
+
+      const transfer = uploadTransfers.get(transferId);
+      if (!transfer || transfer.completed) {
+        // Unknown or completed transfer — discard
+        return;
+      }
+
+      // SEC: sequence validation — reject out-of-order chunks
+      if (seq !== transfer.seq) {
+        log.warn(`上传分块乱序: expected ${transfer.seq}, got ${seq},丢弃 uploadId: ${transferId}`);
+        return;
+      }
+
+      // SEC: per-chunk cap
+      if (transfer.actualBytes + chunkData.length > MAX_FILE_BYTES) {
+        log.warn(`文件上传超出上限，丢弃 uploadId: ${transferId}`);
+        transfer.completed = true;
+        transfer.writeStream?.destroy();
+        unlink(transfer.tempPath).catch(() => {});
+        uploadTransfers.delete(transferId);
+        clearTimeout(transfer.timer);
+        client?.send({
+          type: WSMessageType.RESP_UPLOAD_ERROR,
+          payload: { transferId, code: 'QUOTA_EXCEEDED', message: '文件过大', clientId: transfer.clientId, sessionId: transfer.sessionId },
+        });
+        return;
+      }
+
+      // Write chunk to temp file
+      transfer.writeStream?.write(chunkData);
+      transfer.actualBytes += chunkData.length;
+      transfer.seq++;
+
+      // PM5: reset timeout on each chunk
+      clearTimeout(transfer.timer);
+      transfer.timer = setTimeout(() => {
+        const t = uploadTransfers.get(transferId);
+        if (t && !t.completed) {
+          log.warn('文件上传超时，丢弃 uploadId:', transferId);
+          t.writeStream?.destroy();
+          unlink(t.tempPath).catch(() => {});
+          uploadTransfers.delete(transferId);
+          client?.send({
+            type: WSMessageType.RESP_UPLOAD_ERROR,
+            payload: { transferId, code: 'TIMEOUT', message: '上传超时', clientId: t.clientId, sessionId: t.sessionId },
+          });
+        }
+      }, 5 * 60 * 1000);
+
+      // EOF received — finalize
+      if (eof) {
+        await uploadFinalize(transferId);
+      }
+    } catch (err: any) {
+      log.error('处理上传二进制帧失败:', err);
+    }
+  });
+
+  // --- V2 UPLOAD_END: finalize streaming upload ---
+  client.on(WSMessageType.UPLOAD_END, async (rawPayload: any) => {
+    const { uploadId } = rawPayload || {};
+    if (!uploadId) return;
+    await uploadFinalize(uploadId);
+  });
+
+  // --- V2 UPLOAD_CANCEL: cancel streaming upload ---
+  client.on(WSMessageType.UPLOAD_CANCEL, async (rawPayload: any) => {
+    const { uploadId, reason } = rawPayload || {};
+    if (!uploadId) return;
+    const transfer = uploadTransfers.get(uploadId);
+    if (transfer && !transfer.completed) {
+      log.info(`上传已取消: ${uploadId}, reason: ${reason || 'unknown'}`);
+      transfer.completed = true;
+      transfer.writeStream?.destroy();
+      unlink(transfer.tempPath).catch(() => {});
+      uploadTransfers.delete(uploadId);
+      clearTimeout(transfer.timer);
+    }
+  });
 
   // --- MSG_SYSTEM: 系统消息 ---
   client.on(WSMessageType.MSG_SYSTEM, (payload: any) => {
@@ -131,196 +397,6 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
   client.on(WSMessageType.SESSION_REVOKED, (payload: any) => {
     log.debug('会话被吊销:', payload);
     mainWindow?.webContents.send('event:session-revoked', payload);
-  });
-
-  // --- CMD_UPLOAD_FILE_CHUNK: Web 端发送文件分块 ---
-  client.on(WSMessageType.CMD_UPLOAD_FILE_CHUNK, async (payload: any) => {
-    const { uploadId, fileName, mimeType, category, chunkIndex, totalChunks, totalSize, data, clientId, sessionId } = payload;
-
-    if (!uploadId || typeof chunkIndex !== 'number' || typeof totalChunks !== 'number') {
-      log.warn('收到无效的文件上传分块消息');
-      return;
-    }
-
-    // SL4: 校验 category 合法性（拒绝未知分类，防止绕过路径选择逻辑）
-    if (!VALID_CATEGORIES.includes(category)) {
-      log.warn('文件上传：非法分类:', category);
-      client.send({
-        type: WSMessageType.RESP_UPLOAD_ERROR,
-        payload: { uploadId, code: 'INVALID_CATEGORY', message: `无效的文件分类: ${category}`, clientId, sessionId },
-      });
-      return;
-    }
-
-    // 初始化缓冲区（首个分块到达时）
-    if (!uploadBuffer.has(uploadId)) {
-      // PH1: 并发上传数量与总内存配额检查
-      if (uploadBuffer.size >= MAX_CONCURRENT_UPLOADS || totalBufferedBytes > MAX_TOTAL_UPLOAD_BYTES) {
-        log.warn('文件上传：配额已满，拒绝 uploadId:', uploadId);
-        client.send({
-          type: WSMessageType.RESP_UPLOAD_ERROR,
-          payload: { uploadId, code: 'QUOTA_EXCEEDED', message: '上传配额已满，请稍后重试', clientId, sessionId },
-        });
-        return;
-      }
-
-      // SEC-H1: 不预先计入 totalSize（攻击者可声明 499MB 但只发 1KB 撑满配额）。
-      // 实际字节在每个分块到达时累加到 actualBytes / totalBufferedBytes。
-
-      // PM5: 超时计时器在每个分块到达时重置，支持大文件慢速上传
-      const timer = setTimeout(() => {
-        const t = uploadBuffer.get(uploadId);
-        if (t) {
-          log.warn('文件上传超时，丢弃 uploadId:', uploadId);
-          totalBufferedBytes -= t.actualBytes;
-          uploadBuffer.delete(uploadId);
-          client.send({
-            type: WSMessageType.RESP_UPLOAD_ERROR,
-            payload: { uploadId, code: 'TIMEOUT', message: '上传超时', clientId: t.clientId, sessionId: t.sessionId },
-          });
-        }
-      }, 5 * 60 * 1000);
-
-      uploadBuffer.set(uploadId, {
-        chunks: new Array(totalChunks).fill(undefined),
-        received: 0,
-        fileName,
-        mimeType,
-        category,
-        totalChunks,
-        totalSize,
-        actualBytes: 0,
-        clientId,
-        sessionId,
-        timer,
-    });
-    }
-
-    const transfer = uploadBuffer.get(uploadId)!;
-
-    // SEC: 校验 chunkIndex 边界 —— 缺失校验时恶意客户端可发送
-    // chunkIndex=999999 (totalChunks=2)，创建含百万空槽的 sparse array，
-    // 越界分块永不完成传输，缓冲区滞留至 5 分钟超时，可耗尽主机内存。
-    if (chunkIndex < 0 || chunkIndex >= totalChunks) {
-      log.warn(`文件上传：chunkIndex 越界 (${chunkIndex}/${totalChunks})，丢弃 uploadId:`, uploadId);
-      client.send({
-        type: WSMessageType.RESP_UPLOAD_ERROR,
-        payload: { uploadId, code: 'INVALID_CHUNK_INDEX', message: `分块索引越界: ${chunkIndex}/${totalChunks}`, clientId, sessionId },
-      });
-      return;
-    }
-
-    if (!transfer.chunks[chunkIndex]) {
-      const chunkBuf = Buffer.from(data, 'base64');
-      // SEC: per-chunk cap — reject if this chunk would exceed MAX_FILE_BYTES or total quota
-      if (transfer.actualBytes + chunkBuf.length > MAX_FILE_BYTES || totalBufferedBytes + chunkBuf.length > MAX_TOTAL_UPLOAD_BYTES) {
-        log.warn(`文件上传：超出上限，丢弃 uploadId: ${uploadId} (file=${transfer.actualBytes + chunkBuf.length}, total=${totalBufferedBytes + chunkBuf.length})`);
-        totalBufferedBytes -= transfer.actualBytes;
-        uploadBuffer.delete(uploadId);
-        clearTimeout(transfer.timer);
-        client.send({
-          type: WSMessageType.RESP_UPLOAD_ERROR,
-          payload: { uploadId, code: "QUOTA_EXCEEDED", message: "文件过大或内存配额已满", clientId, sessionId },
-        });
-        return;
-      }
-      transfer.chunks[chunkIndex] = chunkBuf;
-      transfer.actualBytes += chunkBuf.length; // SEC-H1: 累加实际字节
-      totalBufferedBytes += chunkBuf.length;
-      transfer.received++;
-    }
-
-    // PM5: 每个分块到达后重置超时（已在缓冲区内）
-    clearTimeout(transfer.timer);
-    transfer.timer = setTimeout(() => {
-      const t = uploadBuffer.get(uploadId);
-      if (t) {
-        log.warn('文件上传超时，丢弃 uploadId:', uploadId);
-        totalBufferedBytes -= t.actualBytes;
-        uploadBuffer.delete(uploadId);
-        client.send({
-          type: WSMessageType.RESP_UPLOAD_ERROR,
-          payload: { uploadId, code: 'TIMEOUT', message: '上传超时', clientId: t.clientId, sessionId: t.sessionId },
-        });
-      }
-    }, 5 * 60 * 1000);
-
-    // 所有分块已到齐 → 组装并写盘
-    if (transfer.received === totalChunks) {
-      clearTimeout(transfer.timer);
-      totalBufferedBytes -= transfer.actualBytes;
-      uploadBuffer.delete(uploadId);
-
-      try {
-        const fileBuffer = Buffer.concat(transfer.chunks as Buffer[]);
-
-        // 确定保存目录
-        const stored = config.getUploadPaths();
-        const paths = stored ?? await getDefaultUploadPaths();
-        const saveDir = paths[transfer.category as UploadCategory] ?? paths.documents;
-
-        const savePath = await getUniqueSavePath(saveDir, transfer.fileName);
-        await fs.writeFile(savePath, fileBuffer);
-
-        log.info(`文件已保存: ${savePath}`);
-
-        // 落本地库：文件接收也要记一条消息，否则重新打开这个会话时文件发送
-        // 记录完全消失——此前只有 messages:send / MSG_TEXT 收发会落 local_messages，
-        // 文件上传分块只转发、组装、写盘，从未落库。用 uploadId 做主键（同一次
-        // 上传的多个分块共享这个 id，INSERT OR IGNORE 天然防重复）。
-        try {
-          db.insertMessage({
-            id: uploadId,
-            sessionId: transfer.sessionId,
-            direction: 'client_to_host',
-            content: transfer.fileName,
-            type: 'file',
-            senderId: transfer.clientId,
-          });
-        } catch (err) {
-          log.error('持久化文件接收消息失败:', err);
-        }
-
-        // 通知 Relay 路由回 Client
-        client.send({
-          type: WSMessageType.RESP_UPLOAD_ACK,
-          payload: {
-            uploadId,
-            fileName: transfer.fileName,
-            savedPath: savePath,
-            fileSize: fileBuffer.length,
-            clientId: transfer.clientId,
-            sessionId: transfer.sessionId,
-          },
-        });
-
-        // 桌面通知
-        if (Notification.isSupported()) {
-          new Notification({
-            title: 'RemoteBridge - 文件已接收',
-            body: `${transfer.fileName} 已保存至 ${savePath}`,
-          }).show();
-        }
-
-        mainWindow?.webContents.send('event:file-received', {
-          fileName: transfer.fileName,
-          savedPath: savePath,
-        });
-      } catch (err: any) {
-        log.error('保存上传文件失败:', err);
-        const transfer2 = { clientId, sessionId };
-        client.send({
-          type: WSMessageType.RESP_UPLOAD_ERROR,
-          payload: {
-            uploadId,
-            code: 'SAVE_ERROR',
-            message: err.message || '文件保存失败',
-            clientId: transfer2.clientId,
-            sessionId: transfer2.sessionId,
-          },
-        });
-      }
-    }
   });
 }
 
