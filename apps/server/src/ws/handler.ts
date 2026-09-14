@@ -21,6 +21,7 @@ import {
   registerClient,
   unregisterClient,
   getClientSocket,
+  getClientHost,
   rebindClientToHost,
   clearHostClients,
   forEachHost,
@@ -37,6 +38,10 @@ import { logger } from '../utils/logger';
 
 // ===== 心跳配置 =====
 const HEARTBEAT_INTERVAL = 30000;  // 30 秒
+
+// P1-04: Pending resource map — tracks resourceId by requestId for download/preview
+const pendingResources = new Map<string, string>();
+
 const HEARTBEAT_TIMEOUT = 60000;   // 60 秒无响应则关闭
 
 // ===== 设置 WebSocket 处理 =====
@@ -389,6 +394,17 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
     case WSMessageType.UPLOAD_END:
     case WSMessageType.UPLOAD_CANCEL:
       relayMessage(socket, message, meta);
+      // P1-04: Create opaque resource ID for download/preview requests from clients
+      if (meta.type === 'client' && (message.type === WSMessageType.CMD_REQUEST_DOWNLOAD || message.type === WSMessageType.CMD_REQUEST_PREVIEW)) {
+        const reqId = (message.payload as any)?.requestId;
+        if (reqId) {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { resourceRegistry } = require('../routes/resource-registry');
+          const resourceId = resourceRegistry.create((message.payload as any).filePath || '', meta.sessionId || '', getClientHost(meta.id) || '', meta.id, message.type === WSMessageType.CMD_REQUEST_DOWNLOAD ? 'download' : 'preview');
+          pendingResources.set(reqId, resourceId);
+        }
+      }
+
       break;
     case WSMessageType.CMD_CANCEL_TRANSFER: {
       // P0-02: Relay forwards cancel to Host
@@ -422,6 +438,18 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
     case WSMessageType.RESP_UPLOAD_ERROR:
     case WSMessageType.MSG_NOTIFICATION:
       // 文件上传成功：persist 一条 type:'file' 的消息，否则这次文件发送在
+      // P1-04: Inject resourceId into download/preview responses (host → client)
+      if (message.type === WSMessageType.RESP_DOWNLOAD_READY || message.type === WSMessageType.RESP_PREVIEW_READY) {
+        const reqId = (message.payload as any)?.requestId;
+        if (reqId) {
+          const resourceId = pendingResources.get(reqId);
+          if (resourceId) {
+            (message.payload as any).resourceId = resourceId;
+            pendingResources.delete(reqId);
+          }
+        }
+      }
+
       // messages 表里完全没有痕迹——CMD_UPLOAD_FILE_CHUNK 本身只是分块转发
       // （见上面的 case），从未写库；不补这条的话 Web 端跨 session 拉历史、
       // 桌面端重新打开会话都看不到任何文件发送记录。用 uploadId 做主键（同一次

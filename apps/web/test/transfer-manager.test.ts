@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { webTransferManager } from '../src/lib/transfer/manager';
 import { TransferState } from '@remotebridge/shared';
-
 describe('WebTransferManager — download/upload/preview tri-state', () => {
   let manager = webTransferManager;
 

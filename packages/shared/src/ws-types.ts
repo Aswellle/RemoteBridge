@@ -127,6 +127,8 @@ export interface RespPreviewReadyPayload extends RelayRoutingFields {
   extension: string;
   category: 'image' | 'text' | 'pdf' | 'unknown';
   expiresAt: number;
+  /** P1-04: Opaque resource ID for URL-safe preview access (filePath not in URL) */
+  resourceId?: string;
 }
 
 export interface RespPreviewErrorPayload extends RelayRoutingFields {
@@ -147,6 +149,8 @@ export interface RespDownloadReadyPayload extends RelayRoutingFields {
   fileName: string;
   fileSize: number;
   expiresAt: number;
+  /** P1-04: Opaque resource ID for URL-safe file access (filePath not in URL) */
+  resourceId?: string;
 }
 
 export interface RespDownloadErrorPayload extends RelayRoutingFields {

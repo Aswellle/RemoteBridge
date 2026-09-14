@@ -15,7 +15,7 @@ import { once } from 'node:events';
 // reply.hijack() 之后 @fastify/cors 的钩子不再执行，流式响应必须手动补 CORS 头，
 // 否则浏览器拦截代理下载/预览（curl/Node 不校验 CORS，API 级测试无感）
 import { corsHeadersFor } from '../utils/cors';
-
+import { resourceRegistry } from './resource-registry';
 type ProxyRequest = FastifyRequest<{ Params: { sessionId: string }; Querystring: { filePath: string } }>;
 
 // ===== Range 头解析（PR-04: 严格 Range 语义） =====
@@ -369,5 +369,43 @@ export async function proxyRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     (request, reply) => proxyFileRequest(request, reply, 'preview'),
+  );
+
+  // V2 (P1-04): Opaque resource route — filePath never in URL
+  fastify.get('/proxy/resource/:resourceId', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (request, reply) => {
+      const { resourceId } = request.params as { resourceId: string };
+      const payload = authenticateClient(request, reply);
+      if (!payload) return;
+
+      const resource = resourceRegistry.resolve(resourceId);
+      if (!resource) {
+        return reply.code(404).send({ success: false, data: null, error: { code: 'RESOURCE_NOT_FOUND', message: '资源不存在或已过期' }, timestamp: Date.now() });
+      }
+      if (payload.sessionId !== resource.sessionId) {
+        return reply.code(403).send({ success: false, data: null, error: { code: 'SESSION_MISMATCH', message: '令牌会话与资源会话不匹配' }, timestamp: Date.now() });
+      }
+      const hostWs = getHostSocket(resource.hostId);
+      if (!hostWs) {
+        return reply.code(502).send({ success: false, data: null, error: { code: 'HOST_OFFLINE', message: '目标主机不在线' }, timestamp: Date.now() });
+      }
+      const requestId = randomUUID();
+      const isDownload = resource.mode === 'download';
+      const respPromise = waitForHostResponse(requestId,
+        isDownload ? WSMessageType.RESP_DOWNLOAD_READY : WSMessageType.RESP_PREVIEW_READY,
+        isDownload ? [WSMessageType.RESP_DOWNLOAD_ERROR] : [WSMessageType.RESP_PREVIEW_ERROR], 10000);
+      sendWSMessage(hostWs, { type: isDownload ? WSMessageType.CMD_REQUEST_DOWNLOAD : WSMessageType.CMD_REQUEST_PREVIEW, payload: { filePath: resource.filePath, requestId, clientId: payload.sub, sessionId: resource.sessionId }, timestamp: Date.now(), sessionId: resource.sessionId });
+      try {
+        const resp = (await respPromise) as any;
+        try { await db.insert(securityLogs).values({ id: randomUUID(), hostId: resource.hostId, clientId: payload.sub, eventType: isDownload ? 'ACCESS_DOWNLOAD' : 'ACCESS_PREVIEW', detail: JSON.stringify({ action: isDownload ? 'proxy_download' : 'proxy_preview', resourceId, sessionId: resource.sessionId }), ipAddress: request.ip || 'unknown', createdAt: Math.floor(Date.now() / 1000) }); } catch { /* non-fatal */ }
+        const fileUrl = isDownload ? resp.downloadUrl : resp.previewUrl;
+        const fileName = resp.fileName || resource.filePath.split(/[/\\]/).pop() || 'download';
+        const extraHeaders: Record<string, string> = isDownload ? { 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`, 'Content-Type': 'application/octet-stream' } : { 'Cache-Control': 'no-store' };
+        await tunnelFromHost(hostWs, fileUrl, request.headers.range, request.headers.origin, reply, extraHeaders, payload.sub, resource.sessionId);
+      } catch (err: any) {
+        request.log.error({ err }, isDownload ? '资源代理下载失败' : '资源代理预览失败');
+        return reply.code(502).send({ success: false, data: null, error: { code: 'PROXY_ERROR', message: isDownload ? '代理下载失败' : '代理预览失败' }, timestamp: Date.now() });
+      }
+    },
   );
 }
