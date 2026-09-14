@@ -14,12 +14,15 @@
 [![License](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Aswellle/RemoteBridge?style=flat-square&color=brightgreen)](https://github.com/Aswellle/RemoteBridge/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/Aswellle/RemoteBridge/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Aswellle/RemoteBridge/actions/workflows/ci.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/Aswellle/RemoteBridge/codeql.yml?branch=main&style=flat-square&label=CodeQL)](https://github.com/Aswellle/RemoteBridge/actions/workflows/codeql.yml)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-607D8B?style=flat-square)](https://github.com/Aswellle/RemoteBridge/releases)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-607D8B?style=flat-square)](https://github.com/Aswellle/RemoteBridge/releases)
+[![Downloads](https://img.shields.io/github/downloads/Aswellle/RemoteBridge/total?style=flat-square&color=blue&label=Downloads)](https://github.com/Aswellle/RemoteBridge/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/Aswellle/RemoteBridge?style=flat-square&color=green)](https://github.com/Aswellle/RemoteBridge/commits/main)
 
-[简体中文](README.md) | [English](README.en.md)
+ [简体中文](README.md) | [English](README.en.md)
+
 
 </div>
 
@@ -66,21 +69,21 @@ RemoteBridge 采用**中继服务器架构**：运行在你电脑上的 Electron
 ---
 
 ## 核心特性
-
 | 🔌 **零配置连接** | 桌面端仅发起出站连接，无需端口转发、VPN、动态 DNS |
-| 🔑 **PIN 码配对** | 8 位短效 PIN 码（默认 5 分钟，可配置至 24 小时），浏览器输入即连 |
+| 🔑 **PIN 码配对** | 8 位短效 PIN 码（默认 5 分钟，可配置至 24 小时），浏览器输入即连；HMAC 索引查找 O(1) 认证 |
 | 📁 **文件浏览与下载** | 白名单目录浏览，HTTP Range 断点续传，256 KB 二进制帧流式传输 |
-| 👁️ **浏览器内预览** | 图片、PDF、文本文件预览，PDF 在沙盒 iframe 中打开 |
+| 👁️ **浏览器内预览** | 图片、PDF、文本文件预览，PDF 在沙盒 iframe 中打开；大文件（>50 MB）自动分片加载前 1 MB |
 | 💬 **实时消息** | 持久化消息历史，WebSocket 不可用时自动回退 REST |
 | 🔒 **会话管理** | 桌面端即时吊销任意客户端会话，旧 token 即刻失效 |
-| 📊 **安全审计** | 所有文件访问（允许/拒绝）记录到审计日志，Web 端可查看 |
+| 📊 **安全审计** | 所有文件访问（允许/拒绝）记录到审计日志，Web 端可查看；路径守卫 V2 最长匹配 + 审计日志 |
 | 🖥️ **内置本地 Relay** | 桌面端内置一键启动/停止的 Relay 服务器，无需单独部署 |
-| 📤 **文件上传** | 浏览器 → Host 端分块传输，按文件类型自动分类存储 |
+| 📤 **流式文件上传** | 浏览器 → Host 端二进制分块流式传输（File.stream + 自描述帧），原子写入，并发配额 5 / 单文件 100 MB |
+| 🔗 **不透明资源句柄** | 文件路径不再出现在 URL 中，Relay 签发带 TTL 的 opaque resourceId |
 | 🔄 **自动更新** | 桌面端启动时检查 GitHub Releases 新版本 |
 | 🐳 **完全自托管** | Docker Compose 一条命令部署，Caddy 自动 TLS |
 | 🛡️ **生产级安全** | httpOnly Cookie 令牌、CSP、非 root 容器、资源限制、安全响应头 |
-| ⚡ **V2 传输引擎** | 有状态传输生命周期（取消/背压/完整性校验），端到端背压反馈至磁盘读取 |
-| 🛡️ **主动内容隔离** | HTML/SVG 等主动内容强制下载附件，永不内联执行；运行时 WS 消息校验 |
+| ⚡ **V2 传输引擎** | 有状态传输生命周期（取消/背压/完整性校验），端到端背压反馈至磁盘读取；运行时 WS 消息 schema 校验 |
+| 🛡️ **主动内容隔离** | HTML/SVG 等主动内容强制下载附件，永不内联执行；PathGuard V2（最长匹配/审计日志/Windows 规范化/TOCTOU 缓解） |
 
 ---
 
@@ -197,14 +200,12 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 ## 技术栈
 
 | 组件 | 技术 |
-|------|------|
-| 桌面 Host | Electron 29 · Fastify（本地文件服务器）· better-sqlite3 |
-| 中继服务器 | Fastify · `@fastify/websocket` · better-sqlite3 · Drizzle ORM |
-| 网页客户端 | Next.js 15 App Router · Zustand · Tailwind CSS |
-| 共享协议层 | TypeScript 协议类型定义 · 运行时消息校验器 · 路径安全校验 |
+| 桌面 Host | Electron 29 · Fastify（本地文件服务器）· better-sqlite3 · 每传输 AbortController 取消 |
+| 中继服务器 | Fastify · `@fastify/websocket` · better-sqlite3 · Drizzle ORM · V2 Transfer Engine 状态机 |
+| 网页客户端 | Next.js 15 App Router · 6 个专注 Zustand Store（transfer/session/file/preview/message）· Tailwind CSS |
+| 共享协议层 | TypeScript 协议类型定义 · 运行时消息校验器 · 路径安全校验 · V2 传输引擎（TransferRecord / BaseTransferManager）· 不透明资源句柄 |
 | 工程化 | pnpm workspaces · Turborepo · Vitest · electron-vite |
 | 实例身份 | 启动时生成 UUID，/health 端点暴露 `instance_id` |
-
 ### 多实例部署（水平扩展封口）
 
 Relay 设计为**单实例无状态**：所有房间状态存于内存（`connection-registry.ts`，ADR-005），多实例部署需外部 Redis 作为房间状态后端（未实现，当前架构封口）。
@@ -247,15 +248,16 @@ location /api/v1/proxy {
 
 ## 安全机制
 
-- **路径校验**：每次文件操作前，路径经过用户配置的白名单和系统敏感目录黑名单双重校验；符号链接解析后校验，防止目录穿越
+- **路径校验**：每次文件操作前，路径经过用户配置的白名单和系统敏感目录黑名单双重校验；PathGuard V2 最长路径匹配支持嵌套允许目录，符号链接解析后校验，防止目录穿越；Windows 路径大小写不敏感规范化；TOCTOU 竞争缓解
+- **PIN 码认证**：bcrypt 哈希存储 + HMAC 部分索引实现 O(1) 连接查找，替代 O(n) 全表扫描
 - **下载令牌**：一次性 UUID，绑定请求方 `clientId`，30 分钟过期
+- **不透明资源句柄**：文件路径不再出现在 URL 中，Relay 签发带 TTL 的一次性 `resourceId`，彻底消除 URL 中的路径泄露风险
 - **JWT 分离**：访问令牌（2 h）与刷新令牌（30 d）使用独立签名密钥；刷新令牌携带 `use: 'refresh'` 声明，WebSocket 连接时拒绝
 - **httpOnly Cookie**：网页客户端令牌存储在 `HttpOnly; SameSite=Strict` Cookie 中，JavaScript 不可读，防御 XSS 凭据窃取
 - **Electron 沙盒**：渲染进程 `sandbox: true` + 严格 CSP；PDF 预览使用无 `allow-same-origin` 的沙盒 iframe
 - **生产加固**：`trustProxy: true`（反向代理后限流按真实 IP 计数）、1 MB 请求体上限、非 root 容器、资源限制、安全响应头
-- **V2 传输安全**：有状态传输生命周期（取消/背压/完整性校验），端到端背压反馈至磁盘读取；主动内容（HTML/SVG）强制附件下载，永不内联执行；运行时 WS 消息 schema 校验；严格 Range 语义（416 拒绝不可满足范围）
----
-
+- **V2 传输安全**：有状态传输生命周期（取消/背压/完整性校验），端到端背压反馈至磁盘读取；严格 Range 语义（416 拒绝不可满足范围）；运行时 WS 消息 schema 校验；协议校验器保留全部附加字段防止路由信息丢失
+- **主动内容隔离**：HTML/SVG 等主动内容强制下载附件，永不内联执行；主机文件服务端 CSP sandbox + X-Content-Type-Options + Referrer-Policy
 ## 测试
 
 四个包均有 Vitest 测试套件。服务端套件自动在 `:3099` 启动中继，无需手动准备：
@@ -276,8 +278,8 @@ pnpm --filter @remotebridge/web test
 推送版本 tag 触发发布流水线：
 
 ```sh
-git tag v1.3.11
-git push origin v1.3.11
+git tag v2.0.0
+git push origin v2.0.0
 ```
 ---
 

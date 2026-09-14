@@ -14,12 +14,14 @@ Zero open ports. Your files, anywhere.
 [![License](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Aswellle/RemoteBridge?style=flat-square&color=brightgreen)](https://github.com/Aswellle/RemoteBridge/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/Aswellle/RemoteBridge/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Aswellle/RemoteBridge/actions/workflows/ci.yml)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/Aswellle/RemoteBridge/codeql.yml?branch=main&style=flat-square&label=CodeQL)](https://github.com/Aswellle/RemoteBridge/actions/workflows/codeql.yml)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-607D8B?style=flat-square)](https://github.com/Aswellle/RemoteBridge/releases)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-607D8B?style=flat-square)](https://github.com/Aswellle/RemoteBridge/releases)
+[![Downloads](https://img.shields.io/github/downloads/Aswellle/RemoteBridge/total?style=flat-square&color=blue&label=Downloads)](https://github.com/Aswellle/RemoteBridge/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/Aswellle/RemoteBridge?style=flat-square&color=green)](https://github.com/Aswellle/RemoteBridge/commits/main)
 
-[简体中文](README.md) | [English](README.en.md)
+ [简体中文](README.md) | [English](README.en.md)
 
 </div>
 
@@ -65,22 +67,21 @@ Your PC never listens on a public port — NAT and firewall traversal is inheren
 
 ---
 
-## Key Features
-
 | 🔌 **Zero-config connection** | Desktop app initiates outbound connections only — no port forwarding, VPN, or dynamic DNS |
-| 🔑 **PIN-based pairing** | Short-lived 8-character PIN (default 5 min, configurable up to 24 hours), enter in browser to connect |
+| 🔑 **PIN-based pairing** | Short-lived 8-character PIN (default 5 min, configurable up to 24 hours), enter in browser to connect; HMAC indexed lookup O(1) auth |
 | 📁 **File browsing & download** | Whitelisted directory browsing, HTTP Range resume, 256 KB binary frame streaming |
-| 👁️ **In-browser preview** | Image, PDF, text preview; PDF opens in sandboxed iframe |
+| 👁️ **In-browser preview** | Image, PDF, text preview; PDF opens in sandboxed iframe; large files (>50 MB) auto partial-load first 1 MB |
 | 💬 **Real-time messaging** | Persistent message history, automatic REST fallback when WebSocket unavailable |
 | 🔒 **Session management** | Revoke any client session instantly from desktop; old tokens invalidated immediately |
-| 📊 **Security audit** | All file access attempts (allowed/denied) logged; viewable in web client |
+| 📊 **Security audit** | All file access attempts (allowed/denied) logged; viewable in web client; PathGuard V2 longest-match + audit logging |
 | 🖥️ **Built-in local Relay** | One-click start/stop Relay server inside the desktop app — no separate deployment needed |
-| 📤 **File upload** | Browser → Host chunked transfer, auto-sorted by file type |
+| 📤 **Streaming file upload** | Browser → Host binary chunked streaming (File.stream + self-describing frames), atomic write, concurrent quota 5 / 100 MB per file |
+| 🔗 **Opaque resource handle** | File paths no longer appear in URLs; Relay issues TTL-bound opaque resourceId |
 | 🔄 **Auto-update** | Desktop app checks GitHub Releases for new versions on startup |
 | 🐳 **Fully self-hosted** | One-command Docker Compose deploy, Caddy automatic TLS |
 | 🛡️ **Production-grade security** | httpOnly Cookie tokens, CSP, non-root containers, resource limits, security headers |
-| ⚡ **V2 Transfer Engine** | Stateful transfer lifecycle (cancel/backpressure/integrity), end-to-end backpressure to disk read |
-| 🛡️ **Active content isolation** | HTML/SVG forced to attachment download, never inline; runtime WS message validation |
+| ⚡ **V2 Transfer Engine** | Stateful transfer lifecycle (cancel/backpressure/integrity), end-to-end backpressure to disk read; runtime WS message schema validation |
+| 🛡️ **Active content isolation** | HTML/SVG forced to attachment download, never inline; PathGuard V2 (longest-match/audit-log/Windows-normalize/TOCTOU-mitigation) |
 
 ---
 
@@ -197,17 +198,11 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 ## Tech Stack
 
 | Component | Technology |
-| Desktop Host | Electron 29 · Fastify (local file server) · better-sqlite3 |
-| Relay Server | Fastify · `@fastify/websocket` · better-sqlite3 · Drizzle ORM |
-| Web Client | Next.js 15 App Router · Zustand · Tailwind CSS |
-| Shared Protocol | TypeScript protocol types · runtime message validators · path security |
+| Desktop Host | Electron 29 · Fastify (local file server) · better-sqlite3 · per-transfer AbortController cancellation |
+| Relay Server | Fastify · `@fastify/websocket` · better-sqlite3 · Drizzle ORM · V2 Transfer Engine state machine |
+| Web Client | Next.js 15 App Router · 6 focused Zustand stores (transfer/session/file/preview/message) · Tailwind CSS |
+| Shared Protocol | TypeScript protocol types · runtime message validators · path security · V2 transfer engine (TransferRecord / BaseTransferManager) · opaque resource handles |
 | Tooling | pnpm workspaces · Turborepo · Vitest · electron-vite |
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
 | [Production Deployment Guide](生产环境部署与使用指南.md) | Docker deploy, Caddy config, ops runbook, troubleshooting |
 | [User Manual](使用说明书.md) | End-user operation manual |
 | [CHANGELOG](CHANGELOG.md) | Version history |
@@ -218,15 +213,16 @@ pnpm --filter @remotebridge/desktop package:linux  # Linux AppImage
 
 ## Security Model
 
-- **Path validation**: Every file operation is checked against user-configured allowlist and system-sensitive blocklist; symlinks resolved before checking to prevent directory traversal
+- **Path validation**: Every file operation is checked against user-configured allowlist and system-sensitive blocklist; PathGuard V2 longest-path match supports nested allowed dirs; symlinks resolved before checking to prevent directory traversal; Windows case-insensitive normalization; TOCTOU race mitigation
+- **PIN authentication**: bcrypt hashing + HMAC partial index enables O(1) connection lookup, replacing O(n) full-table scan
+- **Opaque resource handle**: File paths no longer appear in URLs; Relay issues TTL-bound one-time `resourceId`, eliminating URL path leakage entirely
 - **Download tokens**: One-time UUIDs bound to requester `clientId`, expire in 30 minutes
 - **JWT separation**: Access tokens (2 h) and refresh tokens (30 d) signed with independent keys; refresh tokens carry `use: 'refresh'` claim and are rejected on WebSocket handshake
 - **httpOnly Cookies**: Web client tokens stored in `HttpOnly; SameSite=Strict` cookies — invisible to JavaScript, defending against XSS credential theft
 - **Electron sandbox**: Renderer runs with `sandbox: true` + strict CSP; PDF preview uses iframe without `allow-same-origin`
-- **Production hardening**: `trustProxy: true` (rate limiting counts by real client IP behind reverse proxy), 1 MB body limit, non-root containers, resource limits, security headers |
-- **V2 transfer security**: Stateful transfer lifecycle (cancel/backpressure/integrity), end-to-end backpressure to disk read; active content (HTML/SVG) forced to attachment, never inline; runtime WS message schema validation; strict Range semantics (416 for unsatisfiable ranges) |
-## Testing
-
+- **Production hardening**: `trustProxy: true` (rate limiting counts by real client IP behind reverse proxy), 1 MB body limit, non-root containers, resource limits, security headers
+- **V2 transfer security**: Stateful transfer lifecycle (cancel/backpressure/integrity), end-to-end backpressure to disk read; strict Range semantics (416 for unsatisfiable ranges); runtime WS message schema validation; protocol validators preserve all extra fields to prevent routing data loss
+- **Active content isolation**: HTML/SVG forced to attachment download, never inline; host file server adds CSP sandbox + X-Content-Type-Options + Referrer-Policy
 All four packages have Vitest suites. The server suite auto-spawns a relay on `:3099` — no manual setup:
 
 ```sh
@@ -245,8 +241,8 @@ Every push and PR triggers the full CI pipeline (build → typecheck → lint �
 Pushing a version tag triggers the release pipeline:
 
 ```sh
-git tag v1.3.11
-git push origin v1.3.11
+git tag v2.0.0
+git push origin v2.0.0
 ```
 ---
 
