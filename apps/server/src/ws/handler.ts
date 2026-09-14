@@ -5,7 +5,7 @@ import { verifyToken, TokenPayload } from '../utils/jwt';
 import { db, isSessionRevoked } from '../db/client';
 import { sessions, messages } from '../db/schema';
 import { eq } from 'drizzle-orm';
-import { WSMessage, WSMessageType } from '@remotebridge/shared';
+import { WSMessage, WSMessageType, validateMessage } from '@remotebridge/shared';
 import {
   sendWSMessage,
   relayMessage,
@@ -29,7 +29,7 @@ import {
   setConnMeta,
 } from './connection-registry';
 import { resolvePendingRequest } from './pending-requests';
-import { resolveFileTunnelMessage, resolveFileTunnelBinaryFrame } from './file-tunnel';
+import { resolveFileTunnelMessage, resolveFileTunnelBinaryFrame, cancelFileTransfer, cancelTransfersBySession } from './file-tunnel';
 import { redeemTicket } from './tickets';
 import { decodeFileChunkFrame } from '@remotebridge/shared';
 import { logger } from '../utils/logger';
@@ -178,7 +178,7 @@ export function setupWebSocket(app: FastifyInstance): void {
         if (meta.type !== 'host') return;
         try {
           const decoded = decodeFileChunkFrame(data as Buffer);
-          resolveFileTunnelBinaryFrame(decoded);
+          void resolveFileTunnelBinaryFrame(decoded);
         } catch (err) {
           app.log.error('解析文件隧道二进制帧失败:', err as any);
         }
@@ -186,13 +186,15 @@ export function setupWebSocket(app: FastifyInstance): void {
       }
 
       try {
-        const message: WSMessage = JSON.parse(data.toString());
+        const raw = JSON.parse(data.toString());
+        const message = validateMessage(raw);
         void handleMessage(socket, message, meta).catch((err: unknown) => app.log.error({ err }, 'handleMessage 未捕获异常'));
       } catch (err) {
-        app.log.error('解析 WebSocket 消息失败:', err as any);
+        app.log.error({ err }, '解析 WebSocket 消息失败');
+        const code = err && typeof err === 'object' && 'code' in err && typeof err.code === 'string' ? err.code : 'INVALID_MESSAGE';
         sendWSMessage(socket, {
           type: WSMessageType.ERROR,
-          payload: { code: 'INVALID_MESSAGE', message: '消息格式无效' },
+          payload: { code, message: '消息格式无效' },
           timestamp: Date.now(),
         });
       }
@@ -203,15 +205,11 @@ export function setupWebSocket(app: FastifyInstance): void {
       const meta = getConnMeta(socket);
       if (meta) {
         if (meta.type === 'host') {
-          // 重连竞态保护：仅当房间里登记的还是“本”socket 才清理。
-          // 否则新连接已覆盖该条目，旧 socket 的 close 不应误删新连接。
           if (!unregisterHost(meta.id, socket)) {
             app.log.info(`Host ${meta.id} 旧连接关闭（已被新连接替换）`);
             return;
           }
           app.log.info(`Host ${meta.id} 已断开 (${code}: ${reason})`);
-
-          // 通知所有关联的 Client
           clearHostClients(meta.id).forEach((clientId) => {
             const clientWs = getClientSocket(clientId);
             if (clientWs) {
@@ -228,8 +226,9 @@ export function setupWebSocket(app: FastifyInstance): void {
             return;
           }
           app.log.info(`Client ${meta.id} 已断开 (${code}: ${reason})`);
-
-          // 通知 Host
+          if (meta.sessionId) {
+            cancelTransfersBySession(meta.sessionId, 'client_disconnect');
+          }
           if (meta.hostId) {
             notifyHost(meta.hostId, WSMessageType.CLIENT_LEFT, {
               clientId: meta.id,
@@ -242,7 +241,7 @@ export function setupWebSocket(app: FastifyInstance): void {
 
     // 错误处理
     socket.on('error', (err: Error) => {
-      app.log.error('WebSocket 错误:', err as any);
+      app.log.error({ err }, 'WebSocket 错误');
     });
 
     // 发送连接成功消息
@@ -378,9 +377,23 @@ async function handleMessage(socket: WebSocket, message: WSMessage, meta: Connec
     case WSMessageType.CMD_REQUEST_DOWNLOAD:
     case WSMessageType.CMD_REQUEST_PREVIEW:
     case WSMessageType.CMD_UPLOAD_FILE_CHUNK:
-      // 中继消息给对方
       relayMessage(socket, message, meta);
       break;
+
+    case WSMessageType.CMD_CANCEL_TRANSFER: {
+      // P0-02: Relay forwards cancel to Host
+      if (meta.type === 'host') {
+        // Host-initiated cancel (e.g. user cancelled on desktop)
+        const payload = message.payload as { transferId?: string; reason?: string };
+        if (payload.transferId) {
+          cancelFileTransfer(payload.transferId, payload.reason as Parameters<typeof cancelFileTransfer>[1]);
+        }
+      } else {
+        // Client-initiated cancel: forward to Host
+        relayMessage(socket, message, meta);
+      }
+      break;
+    }
 
     case WSMessageType.RESP_FILE_CHUNK:
     case WSMessageType.RESP_FILE_ERROR:

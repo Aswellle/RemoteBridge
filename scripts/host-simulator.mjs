@@ -59,6 +59,7 @@ async function generatePin() {
 // Path safety — keep all access inside ROOT
 // ---------------------------------------------------------------------------
 function safePath(requested) {
+  if (!requested || typeof requested !== 'string') return null;
   const normalized = path.normalize(requested);
   const full = path.isAbsolute(normalized) ? normalized : path.join(ROOT, normalized);
   const rel = path.relative(ROOT, full);

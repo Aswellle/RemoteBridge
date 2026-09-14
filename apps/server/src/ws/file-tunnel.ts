@@ -1,10 +1,16 @@
-import { WSMessage, WSMessageType } from '@remotebridge/shared';
-import type { RespFileChunkPayload, RespFileErrorPayload, DecodedFileChunkFrame } from '@remotebridge/shared';
+import { WSMessage, WSMessageType, TransferState } from '@remotebridge/shared';
+import { db } from '../db/client';
+import { securityLogs } from '../db/schema';
+import { randomUUID } from 'node:crypto';
+import type { RespFileChunkPayload, RespFileErrorPayload, DecodedFileChunkFrame, CmdCancelTransferPayload } from '@remotebridge/shared';
 
 /**
  * 文件隧道传输注册表（Relay 代理 ↔ Host）。
  *
- * 代理路由发出 CMD_FETCH_FILE 前先在此登记 transferId；
+ * V2 Transfer Engine: each transfer now has a proper state machine,
+ * cancellation support, and session binding for revocation propagation.
+ *
+ * 代理路由发出 CMD_FETCH_FILE 在此之前在此登记 transferId；
  * ws/handler 收到 RESP_FILE_CHUNK / RESP_FILE_ERROR（JSON 路径）或二进制分块帧
  * （P1-12，见 file-tunnel-codec.ts）时分别交由 resolveFileTunnelMessage /
  * resolveFileTunnelBinaryFrame 分发——这些消息只属于服务端，永不中继给 Client。
@@ -18,10 +24,19 @@ import type { RespFileChunkPayload, RespFileErrorPayload, DecodedFileChunkFrame 
 export type NormalizedFileChunk = Omit<RespFileChunkPayload, 'data'> & { data: Buffer };
 
 interface ActiveTransfer {
-  onChunk: (chunk: NormalizedFileChunk) => void;
+  onChunk: (chunk: NormalizedFileChunk) => Promise<void> | void;
   onError: (err: Error) => void;
   idleTimeoutMs: number;
   timer: NodeJS.Timeout;
+  state: TransferState;
+  sessionId?: string;
+  hostId?: string;
+  clientId?: string;
+  cancelReason?: CmdCancelTransferPayload['reason'];
+  /** monotonic sequence guard */
+  expectedSeq: number;
+  receivedBytes: number;
+  expectedBytes?: number;
 }
 
 const transfers = new Map<string, ActiveTransfer>();
@@ -29,8 +44,13 @@ const transfers = new Map<string, ActiveTransfer>();
 function armTimer(transferId: string, transfer: ActiveTransfer): void {
   clearTimeout(transfer.timer);
   transfer.timer = setTimeout(() => {
+    const t = transfers.get(transferId);
+    if (t && t.state !== TransferState.CANCELLED && t.state !== TransferState.FAILED && t.state !== TransferState.COMPLETED) {
+      t.state = TransferState.FAILED;
+      t.cancelReason = 'timeout';
+      t.onError(new Error('文件隧道传输超时（Host 无响应）'));
+    }
     transfers.delete(transferId);
-    transfer.onError(new Error('文件隧道传输超时（Host 无响应）'));
   }, transfer.idleTimeoutMs);
 }
 
@@ -42,15 +62,98 @@ export function beginFileTransfer(
     onError: (err: Error) => void;
   },
   idleTimeoutMs: number = 30000,
+  sessionId?: string,
+  hostId?: string,
+  clientId?: string,
 ): void {
   const transfer: ActiveTransfer = {
     onChunk: handlers.onChunk,
     onError: handlers.onError,
     idleTimeoutMs,
     timer: setTimeout(() => {}, 0),
+    state: TransferState.PENDING,
+    sessionId,
+    hostId,
+    clientId,
+    expectedSeq: 0,
+    receivedBytes: 0,
   };
   transfers.set(transferId, transfer);
   armTimer(transferId, transfer);
+}
+
+/**
+ * Cancel a file transfer by id.
+ * Idempotent: repeated calls are silently ignored.
+ * Sets state to CANCELLED, fires onError, cleans up the registry.
+ */
+export function cancelFileTransfer(transferId: string, reason?: CmdCancelTransferPayload['reason']): boolean {
+  const transfer = transfers.get(transferId);
+  if (!transfer) return false;
+
+  // Idempotent: already in a terminal state
+  if (transfer.state === TransferState.CANCELLED || transfer.state === TransferState.FAILED || transfer.state === TransferState.COMPLETED) {
+    return false;
+  }
+
+  clearTimeout(transfer.timer);
+  // Audit log the cancellation (fire-and-forget; failure is non-fatal)
+  if (transfer.sessionId && transfer.hostId) {
+    void db.insert(securityLogs).values({
+      id: randomUUID(),
+      hostId: transfer.hostId,
+      clientId: transfer.clientId,
+      eventType: 'REVOKE',
+      detail: JSON.stringify({ transferId, reason: reason ?? 'unknown' }),
+      createdAt: Math.floor(Date.now() / 1000),
+    }).catch(() => { /* audit log failure is non-fatal */ });
+  }
+  transfer.state = TransferState.CANCELLED;
+  transfer.cancelReason = reason;
+  transfer.onError(new Error('transfer cancelled: ' + (reason ?? 'unknown')));
+  transfers.delete(transferId);
+  return true;
+}
+
+/**
+ * Cancel all transfers belonging to a session.
+ * Returns the number of transfers cancelled.
+ */
+export function cancelTransfersBySession(sessionId: string, reason?: CmdCancelTransferPayload['reason']): number {
+  let count = 0;
+  for (const [transferId, transfer] of transfers) {
+    if (transfer.sessionId === sessionId) {
+      if (cancelFileTransfer(transferId, reason)) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+/**
+ * Get transfer state (for tests / observability).
+ */
+export function getFileTransfer(transferId: string): {
+  state: TransferState;
+  sessionId?: string;
+  hostId?: string;
+  clientId?: string;
+  cancelReason?: string;
+  transferredBytes: number;
+  expectedBytes?: number;
+} | undefined {
+  const t = transfers.get(transferId);
+  if (!t) return undefined;
+  return {
+    state: t.state,
+    sessionId: t.sessionId,
+    hostId: t.hostId,
+    clientId: t.clientId,
+    cancelReason: t.cancelReason,
+    transferredBytes: t.receivedBytes,
+    expectedBytes: t.expectedBytes,
+  };
 }
 
 /** 主动结束（HTTP 客户端断开等场景）。后续到达的残余分块会被静默丢弃 */
@@ -58,23 +161,35 @@ export function endFileTransfer(transferId: string): void {
   const transfer = transfers.get(transferId);
   if (transfer) {
     clearTimeout(transfer.timer);
+    transfer.state = TransferState.COMPLETED;
     transfers.delete(transferId);
   }
 }
 
 /** 分块到达（任一格式）的共用收尾逻辑：到 eof 清理传输，否则续期空闲计时器 */
-function deliverChunk(transferId: string, transfer: ActiveTransfer, chunk: NormalizedFileChunk): void {
+async function deliverChunk(transferId: string, transfer: ActiveTransfer, chunk: NormalizedFileChunk): Promise<void> {
   if (chunk.eof) {
+    // P0-03: Validate byte integrity before marking complete
+    if (transfer.expectedBytes !== undefined && transfer.receivedBytes !== transfer.expectedBytes) {
+      transfer.state = TransferState.FAILED;
+      clearTimeout(transfer.timer);
+      transfers.delete(transferId);
+      transfer.onError(new Error(
+        'integrity mismatch: expected ' + transfer.expectedBytes + ' bytes but received ' + transfer.receivedBytes,
+      ));
+      return;
+    }
     clearTimeout(transfer.timer);
+    transfer.state = TransferState.COMPLETED;
     transfers.delete(transferId);
   } else {
     armTimer(transferId, transfer);
   }
-  transfer.onChunk(chunk);
+  await transfer.onChunk(chunk);
 }
 
 /** 由 ws/handler 调用（JSON 路径）；返回 true 表示消息已被隧道消费（或属于已结束的传输，应丢弃） */
-export function resolveFileTunnelMessage(message: WSMessage): boolean {
+export async function resolveFileTunnelMessage(message: WSMessage): Promise<boolean> {
   if (message.type !== WSMessageType.RESP_FILE_CHUNK && message.type !== WSMessageType.RESP_FILE_ERROR) {
     return false;
   }
@@ -86,8 +201,26 @@ export function resolveFileTunnelMessage(message: WSMessage): boolean {
   const transfer = transfers.get(transferId);
   if (!transfer) return true;
 
+  // P0-02: Discard chunks for cancelled transfers
+  if (transfer.state === TransferState.CANCELLED || transfer.state === TransferState.FAILED) {
+    return true;
+  }
+
+  // P0-03: Sequence validation
+  const seq = (message.payload as { seq?: number } | undefined)?.seq;
+  if (seq !== undefined && seq !== transfer.expectedSeq) {
+    transfer.state = TransferState.FAILED;
+    clearTimeout(transfer.timer);
+    transfers.delete(transferId);
+    transfer.onError(new Error(
+      'sequence error: expected ' + transfer.expectedSeq + ' but got ' + seq,
+    ));
+    return true;
+  }
+
   if (message.type === WSMessageType.RESP_FILE_ERROR) {
     clearTimeout(transfer.timer);
+    transfer.state = TransferState.FAILED;
     transfers.delete(transferId);
     const payload = message.payload as RespFileErrorPayload;
     transfer.onError(new Error(payload.message || 'Host 文件读取失败'));
@@ -95,8 +228,18 @@ export function resolveFileTunnelMessage(message: WSMessage): boolean {
   }
 
   const payload = message.payload as RespFileChunkPayload;
+
+  // P0-03: Track bytes and sequence
+  const chunkData = Buffer.from(payload.data, 'base64');
+  transfer.receivedBytes += chunkData.length;
+  if (seq !== undefined) transfer.expectedSeq = seq + 1;
+  if (payload.totalSize !== undefined && payload.rangeStart !== undefined && payload.rangeEnd !== undefined) {
+    transfer.expectedBytes = payload.rangeEnd - payload.rangeStart + 1;
+  }
+
+  transfer.state = TransferState.STREAMING;
   // legacy 路径：base64 解码一次，归一化为 Buffer，与二进制路径输出形态一致
-  deliverChunk(transferId, transfer, { ...payload, data: Buffer.from(payload.data, 'base64') });
+  await deliverChunk(transferId, transfer, { ...payload, data: chunkData });
   return true;
 }
 
@@ -105,9 +248,34 @@ export function resolveFileTunnelMessage(message: WSMessage): boolean {
  * 与 resolveFileTunnelMessage 共享 transfers 注册表/计时器逻辑。
  * 无主帧（传输已结束/超时）静默丢弃——二进制帧永不中继给 Client，无需返回值标识。
  */
-export function resolveFileTunnelBinaryFrame(decoded: DecodedFileChunkFrame): void {
+export async function resolveFileTunnelBinaryFrame(decoded: DecodedFileChunkFrame): Promise<void> {
   const transfer = transfers.get(decoded.transferId);
   if (!transfer) return;
+
+  // P0-02: Discard chunks for cancelled transfers
+  if (transfer.state === TransferState.CANCELLED || transfer.state === TransferState.FAILED) {
+    return;
+  }
+
+  // P0-03: Sequence validation
+  if (decoded.seq !== transfer.expectedSeq) {
+    transfer.state = TransferState.FAILED;
+    clearTimeout(transfer.timer);
+    transfers.delete(decoded.transferId);
+    transfer.onError(new Error(
+      'sequence error: expected ' + transfer.expectedSeq + ' but got ' + decoded.seq,
+    ));
+    return;
+  }
+
+  // P0-03: Track bytes and sequence
+  transfer.receivedBytes += decoded.data.length;
+  transfer.expectedSeq = decoded.seq + 1;
+  if (decoded.totalSize !== undefined && decoded.rangeStart !== undefined && decoded.rangeEnd !== undefined) {
+    transfer.expectedBytes = decoded.rangeEnd - decoded.rangeStart + 1;
+  }
+
+  transfer.state = TransferState.STREAMING;
 
   const chunk: NormalizedFileChunk = {
     transferId: decoded.transferId,
@@ -120,9 +288,8 @@ export function resolveFileTunnelBinaryFrame(decoded: DecodedFileChunkFrame): vo
     contentType: decoded.contentType,
     fileName: decoded.fileName,
   };
-  deliverChunk(decoded.transferId, transfer, chunk);
+  await deliverChunk(decoded.transferId, transfer, chunk);
 }
-
 /** 当前进行中的传输数（监控/测试用） */
 export function activeTransferCount(): number {
   return transfers.size;

@@ -7,11 +7,11 @@ import { eq, and, gt, isNull, ne, or } from 'drizzle-orm';
 import { generatePinWithHash, isValidPinFormat, verifyPin } from '../utils/pin';
 import { signHostToken, signClientAccessToken, signClientRefreshToken, verifyHostToken, verifyRefreshToken, verifyAccessToken, extractTokenFromHeader, extractTokenFromRequest } from '../utils/jwt';
 import { notifyAndDisconnectClient } from '../ws/relay';
-import { isHostOnline } from '../ws/connection-registry';
-import { issueTicket } from '../ws/tickets';
-import { RATE_LIMIT_CONFIG, JWT_CONFIG, WSMessageType } from '@remotebridge/shared';
+ import { cancelTransfersBySession } from '../ws/file-tunnel';
+ import { isHostOnline } from '../ws/connection-registry';
+ import { issueTicket } from '../ws/tickets';
+ import { RATE_LIMIT_CONFIG, JWT_CONFIG, WSMessageType } from '@remotebridge/shared';
 import type { ApiResponse, RegisterHostRequest, GeneratePinResponse, ConnectRequest, ConnectResponse } from '@remotebridge/shared';
-
 // ===== Cookie 工具（02a-S11）=====
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -591,6 +591,9 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     await db.update(sessions)
       .set({ revokedAt: now })
       .where(eq(sessions.id, sessionId));
+
+    // P0-02/P0-07: Cancel all active transfers for this session BEFORE notifying client
+    cancelTransfersBySession(sessionId, 'session_revoked');
 
     // 记录安全日志
     await db.insert(securityLogs).values({

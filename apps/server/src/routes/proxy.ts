@@ -7,18 +7,21 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { sendWSMessage } from '../ws/relay';
 import { getHostSocket } from '../ws/connection-registry';
 import { waitForHostResponse } from '../ws/pending-requests';
-import { beginFileTransfer, endFileTransfer } from '../ws/file-tunnel';
+import { beginFileTransfer, endFileTransfer, cancelFileTransfer } from '../ws/file-tunnel';
 import type { NormalizedFileChunk } from '../ws/file-tunnel';
 import { WSMessageType } from '@remotebridge/shared';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 // reply.hijack() 之后 @fastify/cors 的钩子不再执行，流式响应必须手动补 CORS 头，
 // 否则浏览器拦截代理下载/预览（curl/Node 不校验 CORS，API 级测试无感）
 import { corsHeadersFor } from '../utils/cors';
 
 type ProxyRequest = FastifyRequest<{ Params: { sessionId: string }; Querystring: { filePath: string } }>;
 
-// ===== Range 头解析（仅支持 bytes=start-end? 形式，与 Host 文件服务器一致） =====
-function parseRange(rangeHeader: string | undefined): { start: number; end?: number } | null {
+// ===== Range 头解析（PR-04: 严格 Range 语义） =====
+
+/** 仅做语法解析，不校验可满足性 */
+function parseRangeHeader(rangeHeader: string | undefined): { start: number; end?: number } | null {
   if (!rangeHeader) return null;
   const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader.trim());
   if (!match) return null;
@@ -26,6 +29,18 @@ function parseRange(rangeHeader: string | undefined): { start: number; end?: num
   const end = match[2] ? parseInt(match[2], 10) : undefined;
   if (end != null && end < start) return null;
   return { start, end };
+}
+
+/** 在已知 fileSize 后校验 Range 的可满足性；返回 null 表示可满足，否则返回 416 错误消息 */
+function validateRangeAgainstSize(
+  range: { start: number; end?: number },
+  fileSize: number,
+): string | null {
+  if (fileSize === 0) return 'empty file';
+  if (range.start >= fileSize) return 'start >= fileSize';
+  // end 超过 fileSize-1 时，按 HTTP 规范应返回 416（不 silent clamp）
+  if (range.end != null && range.end >= fileSize) return 'end >= fileSize';
+  return null;
 }
 
 // ===== 经 WS 隧道从 Host 拉取文件并流式写入 HTTP 响应 =====
@@ -43,13 +58,13 @@ function tunnelFromHost(
   reply: FastifyReply,
   extraHeaders: Record<string, string> = {},
   clientId?: string,
+  sessionId?: string,
 ): Promise<void> {
   const token = new URL(hostUrl).searchParams.get('token');
   if (!token) {
     throw new Error('Host 返回的下载地址缺少令牌');
   }
-
-  const range = parseRange(rangeHeader);
+  const range = parseRangeHeader(rangeHeader);
   const corsHdrs = corsHeadersFor(origin);
   const transferId = randomUUID();
 
@@ -59,7 +74,7 @@ function tunnelFromHost(
   return new Promise((resolve) => {
     let headersSent = false;
     let finished = false;
-
+    let rangeValidated = false;
     const finish = () => {
       if (finished) return;
       finished = true;
@@ -67,62 +82,92 @@ function tunnelFromHost(
       resolve();
     };
 
-    // 浏览器中断下载时停止接收（残余分块由注册表静默丢弃；
-    // Host 侧最多多读若干分块后因 WS 缓冲水位自然停止）
-    raw.on('close', finish);
+    beginFileTransfer(
+      transferId,
+      {
+        onChunk: async (chunk: NormalizedFileChunk) => {
+          if (finished) return;
 
-    beginFileTransfer(transferId, {
-      onChunk: (chunk: NormalizedFileChunk) => {
-        if (finished) return;
-
-        if (!headersSent) {
-          headersSent = true;
-          const isPartial = range != null;
-          // 文件元信息按协议约定只在首帧（seq === 0）携带
-          const totalSize = chunk.totalSize ?? 0;
-          const rangeStart = chunk.rangeStart ?? 0;
-          const rangeEnd = chunk.rangeEnd ?? 0;
-          const contentLength = rangeEnd - rangeStart + 1;
-          const headers: Record<string, string | number> = {
-            'Content-Type': extraHeaders['Content-Type'] || chunk.contentType || 'application/octet-stream',
-            'Content-Length': totalSize === 0 ? 0 : contentLength,
-            'Accept-Ranges': 'bytes',
-            ...corsHdrs,
-            ...extraHeaders,
-          };
-          if (isPartial) {
-            headers['Content-Range'] = `bytes ${rangeStart}-${rangeEnd}/${totalSize}`;
+          if (!rangeValidated && range) {
+            rangeValidated = true;
+            const totalSize = chunk.totalSize ?? 0;
+            const unsatisfiable = validateRangeAgainstSize(range, totalSize);
+            if (unsatisfiable) {
+              cancelFileTransfer(transferId, 'proxy_closed');
+              raw.writeHead(416, {
+                'Content-Range': `bytes */${totalSize}`,
+                'Accept-Ranges': 'bytes',
+                ...corsHdrs,
+              });
+              raw.end();
+              finish();
+              return;
+            }
           }
-          raw.writeHead(isPartial ? 206 : 200, headers);
-        }
 
-        if (chunk.data.length > 0) {
-          // 浏览器侧背压无法回传给 Host（帧已在途），Node 会缓冲未写出的数据；
-          // Host 端 4MB 发送水位间接限制了在途数据量
-          raw.write(chunk.data);
-        }
-        if (chunk.eof) {
-          raw.end();
+          if (!headersSent) {
+            headersSent = true;
+            const isPartial = range != null;
+            const totalSize = chunk.totalSize ?? 0;
+            const rangeStart = chunk.rangeStart ?? 0;
+            const rangeEnd = chunk.rangeEnd ?? 0;
+            const contentLength = rangeEnd - rangeStart + 1;
+            const headers: Record<string, string | number> = {
+              'Content-Type': extraHeaders['Content-Type'] || chunk.contentType || 'application/octet-stream',
+              'Content-Length': totalSize === 0 ? 0 : contentLength,
+              'Accept-Ranges': 'bytes',
+              ...corsHdrs,
+              ...extraHeaders,
+            };
+            if (isPartial) {
+              headers['Content-Range'] = `bytes ${rangeStart}-${rangeEnd}/${totalSize}`;
+            }
+            raw.writeHead(isPartial ? 206 : 200, headers);
+          }
+
+          if (chunk.data.length > 0) {
+            const ok = raw.write(chunk.data);
+            if (!ok) {
+              await once(raw, 'drain');
+            }
+          }
+          if (chunk.eof) {
+            raw.end();
+            finish();
+          }
+        },
+        onError: (err: Error) => {
+          if (finished) return;
+          if (!headersSent) {
+            reply.log.error({ err }, '文件隧道传输失败');
+            raw.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', ...corsHdrs });
+            raw.end(JSON.stringify({
+              success: false,
+              data: null,
+              error: { code: 'TUNNEL_ERROR', message: '文件隧道传输失败' },
+              timestamp: Date.now(),
+            }));
+          } else {
+            raw.destroy(err);
+          }
           finish();
-        }
+        },
       },
-      onError: (err: Error) => {
-        if (finished) return;
-        if (!headersSent) {
-          reply.log.error({ err }, '文件隧道传输失败');
-          raw.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8', ...corsHdrs });
-          raw.end(JSON.stringify({
-            success: false,
-            data: null,
-            error: { code: 'TUNNEL_ERROR', message: '文件隧道传输失败' },
-            timestamp: Date.now(),
-          }));
-        } else {
-          // 响应头已发出，只能掐断连接让客户端感知失败
-          raw.destroy(err);
-        }
-        finish();
-      },
+      30000,
+      sessionId,
+      undefined,
+      clientId,
+    );
+
+    raw.on('close', () => {
+      if (!finished && hostWs.readyState === 1) {
+        sendWSMessage(hostWs, {
+          type: WSMessageType.CMD_CANCEL_TRANSFER,
+          payload: { transferId, reason: 'proxy_closed' },
+          timestamp: Date.now(),
+        });
+      }
+      finish();
     });
 
     sendWSMessage(hostWs, {
@@ -138,7 +183,6 @@ function tunnelFromHost(
     });
   });
 }
-
 // ===== 验证 Client JWT =====
 // 02a-S11 之后 Web 端走 rb_access cookie，不再有可读的 Authorization 头 —— 必须支持两条路径，
 // 否则任何非本机部署（Web 必经此代理）的下载/预览都会 401。
@@ -287,7 +331,7 @@ async function proxyFileRequest(
         }
       : { 'Cache-Control': 'no-store' };
 
-    await tunnelFromHost(hostWs, fileUrl, request.headers.range, request.headers.origin, reply, extraHeaders, payload.sub);
+    await tunnelFromHost(hostWs, fileUrl, request.headers.range, request.headers.origin, reply, extraHeaders, payload.sub, sessionId);
   } catch (err: any) {
     request.log.error({ err }, isDownload ? '代理下载失败' : '代理预览失败');
     return reply.code(502).send({
