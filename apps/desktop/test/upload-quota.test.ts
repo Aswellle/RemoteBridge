@@ -163,12 +163,11 @@ describe('V2 Upload Quota (PH1 / SEC-H1)', () => {
   });
 
   it('rejects UPLOAD_START when totalSize is exactly 100 MB + 1 byte', async () => {
-    const uploadId = 'uid-one-byte-over-cap';
     const startHandler = jsonHandlers.get(WSMessageType.UPLOAD_START);
 
     const overSize = 100 * 1024 * 1024 + 1;
     await startHandler!({
-      uploadId,
+      uploadId: 'uid-one-byte-over-cap',
       fileName: 'over.bin',
       mimeType: 'application/octet-stream',
       category: 'documents',
@@ -180,7 +179,7 @@ describe('V2 Upload Quota (PH1 / SEC-H1)', () => {
     const errors = sentMessages.filter(
       (m) =>
         m.type === WSMessageType.RESP_UPLOAD_ERROR &&
-        m.payload.uploadId === uploadId &&
+        m.payload.uploadId === 'uid-one-byte-over-cap' &&
         m.payload.code === 'INVALID_UPLOAD_SIZE',
     );
     expect(errors).toHaveLength(1);

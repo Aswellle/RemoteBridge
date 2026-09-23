@@ -55,7 +55,7 @@ vi.mock('../src/main/config/store', () => ({
   }),
 }));
 
-import { setupMessageHandlers } from '../src/main/ws-client/handlers';
+import { setupMessageHandlers, resetUploadTransfersForTests } from '../src/main/ws-client/handlers';
 
 async function dispatchBinary(frame: Buffer) {
   for (const handler of binaryHandlers) {
@@ -86,6 +86,7 @@ beforeEach(() => {
   sentMessages = [];
   jsonHandlers = new Map();
   binaryHandlers = [];
+  resetUploadTransfersForTests();
   setupMessageHandlers(null);
 });
 

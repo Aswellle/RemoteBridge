@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream, type WriteStream } from 'node:fs';
-import { open as fsOpen, mkdir, rename, unlink } from 'node:fs/promises';
+import { open as fsOpen, copyFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { WSMessageType, UploadCategory, FileCategory, decodeUploadChunkFrame } from '@remotebridge/shared';
 import { BrowserWindow, Notification } from 'electron';
 import { getRelayClient } from './client';
@@ -256,8 +256,19 @@ async function uploadFinalize(uploadId: string): Promise<void> {
     // P1-03: Race-safe unique filename
     const savePath = await getUniqueSavePathV2(saveDir, transfer.fileName);
 
-    // Atomic rename: temp → final
-    await rename(transfer.tempPath, savePath);
+    // Atomic rename: temp → final (with cross-filesystem fallback)
+    try {
+      await rename(transfer.tempPath, savePath);
+    } catch (renameErr: any) {
+      // EXDEV: temp and saveDir on different filesystems (e.g. /tmp vs home) — fall back to copy+unlink
+      if (renameErr?.code === 'EXDEV') {
+        log.warn(`rename 跨文件系统，改用 copy+unlink: ${transfer.tempPath} -> ${savePath}`);
+        await copyFile(transfer.tempPath, savePath);
+        await unlink(transfer.tempPath);
+      } else {
+        throw renameErr;
+      }
+    }
 
     // Remove from map only AFTER successful rename (file is committed)
     uploadTransfers.delete(uploadId);
@@ -303,6 +314,7 @@ async function uploadFinalize(uploadId: string): Promise<void> {
       fileName: transfer.fileName,
       savedPath: savePath,
     });
+
   } catch (err: any) {
     log.error('保存上传文件失败:', err);
 
@@ -313,7 +325,6 @@ async function uploadFinalize(uploadId: string): Promise<void> {
     } catch {
       // already moved/deleted
     }
-
     client?.send({
       type: WSMessageType.RESP_UPLOAD_ERROR,
       payload: {

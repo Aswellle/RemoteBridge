@@ -15,38 +15,39 @@ All four packages share protocol types from `@remotebridge/shared`.
 
 ### Packages (pnpm workspace + Turborepo)
 
-|`shared`|`packages/shared`|WS message types, REST API types, path-security utils, file-tunnel codec, JWT/rate-limit config constants, **protocol validators (V2)**, **range validation helpers (V2)**|
+|`shared`|`packages/shared`|WS message types, REST API types, path-security utils, file-tunnel codec, JWT/rate-limit config constants, **protocol validators (V2)**, **range validation helpers (V2)**, **transfer engine model + base manager**|
 |`server`|`apps/server`|Fastify relay — auth, routing, file proxy/tunnel, SQLite (Drizzle), security logs, **Transfer Engine registry (V2)**|
 |`desktop`|`apps/desktop`|Electron 29 host — WS client to relay, local Fastify file server, auto-updater, embedded local relay, **per-transfer AbortController (V2)**|
 |`web`|`apps/web`|Next.js 15 App Router client — Zustand store, WS manager, file browser/download UI, **active content isolation (V2)**|
 
 ### Connection flow
 
-1. `POST /auth/register-host` → host row + Host JWT
-2. `POST /auth/generate-pin` → 8-char PIN (bcrypt hash, 5 min TTL), shown out-of-band to user
+1. `POST /auth/register-host` → host row + Host JWT (90d)
+2. `POST /auth/generate-pin` → 8-char PIN (bcrypt hash + HMAC index, 5 min TTL), shown out-of-band to user
 3. `POST /auth/connect` (PIN) → client access JWT (2 h) + refresh JWT (30 d) set as **httpOnly cookies** (`rb_access`, `rb_refresh`, `SameSite=Strict`)
-4. Both sides open WebSocket (`?type=host` / `?type=client`); relay routes by `sessionId` room
+4. Both sides open WebSocket (`?type=host` with `Authorization: Bearer` / `?type=client` with 30s single-use ticket); relay routes by `sessionId` room
 
 ### File transfer
 
-- **Download/preview:** web → relay issues `CMD_REQUEST_DOWNLOAD/PREVIEW` → host responds `RESP_*_READY` → relay hijacks HTTP reply and streams `CMD_FETCH_FILE` binary frames (256 KB chunks, backpressure, Range preserved for resume)
-- **Upload (web → host):** chunked through WS relay
+- **Download/preview:** web → relay issues `CMD_REQUEST_DOWNLOAD/PREVIEW` → host responds `RESP_*_READY` → relay hijacks HTTP reply and streams `CMD_FETCH_FILE` binary frames (256 KB chunks, 4 MB backpressure watermark, Range preserved for resume)
+- **Upload (web → host):** chunked through WS relay using V2 binary frames
 - **Binary framing:** non-empty chunks use self-describing binary WS frames (`file-tunnel-codec.ts`, ADR-004); empty/error stay JSON
 
 ### Security model
 
-- Path allowlist (user config) + system-sensitive-blocklist (`security.ts`)
-- One-time UUID download tokens bound to `clientId`, 30 min TTL
+- Path allowlist (user config) + system-sensitive-blocklist (`security.ts`); blacklist checked BEFORE whitelist
+- One-time UUID download tokens bound to `clientId`, 30 min TTL, SQLite-persisted
 - Access/refresh JWTs signed with **independent** keys; refresh token has `use:'refresh'` claim (rejected on WS)
 - WS auth via 30 s single-use ticket (`GET /auth/ws-ticket`) so tokens never appear in URLs (ADR `httponly-cookie-token-design.md`)
 - Electron renderer: `sandbox: true`, strict CSP, sandboxed iframe for PDF preview
+- Opaque `resourceId` registry (30 min TTL) so `filePath` never appears in URLs
 
 ### State
 
 - **Relay:** in-memory single-instance room state (`connection-registry.ts`, ADR-005); restart self-heals via reconnect
 - **Transfer Engine (V2):** in-memory transfer registry (`server/ws/file-tunnel.ts`) with per-transfer state machine, sequence/byte integrity validation, and session-scoped cancellation
-- **Web:** Zustand store (`app-store.ts`) + `electron-store`-style localStorage for session metadata and host history
-- **Desktop:** `electron-store` (config) + `better-sqlite3` (download tokens, auth); per-transfer `AbortController` registry (`desktop/ws-client/file-tunnel.ts`)
+- **Web:** Zustand store (`app-store.ts`) + store slices (`store/slices/`) + `electron-store`-style localStorage for session metadata and host history
+- **Desktop:** `electron-store` (config with `safeStorage` encryption) + `better-sqlite3` (download tokens, auth); per-transfer `AbortController` registry (`desktop/ws-client/file-tunnel.ts`)
 
 ### Transfer Engine (V2 — RB-P0-01/02/03)
 
@@ -65,68 +66,87 @@ Key invariants:
 - HTTP writable backpressure (`raw.write()` drain) propagates to Host disk read
 - Audit log written on each cancellation (fire-and-forget to `security_logs`)
 
+### Binary protocol framing
+
+**Download direction** (Host→Relay, `file-tunnel-codec.ts`):
 ```
-packages/shared/src
+[0] version=1 | [1] flags (bit0=eof, bit1=hasMeta iff seq===0) | [2-3] transferIdLen u16BE
+[...] transferId ASCII | [u32BE] seq
+-- if hasMeta: totalSize u64BE, rangeStart u64BE, rangeEnd u64BE,
+   contentTypeLen u16BE + UTF-8 bytes, fileNameLen u16BE + UTF-8 bytes
+-- remaining bytes: raw chunk payload
+```
+
+**Upload direction** (Client→Relay→Host):
+```
+[0] version=1 | [1] flags (bit0=eof) | [2-3] transferIdLen u16BE | [...] transferId ASCII
+[u32BE] seq | [u32BE] dataLen | [...] payload
+```
+
+Browser side hand-builds the same layout with `DataView` (no `Buffer` in browsers).
+
+---
+
+## Key Directories
+
+### packages/shared/src
+```
   index.ts                public barrel export
-  ws-types.ts             WS message type enums (WSMessageType) + payload interfaces
+  ws-types.ts             WS message type enums (WSMessageType) + payload interfaces + TransferState enum
   ws-types-preview.ts     preview-specific message types
   file-tunnel-codec.ts    binary frame encode/decode (version, flags, transferId, seq)
-  security.ts             path allowlist/blocklist validation
-  api-types.ts            REST DTOs
+  security.ts             path allowlist/blocklist validation, PIN generation, JWT/RATE_LIMIT config
+  api-types.ts            REST DTOs (ApiResponse<T> envelope)
   file-utils.ts           file-category + size helpers
   ui-fonts.ts             shared font constants
   security-log-ui.ts      security log UI formatting helpers
   protocol/               V2: runtime WS-message validators (schemas.ts) + typed errors (errors.ts) + range validation
-apps/server/src
-  index.ts                Fastify bootstrap, plugin/route registration, /health
-  routes/                 auth, hosts, messages, security-logs, proxy (REST API)
-  ws/                     handler (WS lifecycle), relay (routing), connection-registry,
-                          file-tunnel (V2: Transfer Engine registry + state machine + cancellation),
-                          pending-requests, tickets
+  transfer/               V2: TransferRecord model, ITransferManager interface, BaseTransferManager
 ```
-packages/shared/src
-  index.ts                public barrel export
-  ws-types.ts             WS message type enums (WSMessageType) + payload interfaces
-  ws-types-preview.ts     preview-specific message types
-  file-tunnel-codec.ts    binary frame encode/decode (version, flags, transferId, seq)
-  security.ts             path allowlist/blocklist validation
-  api-types.ts            REST DTOs
-  file-utils.ts           file-category + size helpers
-  ui-fonts.ts             shared font constants
-  security-log-ui.ts      security log UI formatting helpers
-apps/server/src
-  index.ts                Fastify bootstrap, plugin/route registration, /health
-  routes/                 auth, hosts, messages, security-logs, proxy (REST API)
-  ws/                     handler (WS lifecycle), relay (routing), connection-registry,
-                          file-tunnel, pending-requests, tickets
-  db/                     schema.ts (Drizzle), client.ts (init, retention job)
-  utils/                  pin, jwt, secrets (startup validation), logger (pino), cors
-apps/web/src
+
+### apps/server/src
+```
+  index.ts                Fastify bootstrap, plugin/route registration, /health, graceful shutdown
+  routes/                 auth, hosts, messages, security-logs, proxy (REST API under /api/v1)
+  ws/                     handler (WS lifecycle + dual auth), relay (routing + clientId/sessionId injection),
+                          connection-registry (in-memory room state), file-tunnel (Transfer Engine state machine),
+                          pending-requests (server-initiated CMD→RESP correlation), tickets (30s single-use)
+  db/                     schema.ts (Drizzle: hosts, sessions, messages, security_logs), client.ts (init, retention)
+  utils/                  pin (bcrypt + HMAC index), jwt (sign/verify), secrets (startup validation), logger (pino), cors
+```
+
+### apps/web/src
+```
   app/                    Next.js App Router pages (dashboard, preview, files, messages, security, settings)
-  store/app-store.ts      Zustand store (AppState) — central client state machine
-  hooks/useWebSocket.ts   WS manager (connect, reconnect, backoff, revoke handling)
+  store/app-store.ts      Zustand store (AppState) — central client state machine (actively used)
+  store/slices/           P1-09 split stores: session, file, preview, message, transfer
+  hooks/useWebSocket.ts   WS manager singleton (ticket connect, 401→refresh→retry, close-code handling)
   hooks/useFileStream.ts  file streaming hook
-  hooks/usePreview.ts     file preview via proxy Blob URL
-  lib/api.ts              axios REST client
-  lib/download-manager.ts HTTP Range / resume downloader
+  hooks/usePreview.ts     file preview via proxy Blob URL (Range for >50MB)
+  lib/api.ts              axios REST client (withCredentials, 401 deduped refresh)
+  lib/download-manager.ts HTTP Range / resume downloader (sole RESP_DOWNLOAD_* consumer)
+  lib/transfer/manager.ts WebTransferManager extends BaseTransferManager
   lib/logger.ts           thin console wrapper
   lib/env.ts              environment variable validation
   components/             FileList, DownloadPanel, Breadcrumb, previews/, ui/
-apps/desktop/src
+```
+
+### apps/desktop/src
+```
   main/index.ts           Electron bootstrap, IPC registration, tray, file server, updater
-  main/window.ts          BrowserWindow management
+  main/window.ts          BrowserWindow management (sandbox:true, CSP via onHeadersReceived)
   main/electron-binding.ts better-sqlite3 .node path hook (MUST be first import)
-  main/token-rotator.ts   automatic token refresh scheduler
+  main/token-rotator.ts   automatic host JWT rotation (≤30d remaining)
   main/tray.ts            system tray management
-  main/ipc/               auth, dirs, clients, messages, settings handlers
   main/ws-client/         relay WS client (client.ts, handlers.ts, dir-handlers.ts, file-tunnel.ts)
-  main/file-server/       local Fastify file server + token manager
-  main/security/          path-guard.ts, audit-logger.ts
-  main/db/                better-sqlite3 client + schema
-  main/config/            electron-store configuration
-  main/local-relay.ts     embedded relay start/stop (GUI-managed)
+  main/file-server/       local Fastify file server (127.0.0.1) + token manager
+  main/security/          path-guard.ts (symlink resolution, blacklist→whitelist, recursive permission), audit-logger.ts
+  main/db/                better-sqlite3 client (allowed_directories, connected_clients, download_tokens, local_messages, access_logs)
+  main/config/            electron-store configuration (safeStorage-encrypted secrets)
+  main/local-relay.ts     embedded relay runner (utilityProcess.fork / spawn node)
   main/updater.ts         electron-updater (GitHub Releases)
-  preload/index.ts        contextBridge-exposed IPC
+  main/ipc/               auth, dirs, clients, messages, settings handlers
+  preload/index.ts        contextBridge-exposed IPC (~40 invoke channels + 9 event:* push channels)
   renderer/               React UI (pages, App.tsx, theme, styles)
 ```
 
@@ -174,26 +194,46 @@ cd apps/desktop && npx @electron/rebuild -f -w better-sqlite3 && cd ../..
 
 ## Testing & QA
 
-Vitest v2 across all four packages. Run per-package:
+Vitest v2 across all four packages. No turbo test pipeline — run per-package:
 
 ```bash
+# Per-package
 pnpm --filter @remotebridge/shared test
-pnpm --filter @remotebridge/server test     # auto-spawns relay on :3099 via test/global-setup.ts
+pnpm --filter @remotebridge/server test      # auto-spawns relay on :3099 via test/global-setup.ts
+pnpm --filter @remotebridge/web test         # happy-dom env
 pnpm --filter @remotebridge/desktop test
-pnpm --filter @remotebridge/web test        # happy-dom env
+
+# Watch mode
+pnpm --filter @remotebridge/<pkg> test:watch
 ```
 
 ### Server test infrastructure
 
-- `apps/server/test/global-setup.ts` — reuses an existing healthy relay on `:3099` (e.g. dev instance), else spawns `tsx src/index.ts` with temp `RB_DATA_DIR` and raised rate limits (`RL_REGISTER_MAX=100`, `RL_AUTH_MAX=100`); tears down on exit
+- `apps/server/test/global-setup.ts` — reuses an existing healthy relay on `:3099` (e.g. dev instance), else spawns `tsx src/index.ts` with temp `RB_DATA_DIR` and raised rate limits (`RL_REGISTER_MAX=100`, `RL_AUTH_MAX=100`); tears down on exit with Windows-aware retry (5× for ENOTEMPTY)
 - `apps/server/test/helpers.ts` — `post()`, `postWithCookies()`, `openWs()`, `createSession()` (register→pin→connect), `waitForMessage()`, `waitForClose()`
 - Server tests use **ordered** `it()` blocks with file-level mutable state (intentional, not concurrent)
-- `rate-limit.test.ts` spawns its own dedicated relay on a free port for real limit testing
+- `rate-limit.test.ts`, `proxy-ratelimit.test.ts`, `session-lifetime.test.ts`, `startup-secrets.test.ts` spawn their **own isolated relay** on a free port for real limit testing
 
-|server|e2e, relay-roundtrip, session-flows, rate-limit, auth-cookie, startup-secrets, security-logs, messages-auth, host-token-refresh, pin-race, cors-whitelist, clientid-validation, proxy-ratelimit, session-lifetime|89|
-|web|useWebSocket (reconnect, revoke, backoff), MessagesPage.browser|20|
-|desktop|file-server, handlers, path-guard, path-guard-symlink, upload-quota, range-validation, token-manager, file-tunnel, audit-log-nonblocking|66|
-|shared|security, file-tunnel-codec, file-utils, protocol-schemas (V2), range-validation (V2)|56|
+### Desktop test patterns
+
+- `vi.hoisted(() => ({...}))` + `var` for module-level mutable mock state (survives `vi.mock` hoisting)
+- Mocks relay client, db, electron `getPath`, path-guard, token-manager, logger
+- `skipIf` for platform-specific tests (symlink needs Windows elevation/Dev Mode)
+
+### Web test patterns
+
+- `vi.mock` for `@/lib/api`, `@/store/app-store`, `@/lib/download-manager`, `sonner`
+- Custom `MockWebSocket` class; `vi.stubGlobal('WebSocket', ...)`
+- `vi.useFakeTimers()` + `advanceTimersByTimeAsync` for backoff tests
+
+### Coverage
+
+Only the **shared** package enforces coverage thresholds (v8: statements 65, branches 70, functions 80, lines 65). CI runs coverage for shared; server/web/desktop have no coverage gates.
+
+|server|e2e, relay-roundtrip, session-flows, rate-limit, auth-cookie, startup-secrets, security-logs, messages-auth, host-token-refresh, pin-race, pin-hmac-bench, cors-whitelist, clientid-validation, proxy-ratelimit, session-lifetime|89|
+|web|useWebSocket (reconnect, revoke, backoff), stores, preview-threshold, transfer-manager|20|
+|desktop|file-server, handlers, path-guard, path-guard-v2, path-guard-symlink, upload-atomic, upload-streaming, upload-quota, range-validation, token-manager, file-tunnel, audit-log|66|
+|shared|security, file-tunnel-codec, file-utils, protocol-schemas (V2), range-validation (V2), transfer-manager|56|
 
 Recent fixes covered by tests: PIN atomic consumption (`pin-race.test.ts`), CORS whitelist (`cors-whitelist.test.ts`), upload quota enforcement (`upload-quota.test.ts`), path-guard symlink resolution (`path-guard-symlink.test.ts`), proxy rate limiting (`proxy-ratelimit.test.ts`), clientid validation (`clientid-validation.test.ts`), session lifetime expiry (`session-lifetime.test.ts`).
 ---
@@ -213,27 +253,35 @@ Recent fixes covered by tests: PIN atomic consumption (`pin-race.test.ts`), CORS
 - Routes are plugin functions registered under `/api/v1`. Each route file exports a single `async (app) =>` function.
 - Rate limiting: `@fastify/rate-limit` with `global: false`, per-route overrides from shared `RATE_LIMIT_CONFIG`.
 - Logging: pino via `utils/logger.ts` — **no** `console.*` (ADR `observability-logging-design.md`).
-- JWT: `utils/jwt.ts` signs/verifies; `utils/secrets.ts` validates strength at startup in production.
+- JWT: `utils/jwt.ts` signs/verifies; `utils/secrets.ts` validates strength at startup in production (≥32 chars, non-default, independent, non-derived).
 - File proxy uses `reply.hijack()` for raw streaming; manual CORS headers via `corsHeadersFor()`.
+- **Routing contract:** relay injects `clientId`/`sessionId`/`messageId` into payloads; hosts MUST echo `clientId`/`sessionId` back (withRouting helper) or responses cannot be routed.
+- **Non-fatal fire-and-forget:** message persistence, audit logs, and toast triggers use `void promise.catch(log)` — persistence failure never blocks relay routing.
+- RESP_FILE_* must never be relayed to clients; binary frames from hosts must never be forwarded raw.
 
 ### Web (Next.js 15 + Zustand)
 
-- State: single `useAppStore` (Zustand, `store/app-store.ts`). WS manager is separate (`hooks/useWebSocket.ts`).
-- StrictMode-safe: WS connect must collapse concurrent calls.
+- State: `useAppStore` (monolith, actively used) + `store/slices/` (split stores: session/file/preview/message/transfer). WS manager is a separate module singleton (`hooks/useWebSocket.ts`).
+- StrictMode-safe: WS connect must collapse concurrent calls via `connectPromise` dedup.
 - **Preview security (V2):** active content (html/htm/xhtml/svg) must be forced to attachment (`Content-Disposition: attachment; application/octet-stream`), never inline preview. All preview/download responses include `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. Preview responses add `Content-Security-Policy: sandbox`.
+- No `middleware.ts` — security headers centralized in `next.config.mjs` via `headers()`.
 
 ### Desktop (Electron 29 + electron-vite)
 
 - Main/renderer/preload split. `electron-binding.ts` **must** be the first import (redirects `better_sqlite3` `.node` path via `Module._resolveFilename` hook).
 - IPC: handlers registered in `main/ipc/*`, exposed to renderer through `preload/index.ts` `contextBridge`.
+- IPC invoke channels namespaced `domain:action` (auth:, dirs:, clients:, messages:, settings:, relay-local:, updater:, system:, host:, upload:, logs:, notification:, relay:).
+- Push channels `event:*` (client-joined/left, connection-status, new-message, session-revoked, file-received, update-status, local-relay-status/log). Preload auto-cleans listeners before re-subscribing.
 - Auto-updater: `electron-updater` against GitHub Releases (`main/updater.ts`).
-- Local relay: bundled via `scripts/bundle-relay.mjs` (esbuild → single CJS under `resources/relay`), managed from Settings UI.
+- Local relay: bundled via `apps/desktop/scripts/bundle-relay.mjs` (esbuild → single CJS under `resources/relay`), managed from Settings UI.
 
 ### Cross-cutting
 
-- **Path validation:** always through shared `security.ts` allowlist + blocklist before any filesystem access.
-- **Error handling:** server uses Fastify error replies; desktop wraps and surfaces via IPC; web surfaces via `sonner` toasts + store error state.
+- **Path validation (defense in depth, 3 layers):** (1) shared `validateDirectoryRequest` (platform-correct path semantics); (2) desktop `path-guard.ts` adds `realpathSync` symlink resolution + longest-match recursive permission; (3) every file-serving surface re-validates against the CURRENT whitelist — tokens are never trusted alone. Blacklist beats whitelist.
+- **Error handling:** server uses Fastify error replies; desktop wraps and surfaces via IPC; web surfaces via `sonner` toasts + store error state. Protocol errors (`protocol/errors.ts`) are typed (InvalidEnvelopeError, InvalidPayloadError, InvalidBinaryFrameError) — treat as malformed input, never crash the socket.
 - **Logging:** server=pino, desktop=electron-log, web=thin console wrapper (`lib/logger.ts`).
+- **Tokens/credentials** never in URLs, response bodies (cookie path), or JS-readable storage.
+- Comments and user-facing messages are predominantly Chinese; code identifiers are English.
 
 ---
 
@@ -243,24 +291,31 @@ Recent fixes covered by tests: PIN atomic consumption (`pin-race.test.ts`), CORS
 |---|---|
 |`packages/shared/src/ws-types.ts`|Single source of truth for all WS message types|
 |`packages/shared/src/file-tunnel-codec.ts`|Binary frame wire format|
-|`packages/shared/src/security.ts`|Path allowlist/blocklist|
+|`packages/shared/src/security.ts`|Path allowlist/blocklist, PIN gen, JWT/RATE_LIMIT config|
 |`packages/shared/src/protocol/schemas.ts`|V2: runtime WS-message validators (validateMessage, validatePayload)|
 |`packages/shared/src/protocol/errors.ts`|V2: typed protocol errors (ProtocolError, InvalidEnvelopeError, InvalidPayloadError)|
+|`packages/shared/src/transfer/model.ts`|V2: TransferRecord, ITransferManager, TransferEvent, defaults|
+|`packages/shared/src/transfer/manager.ts`|V2: BaseTransferManager reference state machine|
 |`apps/server/src/ws/file-tunnel.ts`|V2: Transfer Engine registry (begin/cancel/endFileTransfer, state machine, sequence/byte integrity)|
+|`apps/server/src/ws/connection-registry.ts`|In-memory room state (4 Maps + WeakMap meta)|
+|`apps/server/src/ws/handler.ts`|WS lifecycle, dual auth (ticket/JWT), heartbeat, message routing|
+|`apps/server/src/ws/relay.ts`|Routing layer (clientId/sessionId/messageId injection)|
 |`apps/desktop/src/main/ws-client/file-tunnel.ts`|V2: Host file tunnel with per-transfer AbortController cancellation|
-|`apps/server/src/routes/auth.ts`|PIN, register, connect, refresh, WS ticket|
-|`apps/server/src/routes/proxy.ts`|File download/preview proxy + tunnel streaming|
-|`apps/server/src/ws/handler.ts`|WS connection lifecycle, room routing|
-|`apps/server/src/db/schema.ts`|Drizzle schema (hosts, sessions, messages, security_logs, download_tokens)|
-|`apps/web/src/store/app-store.ts`|Central client state machine|
-|`apps/web/src/hooks/useWebSocket.ts`|WS connection manager (reconnect, revoke, backoff)|
+|`apps/desktop/src/main/security/path-guard.ts`|Host-side validatePath (symlink resolution, blacklist→whitelist)|
+|`apps/desktop/src/main/file-server/server.ts`|Local Fastify file server (127.0.0.1) with token auth|
+|`apps/server/src/routes/auth.ts`|PIN, register, connect, refresh, WS ticket, host-token-refresh|
+|`apps/server/src/routes/proxy.ts`|File download/preview proxy + tunnel streaming (reply.hijack)|
+|`apps/server/src/db/schema.ts`|Drizzle schema (hosts, sessions, messages, security_logs)|
+|`apps/web/src/store/app-store.ts`|Central client state machine (monolith)|
+|`apps/web/src/hooks/useWebSocket.ts`|WS connection manager (reconnect, revoke, backoff, ticket auth)|
 |`apps/desktop/src/main/index.ts`|Electron bootstrap + IPC registration|
-|`apps/desktop/src/main/local-relay.ts`|Embedded relay lifecycle|
+|`apps/desktop/src/main/local-relay.ts`|Embedded relay lifecycle (utilityProcess.fork / spawn)|
+|`apps/desktop/src/preload/index.ts`|contextBridge IPC (~40 invoke + 9 event channels)|
 |`apps/desktop/electron.vite.config.ts`|Build config (native module externals, CJS interop, pre-bundle shared)|
-|`apps/web/next.config.mjs`|Security headers (CSP, X-Frame-Options, etc.), standalone output|
-|`.github/workflows/ci.yml`|CI: build → typecheck → lint → test|
-|`docker-compose.yml`|server + web + Caddy (auto TLS via `DOMAIN`)|
-|`apps/desktop/electron-builder.config.js`|Installer config (win/mac/linux)|
+|`apps/web/next.config.mjs`|Security headers (CSP, X-Frame-Options, etc.), standalone output, webpack fallbacks|
+|`.github/workflows/ci.yml`|CI: build → typecheck → lint → test (windows matrix for desktop path-guard)|
+|`docker-compose.yml`|server + web + Caddy (auto TLS via `DOMAIN`), ADR-005 replicas:1 guard|
+|`apps/desktop/electron-builder.config.js`|Installer config (win/mac/linux), GitHub publish|
 
 ---
 
@@ -272,12 +327,15 @@ Recent fixes covered by tests: PIN atomic consumption (`pin-race.test.ts`), CORS
 - **Build:** server/desktop use CommonJS output; web uses Next.js standalone output; shared must build before dependents
 - **Runtime constraint:** `better-sqlite3` is a native module — must be compiled for the correct ABI (Node for server, Electron for desktop); the cached electron binary lives at `.cache/better_sqlite3.electron.node`
 - **Vite interop:** `electron.vite.config.ts` sets `ignoreDynamicRequires: true` so `bindings()` dynamic `require` survives bundling; `optimizeDeps.include: ['@remotebridge/shared']` prevents ESM/CJS interop crash in dev
+- **Shared CJS/ESM boundary:** every consumer needs special handling — server via workspace+CJS tsc, web via `transpilePackages`+webpack fallbacks, desktop via `optimizeDeps`+explicit `dist` alias. This is the most fragile part of the build.
 
 ### Environment variables
 
-Server (`apps/server/.env`): `JWT_SECRET`, `JWT_REFRESH_SECRET` (required, ≥32 chars), `ALLOWED_ORIGINS`, `RELAY_PORT` (3002), `RB_DATA_DIR`, `NODE_ENV` (production enforces secret strength).
+Server (`apps/server/.env`): `JWT_SECRET`, `JWT_REFRESH_SECRET` (required, ≥32 chars, non-default, independent, non-derived in production), `ALLOWED_ORIGINS`, `RELAY_PORT` (3002), `RELAY_HOST`, `RB_DATA_DIR`, `NODE_ENV` (production enforces secret strength), `RATE_LIMIT_MAX` (10), `RATE_LIMIT_WINDOW` (60000), `LOG_LEVEL`, `RB_INSTANCE_ID`.
 
-Web (build-time): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` — embedded at build, require rebuild to change.
+Web (build-time, public): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` — embedded at build, require rebuild to change.
+
+Desktop (runtime): `RELAY_URL`, `RELAY_API` (fallback ws/http://127.0.0.1:3002), `ELECTRON_RENDERER_URL` (dev), `LOG_LEVEL`.
 
 ---
 
@@ -296,22 +354,29 @@ Other implemented design docs: httpOnly cookie token storage (`httponly-cookie-t
 
 |Path|Method|
 |---|---|
-|**Docker Compose** (recommended)|`docker compose up -d` — server + web + Caddy (set `DOMAIN` for Let's Encrypt)|
-|**Bare metal**|`bash scripts/deploy-server.sh` → `tsc` → systemd (`deploy/systemd/remotebridge-server.service`)|
+|**Docker Compose** (recommended)|`docker compose up -d` — server + web + Caddy (set `DOMAIN` for Let's Encrypt). ADR-005 `replicas:1` guard on server.|
+|**Bare metal**|`bash scripts/deploy-server.sh` → `tsc` → systemd (`deploy/systemd/remotebridge-server.service`, `Restart=on-failure`)|
 |**Desktop installers**|`pnpm --filter @remotebridge/desktop package:win` (also `:mac`, `:linux`) — bundles relay via `bundle-relay.mjs` first|
 
-Health check: `GET /health` returns relay status, DB writability probe, and per-table row counts.
+Health check: `GET /health` returns relay status, DB writability probe, per-table row counts, `instance_id`.
 
 Auto-update: desktop checks GitHub Releases on startup (electron-updater).
+
+Crash recovery: Docker `restart: unless-stopped` / systemd `Restart=on-failure` + exponential backoff reconnect (1s→30s) + HTTP Range resume.
+
+Rollback: `git checkout <prior-tag>` → `docker compose build` → `docker compose up -d`.
 
 ---
 
 ## Docs & Runbooks
 
-- `README.md` (Chinese) / `README.en.md` (English) — user-facing
-- `docs/runbook.md` (Chinese) — ops runbook: crash recovery (P1), register-host abuse (P2), rollback procedure, known limitations
-- `docs/adr/` — architecture decision records
-- `.full-review/` — periodic repo-wide review reports (latest `05-final-report.md`)
+- `README.md` (Chinese) / `README.en.md` (English) — user-facing quick-start
+- `生产环境部署与使用指南.md` — **ops runbook**: VPS setup, crash recovery (§7.3), data retention (§7.4), health monitoring (§7.6), host JWT rotation (§7.7), ops cheatsheet (§8), FAQ (§9), security hardening (§10)
+- `使用说明书.md` — end-user manual
+- `CHANGELOG.md` — developer-facing version history
+- `docs/adr/` — architecture decision records (template: `template.md`)
+- `.full-review/` — periodic repo-wide review reports (latest `05-final-report.md`, 86 findings across P0–P3)
+- `release-notes/TEMPLATE.md` — release-notes writing standard
 
 ### Git 提交规则
 
