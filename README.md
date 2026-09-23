@@ -11,7 +11,6 @@
  **[English](./README.en.md)**
 <div align="center">
 
-[![License](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Aswellle/RemoteBridge?style=flat-square&color=brightgreen)](https://github.com/Aswellle/RemoteBridge/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/Aswellle/RemoteBridge/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Aswellle/RemoteBridge/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/Aswellle/RemoteBridge/codeql.yml?branch=main&style=flat-square&label=CodeQL)](https://github.com/Aswellle/RemoteBridge/actions/workflows/codeql.yml)
@@ -20,6 +19,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
 [![Downloads](https://img.shields.io/github/downloads/Aswellle/RemoteBridge/total?style=flat-square&color=blue&label=Downloads)](https://github.com/Aswellle/RemoteBridge/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/Aswellle/RemoteBridge?style=flat-square&color=green)](https://github.com/Aswellle/RemoteBridge/commits/main)
+[![License](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
 
  [简体中文](README.md) | [English](README.en.md)
 
