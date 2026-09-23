@@ -1,6 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, ClipboardList, AlertCircle, RefreshCw } from 'lucide-react';
-import { EVENT_TYPE_LABELS, EVENT_TYPE_COLORS } from '@remotebridge/shared';
+import { EVENT_TYPE_LABELS } from '@remotebridge/shared';
+import { PageHeader, Input, Button, Badge, EmptyState } from '../components/ui';
+import type { BadgeTone } from '../components/ui';
+
+// ===== 事件类型 → Badge tone（Spec §18: 统一 Badge，浅色 capsule）=====
+const EVENT_TYPE_TONES: Record<string, BadgeTone> = {
+  AUTH_FAIL: 'danger',
+  BLOCKED_PATH: 'danger',
+  REVOKE: 'warning',
+  PIN_EXPIRED: 'neutral',
+  SESSION_CREATED: 'success',
+  ACCESS_DOWNLOAD: 'info',
+  ACCESS_PREVIEW: 'info',
+  ACCESS: 'info',
+};
+
+const eventTypeTone = (eventType: string): BadgeTone =>
+  EVENT_TYPE_TONES[eventType] ?? 'neutral';
 
 // ===== 安全日志条目类型 =====
 interface SecurityLogEntry {
@@ -104,16 +121,16 @@ export default function SecurityLogs() {
 
   return (
     <div className="p-8">
-      <h2 className="text-2xl font-semibold mb-6">安全审计日志</h2>
+      <PageHeader title="安全审计日志" />
 
       {/* 筛选栏 */}
-      <div className="bg-card rounded-lg p-4 mb-6 flex flex-wrap gap-4 items-center">
-        <div>
-          <label className="text-sm text-muted-foreground mr-2">事件类型:</label>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground">事件类型:</label>
           <select
             value={filterEventType}
             onChange={(e) => setFilterEventType(e.target.value)}
-            className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm"
+            className="h-9 rounded-sm border border-transparent bg-surface-subtle px-3 text-sm focus:border-accent-border/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
           >
             <option value="">全部</option>
             {Object.entries(EVENT_TYPE_LABELS).map(([value, label]) => (
@@ -122,67 +139,56 @@ export default function SecurityLogs() {
           </select>
         </div>
 
-        <div>
-          <label className="text-sm text-muted-foreground mr-2">客户端 ID:</label>
-          <input
-            type="text"
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground">客户端 ID:</label>
+          <Input
             value={filterClientId}
             onChange={(e) => setFilterClientId(e.target.value)}
             placeholder="筛选客户端"
-            className="px-3 py-1.5 bg-secondary border border-border rounded text-sm w-48"
+            className="w-48"
           />
         </div>
 
-        <button
-          onClick={() => fetchLogs(1)}
-          className="px-4 py-1.5 bg-primary hover:bg-primary/90 text-white text-sm rounded-lg transition-colors"
-        >
+        <Button variant="secondary" onClick={() => fetchLogs(1)}>
+          <RefreshCw className="size-3.5" />
           刷新
-        </button>
+        </Button>
 
-        <span className="text-sm text-muted-foreground ml-auto">
+        <span className="ml-auto text-sm text-muted-foreground">
           共 {total} 条记录
         </span>
       </div>
-
-      {/* 错误提示 */}
       {error && (
-        <div className="bg-secondary border border-border rounded-lg p-4 mb-6 flex items-start justify-between gap-3">
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-sm bg-surface-warning/10 px-3 py-2">
           <div className="flex items-start gap-2 min-w-0">
-            <AlertCircle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+            <AlertCircle className="mt-0.5 size-4 flex-shrink-0 text-warning" />
             <p className="text-sm text-foreground">{error}</p>
           </div>
-          <button
-            onClick={() => fetchLogs(1)}
-            className="flex items-center gap-1 px-3 py-1 bg-primary hover:bg-primary/90 text-white text-xs rounded-lg transition-colors flex-shrink-0"
-          >
-            <RefreshCw className="w-3 h-3" />
+          <Button variant="secondary" onClick={() => fetchLogs(1)}>
+            <RefreshCw className="size-3" />
             重试
-          </button>
+          </Button>
         </div>
       )}
 
       {/* 日志表格 */}
-      <div className="bg-card rounded-lg shadow-lg overflow-hidden">
+      <div className="bg-surface-raised rounded-lg overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="animate-spin h-8 w-8 text-primary mr-3" />
+            <Loader2 className="mr-3 size-6 animate-spin text-accent-solid" />
             <span className="text-muted-foreground">加载中...</span>
           </div>
         ) : logs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
-              <ClipboardList className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <p className="text-base font-semibold text-foreground mb-1">暂无安全日志</p>
-            <p className="text-sm text-muted-foreground">安全事件发生后会自动记录到此处</p>
-          </div>
+          <EmptyState
+            icon={<ClipboardList />}
+            title="暂无安全日志"
+            description="安全事件发生后会自动记录到此处"
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border/40 text-muted-foreground text-left">
-                  <th className="px-4 py-3 font-medium">时间</th>
+                <tr className="border-b border-[color-mix(in_srgb,currentColor_8%,transparent)] text-muted-foreground text-left">
                   <th className="px-4 py-3 font-medium">事件类型</th>
                   <th className="px-4 py-3 font-medium">客户端 ID</th>
                   <th className="px-4 py-3 font-medium">IP 地址</th>
@@ -191,14 +197,14 @@ export default function SecurityLogs() {
               </thead>
               <tbody>
                 {logs.map((log) => (
-                  <tr key={log.id} className="border-b border-border/50 hover:bg-secondary/30 transition-colors">
+                  <tr key={log.id} className="border-b border-[color-mix(in_srgb,currentColor_8%,transparent)] hover:bg-surface-hover transition-colors">
                     <td className="px-4 py-3 text-foreground whitespace-nowrap">
                       {formatTimestamp(log.createdAt)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${EVENT_TYPE_COLORS[log.eventType as keyof typeof EVENT_TYPE_COLORS] || 'text-muted-foreground bg-gray-400/10'}`}>
+                      <Badge tone={EVENT_TYPE_TONES[log.eventType] || 'neutral'}>
                         {EVENT_TYPE_LABELS[log.eventType as keyof typeof EVENT_TYPE_LABELS] || log.eventType}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                       {log.clientId ? (
@@ -227,35 +233,11 @@ export default function SecurityLogs() {
           <span className="text-sm text-muted-foreground">
             第 {page} / {totalPages} 页
           </span>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => fetchLogs(1)}
-              disabled={page <= 1}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              首页
-            </button>
-            <button
-              onClick={() => fetchLogs(page - 1)}
-              disabled={page <= 1}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              上一页
-            </button>
-            <button
-              onClick={() => fetchLogs(page + 1)}
-              disabled={page >= totalPages}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              下一页
-            </button>
-            <button
-              onClick={() => fetchLogs(totalPages)}
-              disabled={page >= totalPages}
-              className="px-3 py-1.5 bg-secondary hover:bg-secondary text-secondary-foreground text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              末页
-            </button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => fetchLogs(1)} disabled={page <= 1}>首页</Button>
+            <Button variant="secondary" onClick={() => fetchLogs(page - 1)} disabled={page <= 1}>上一页</Button>
+            <Button variant="secondary" onClick={() => fetchLogs(page + 1)} disabled={page >= totalPages}>下一页</Button>
+            <Button variant="secondary" onClick={() => fetchLogs(totalPages)} disabled={page >= totalPages}>末页</Button>
           </div>
         </div>
       )}

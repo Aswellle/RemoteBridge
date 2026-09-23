@@ -4,7 +4,15 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Users, ClipboardList, CheckCircle2, RefreshCw, Loader2 } from 'lucide-react';
+import { X, Users, ClipboardList, RefreshCw, Loader2 } from 'lucide-react';
+import {
+  PageHeader,
+  Button,
+  StatusDot,
+  Badge,
+  EmptyState,
+  Divider,
+} from '../components/ui';
 import { ElectronAPI } from '../../preload/index';
 
 declare global {
@@ -141,51 +149,43 @@ export default function ClientsPage() {
 
   return (
     <div className="p-6">
-      {/* 页面标题 + 切换 */}
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-semibold">客户端管理</h2>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setActiveSection('clients')}
-            className={`px-4 py-2 rounded-lg text-sm transition-colors ${
-              activeSection === 'clients'
-                ? 'bg-primary text-white'
-                : 'bg-secondary text-foreground hover:bg-muted'
-            }`}
-          >
-            客户端列表
-          </button>
-          <button
-            onClick={() => {
-              setActiveSection('logs');
-              loadAccessLogs();
-            }}
-            className={`px-4 py-2 rounded-lg text-sm transition-colors ${
-              activeSection === 'logs'
-                ? 'bg-primary text-white'
-                : 'bg-secondary text-foreground hover:bg-muted'
-            }`}
-          >
-            活动日志
-          </button>
-          <button
-            onClick={() => {
-              loadClients();
-              loadAccessLogs();
-            }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-foreground hover:bg-muted rounded-lg text-sm transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            刷新
-          </button>
-        </div>
-      </div>
-
+      <PageHeader
+        title="已连接客户端"
+        subtitle={activeSection === 'clients' ? '管理已注册的客户端与信任状态' : '查看文件访问操作日志'}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => setActiveSection('clients')}>
+              {activeSection === 'clients' ? '● ' : ''}客户端列表
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setActiveSection('logs');
+                loadAccessLogs();
+              }}
+            >
+              {activeSection === 'logs' ? '● ' : ''}活动日志
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                loadClients();
+                loadAccessLogs();
+              }}
+            >
+              <RefreshCw className="size-3.5" />
+              刷新
+            </Button>
+          </div>
+        }
+      />
       {/* 操作错误提示 */}
       {actionError && (
-        <div className="mb-4 px-4 py-2.5 bg-destructive/15 border border-destructive/40 text-destructive text-sm rounded-lg flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between rounded-sm bg-surface-danger/10 px-4 py-2.5 text-sm text-destructive">
           <span>{actionError}</span>
-          <button onClick={() => setActionError('')} className="ml-3 hover:opacity-70 flex-shrink-0"><X className="w-4 h-4" /></button>
+          <button onClick={() => setActionError('')} className="ml-3 flex-shrink-0 hover:opacity-70">
+            <X className="size-4" />
+          </button>
         </div>
       )}
 
@@ -194,66 +194,60 @@ export default function ClientsPage() {
         <div>
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="animate-spin h-7 w-7 text-primary mr-3" />
+              <Loader2 className="animate-spin mr-3 size-7 text-accent-solid" />
               <span className="text-muted-foreground">加载中...</span>
             </div>
           ) : clients.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
-                <Users className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <p className="text-base font-semibold text-foreground mb-1">暂无已注册客户端</p>
-              <p className="text-sm text-muted-foreground">客户端通过 PIN 码连接后会出现在此列表</p>
-            </div>
+            <EmptyState
+              icon={<Users className="size-6" />}
+              title="暂无已注册客户端"
+              description="客户端通过 PIN 码连接后会出现在此列表"
+            />
           ) : (
             <div className="space-y-3">
               {clients.map((client) => (
                 <div
                   key={client.sessionId || client.clientId}
-                  className="bg-card rounded-lg p-4 flex items-center justify-between"
+                  className="flex items-center justify-between rounded-lg bg-surface-raised p-4"
                 >
-                  <div className="flex items-center min-w-0 flex-1">
-                    {/* 在线状态指示灯（来自 relay 实时数据） */}
-                    <span
-                      className={`w-2.5 h-2.5 rounded-full mr-3 flex-shrink-0 ${
-                        client.online ? 'bg-green-400' : 'bg-gray-500'
-                      }`}
-                      title={client.online ? '在线' : '离线'}
+                  <div className="flex min-w-0 flex-1 items-center">
+                    <StatusDot
+                      status={client.online ? 'online' : 'offline'}
+                      label={client.online ? '在线' : '离线'}
+                      className="mr-3"
                     />
                     <div className="min-w-0">
-                      <p className="font-medium truncate">
+                      <p className="truncate font-medium">
                         {client.label || `设备 ${client.clientId.slice(0, 8)}`}
                       </p>
-                      <div className="flex items-center space-x-3 text-xs text-muted-foreground mt-0.5">
-                        <span>ID: {client.clientId.slice(0, 12)}...</span>
+                      <div className="mt-0.5 flex items-center space-x-3 text-xs text-muted-foreground">
+                        <span>ID: {client.clientId.slice(0, 12)}…</span>
                         <span>最后活跃: {formatTime(client.lastSeenAt)}</span>
-                        {client.isTrusted && (
-                          <span className="flex items-center gap-1 text-success"><CheckCircle2 className="w-3 h-3" />已信任</span>
-                        )}
+                        {client.isTrusted && <Badge tone="success">已信任</Badge>}
                       </div>
                     </div>
                   </div>
 
                   {/* 操作按钮 */}
-                  <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
-                    <button
+                  <div className="ml-4 flex flex-shrink-0 items-center gap-2">
+                    <Button
+                      variant="secondary"
                       onClick={() => handleTrust(client.clientId, !client.isTrusted)}
-                      className={`px-3 py-1.5 rounded-lg transition-colors text-sm ${
-                        client.isTrusted
-                          ? 'bg-secondary text-muted-foreground hover:bg-muted'
-                          : 'bg-success text-white hover:bg-success/90'
-                      }`}
                     >
                       {client.isTrusted ? '取消信任' : '信任'}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="danger"
                       onClick={() => handleRevoke(client)}
                       disabled={!client.sessionId}
-                      title={client.sessionId ? '吊销该会话并立即断开连接' : 'Relay 不可达，暂时无法吊销'}
-                      className="px-3 py-1.5 bg-destructive text-white hover:bg-destructive/90 rounded-lg transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={
+                        client.sessionId
+                          ? '吊销该会话并立即断开连接'
+                          : 'Relay 不可达，暂时无法吊销'
+                      }
                     >
                       吊销
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -266,18 +260,16 @@ export default function ClientsPage() {
       {activeSection === 'logs' && (
         <div>
           {accessLogs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
-                <ClipboardList className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <p className="text-base font-semibold text-foreground mb-1">暂无活动日志</p>
-              <p className="text-sm text-muted-foreground">文件访问操作会自动记录到此处</p>
-            </div>
+            <EmptyState
+              icon={<ClipboardList className="size-6" />}
+              title="暂无活动日志"
+              description="文件访问操作会自动记录到此处"
+            />
           ) : (
-            <div className="bg-card rounded-lg overflow-hidden">
+            <div className="overflow-hidden rounded-lg">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-muted-foreground text-left border-b border-border/40">
+                  <tr className="border-b border-[color-mix(in_srgb,currentColor_8%,transparent)] text-left text-muted-foreground">
                     <th className="px-4 py-3 font-medium">时间</th>
                     <th className="px-4 py-3 font-medium">客户端</th>
                     <th className="px-4 py-3 font-medium">操作</th>
@@ -286,48 +278,46 @@ export default function ClientsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {accessLogs.map((log) => (
-                    <tr
-                      key={log.id}
-                      className="border-b border-border/50 hover:bg-secondary/30 transition-colors"
-                    >
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        {formatTime(log.created_at)}
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-xs">
-                        {log.client_id.slice(0, 12)}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span
-                          className={`px-2 py-0.5 rounded-lg text-xs ${
-                            log.action === 'LIST_DIR'
-                              ? 'bg-primary/20 text-primary'
-                              : log.action === 'DOWNLOAD'
-                              ? 'bg-purple-600/20 text-purple-400'
-                              : 'bg-secondary/20 text-muted-foreground'
-                          }`}
-                        >
-                          {log.action}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2.5 font-mono text-xs truncate max-w-xs">
-                        {log.path || '-'}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span
-                          className={`text-xs ${
-                            log.status === 'OK'
-                              ? 'text-success'
-                              : log.status === 'BLOCKED'
-                              ? 'text-destructive'
-                              : 'text-warning'
-                          }`}
-                        >
-                          {log.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {accessLogs.map((log) => {
+                    const actionTone =
+                      log.action === 'LIST_DIR'
+                        ? 'info'
+                        : log.action === 'DOWNLOAD'
+                          ? 'neutral'
+                          : 'neutral';
+                    return (
+                      <tr
+                        key={log.id}
+                        className="border-b border-[color-mix(in_srgb,currentColor_8%,transparent)] transition-colors hover:bg-surface-hover"
+                      >
+                        <td className="px-4 py-2.5 text-muted-foreground">
+                          {formatTime(log.created_at)}
+                        </td>
+                        <td className="px-4 py-2.5 font-mono text-xs">
+                          {log.client_id.slice(0, 12)}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Badge tone={actionTone as 'info' | 'neutral'}>{log.action}</Badge>
+                        </td>
+                        <td className="max-w-xs truncate px-4 py-2.5 font-mono text-xs">
+                          {log.path || '-'}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Badge
+                            tone={
+                              log.status === 'OK'
+                                ? 'success'
+                                : log.status === 'BLOCKED'
+                                  ? 'danger'
+                                  : 'warning'
+                            }
+                          >
+                            {log.status}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

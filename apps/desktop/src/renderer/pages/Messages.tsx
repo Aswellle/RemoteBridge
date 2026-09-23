@@ -4,8 +4,9 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { MessageSquare } from 'lucide-react';
+import { StatusDot, Badge, Input, Button, EmptyState } from '../components/ui';
 import { ElectronAPI } from '../../preload/index';
+import { MessageSquare } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -227,51 +228,56 @@ export default function MessagesPage() {
   return (
     <div className="flex h-full">
       {/* 客户端列表侧边栏 */}
-      <aside className="w-56 bg-card/80 border-r border-border/40 flex-shrink-0 overflow-y-auto">
-        <div className="p-3 border-b border-border/40">
+      <aside className="w-56 bg-surface-subtle flex-shrink-0 overflow-y-auto">
+        <div className="px-4 py-3">
           <h3 className="text-sm font-semibold text-foreground">会话列表</h3>
         </div>
         {onlineClients.length === 0 ? (
-          <div className="p-4 text-center text-muted-foreground text-sm">
-            <p>暂无已连接客户端</p>
+          <div className="px-4 py-6 text-center text-muted-foreground text-sm">
+            暂无已连接客户端
           </div>
         ) : (
-          <div className="space-y-1 p-2">
-            {onlineClients.map((client) => (
-              <button
-                key={client.clientId}
-                onClick={() => handleSelectClient(client.clientId)}
-                className={`flex items-center justify-between w-full px-3 py-2 rounded-lg transition-colors ${
-                  selectedClient === client.clientId
-                    ? 'bg-primary text-primary-foreground font-medium'
-                    : 'text-foreground hover:bg-secondary'
-                }`}
-              >
-                <div className="flex items-center min-w-0">
-                  <span
-                    className={`w-2 h-2 rounded-full mr-2 flex-shrink-0 ${
-                      client.online ? 'bg-success' : 'bg-muted-foreground/40'
-                    }`}
-                    aria-label={client.online ? '在线' : '离线'}
-                    role="status"
-                  />
-                  <span className="truncate text-sm">{client.label || client.clientId.slice(0, 8)}</span>
-                </div>
-                {(unreadMap[client.clientId] || 0) > 0 && (
-                  <span className="ml-2 px-1.5 py-0.5 bg-destructive text-white text-xs rounded-full min-w-[18px] text-center">
-                    {unreadMap[client.clientId]}
-                  </span>
-                )}
-              </button>
-            ))}
+          <div className="space-y-0.5 px-2 pb-2">
+            {onlineClients.map((client) => {
+              const isSelected = selectedClient === client.clientId;
+              const unread = unreadMap[client.clientId] || 0;
+              return (
+                <button
+                  key={client.clientId}
+                  onClick={() => handleSelectClient(client.clientId)}
+                  className={
+                    'relative flex items-center justify-between w-full px-3 py-2 rounded-lg transition-colors ' +
+                    (isSelected
+                      ? 'bg-accent-surface/8 text-accent-text font-medium'
+                      : 'text-foreground hover:bg-surface-hover')
+                  }
+                >
+                  {isSelected && (
+                    <span
+                      className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-r bg-accent-solid"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <div className="flex items-center min-w-0">
+                    <StatusDot status={client.online ? 'online' : 'offline'} />
+                    <span className="truncate text-sm ml-2">
+                      {client.label || client.clientId.slice(0, 8)}
+                    </span>
+                  </div>
+                  {unread > 0 && (
+                    <Badge tone="info" className="min-w-[18px] justify-center">
+                      {unread}
+                    </Badge>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </aside>
-
-      {/* 聊天区 */}
       <main className="flex-1 flex flex-col">
         {/* 聊天标题 */}
-        <div className="px-6 py-3 border-b border-border/40 flex items-center justify-between">
+        <div className="px-6 py-3 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold">
               {selectedClient
@@ -280,32 +286,27 @@ export default function MessagesPage() {
             </h2>
             <p className="text-xs text-muted-foreground">与远程客户端实时通信</p>
           </div>
-          {/* 未读总数徽标 */}
           {Object.values(unreadMap).reduce((a, b) => a + b, 0) > 0 && (
-            <span className="px-2 py-1 bg-destructive text-white text-xs rounded-full">
+            <Badge tone="info">
               {Object.values(unreadMap).reduce((a, b) => a + b, 0)} 条未读
-            </span>
+            </Badge>
           )}
         </div>
 
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
           {onlineClients.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
-                <MessageSquare className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <p className="text-base font-semibold text-foreground mb-1">暂无已连接客户端</p>
-              <p className="text-sm text-muted-foreground">请先在"连接状态"页面生成连接码，让远程设备扫码连接</p>
-            </div>
+            <EmptyState
+              icon={<MessageSquare />}
+              title="暂无已连接客户端"
+              description={'请先在"连接状态"页面生成连接码，让远程设备扫码连接'}
+            />
           ) : filteredMessages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-muted/50 flex items-center justify-center mx-auto mb-4">
-                <MessageSquare className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <p className="text-base font-semibold text-foreground mb-1">暂无消息</p>
-              <p className="text-sm text-muted-foreground">选择左侧客户端后发送消息开始通信</p>
-            </div>
+            <EmptyState
+              icon={<MessageSquare />}
+              title="暂无消息"
+              description="选择左侧客户端后发送消息开始通信"
+            />
           ) : (
             filteredMessages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} formatTime={formatTime} />
@@ -313,28 +314,29 @@ export default function MessagesPage() {
           )}
           <div ref={messagesEndRef} />
         </div>
-
         {/* 输入框 */}
         <div className="px-6 py-3">
           <form onSubmit={handleSend} className="flex space-x-3">
-            <input
+            <Input
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={selectedClient ? '输入消息...' : '请先选择一个客户端'}
               disabled={!selectedClient}
-              className="flex-1 px-4 py-2 bg-card border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
             />
-            <button
+            <Button
               type="submit"
+              variant="primary"
               disabled={!inputValue.trim() || !selectedClient || sending}
-              className="px-5 py-2 bg-primary hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
             >
               {sending ? (
-                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" aria-hidden="true" />
+                <span
+                  className="size-3.5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin"
+                  aria-hidden="true"
+                />
               ) : null}
               {sending ? '发送中…' : '发送'}
-            </button>
+            </Button>
           </form>
         </div>
       </main>
@@ -356,7 +358,7 @@ function MessageBubble({
   if (isSystem) {
     return (
       <div className="text-center">
-        <span className="inline-block px-3 py-1 bg-secondary text-muted-foreground text-xs rounded-full">
+        <span className="inline-block px-3 py-1 bg-surface-subtle text-muted-foreground text-xs rounded-full">
           {message.content}
         </span>
       </div>
@@ -368,15 +370,15 @@ function MessageBubble({
       <div
         className={`max-w-[70%] px-4 py-2.5 rounded-2xl ${
           isMe
-            ? 'bg-primary text-white rounded-br-md'
-            : 'bg-secondary border border-border text-foreground rounded-bl-md'
+            ? 'bg-accent-surface/10 text-accent-text rounded-br-md'
+            : 'bg-surface-subtle text-foreground rounded-bl-md'
         }`}
       >
         {!isMe && message.senderLabel && (
           <p className="text-xs text-muted-foreground mb-1">{message.senderLabel}</p>
         )}
         <p className="text-sm">{message.content}</p>
-        <p className={`text-xs mt-1 ${isMe ? 'text-white/60' : 'text-muted-foreground'}`}>
+        <p className={`text-xs mt-1 ${isMe ? 'text-accent-text/60' : 'text-muted-foreground'}`}>
           {formatTime(message.createdAt)}
         </p>
       </div>
