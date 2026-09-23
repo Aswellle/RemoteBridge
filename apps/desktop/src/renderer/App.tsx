@@ -25,6 +25,7 @@ import SecurityLogs from './pages/SecurityLogs';
 import MessagesPage from './pages/Messages';
 import ClientsPage from './pages/Clients';
 import SettingsPage from './pages/Settings';
+import { showToast, ToastContainer } from './components/ui';
 
 declare global {
   interface Window {
@@ -374,9 +375,27 @@ export default function App() {
         setConnectionStatus('connected');
       } else {
         setConnectionStatus('error');
+        showToast(
+          'error',
+          '无法连接到 Relay 服务器',
+          '请先启动本地 Relay 服务器，或在设置中配置远程服务器地址。',
+          {
+            label: '打开设置',
+            onClick: () => setActiveTab('settings'),
+          },
+        );
       }
     } catch (err) {
       setConnectionStatus('error');
+      showToast(
+        'error',
+        '无法连接到 Relay 服务器',
+        '请先启动本地 Relay 服务器，或在设置中配置远程服务器地址。',
+        {
+          label: '打开设置',
+          onClick: () => setActiveTab('settings'),
+        },
+      );
     }
   };
 
@@ -517,9 +536,9 @@ export default function App() {
       />
       <div className="flex flex-1 min-h-0">
       {/* 侧边栏 */}
-      <aside className="w-64 bg-card border-r border-border/40 flex flex-col flex-shrink-0">
+      <aside className="w-64 bg-surface-subtle flex flex-col flex-shrink-0">
         {/* Logo + 版本号 */}
-        <div className="p-4 border-b border-border/40">
+        <div className="p-4 pb-3">
           <h1 className="text-xl font-bold text-primary">RemoteBridge</h1>
           <p className="text-xs text-muted-foreground mt-1">Host 模式{systemInfo?.appVersion ? ` · v${systemInfo.appVersion}` : ''}</p>
         </div>
@@ -578,7 +597,7 @@ export default function App() {
         </nav>
 
         {/* 底部系统信息 */}
-        <div className="p-4 border-t border-border/40">
+        <div className="p-4 pt-3">
           {isLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-3 w-3/4" />
@@ -599,8 +618,7 @@ export default function App() {
         </div>
       </aside>
 
-      {/* 主内容区 */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto bg-surface-canvas">
         {/* === 连接状态页 === */}
         {activeTab === 'home' && (
           <div className="p-8">
@@ -1026,6 +1044,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <ToastContainer />
     </div>
   );
 }

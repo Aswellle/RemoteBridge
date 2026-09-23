@@ -1,6 +1,8 @@
 export { Button } from './Button';
 export type { ButtonProps, ButtonVariant } from './Button';
 export { Input } from './Input';
+export { ToastContainer, showToast } from './Toast';
+export type { ToastVariant, ToastMessage } from './Toast';
 export { Switch } from './Switch';
 export type { SwitchProps } from './Switch';
 export { Badge } from './Badge';

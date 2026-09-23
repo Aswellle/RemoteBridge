@@ -279,12 +279,16 @@ export default function ClientsPage() {
                 </thead>
                 <tbody>
                   {accessLogs.map((log) => {
-                    const actionTone =
+                    const actionTone: 'list' | 'download' | 'upload' | 'delete' | 'neutral' =
                       log.action === 'LIST_DIR'
-                        ? 'info'
+                        ? 'list'
                         : log.action === 'DOWNLOAD'
-                          ? 'neutral'
-                          : 'neutral';
+                          ? 'download'
+                          : log.action === 'UPLOAD'
+                            ? 'upload'
+                            : log.action === 'DELETE'
+                              ? 'delete'
+                              : 'neutral';
                     return (
                       <tr
                         key={log.id}
@@ -297,7 +301,7 @@ export default function ClientsPage() {
                           {log.client_id.slice(0, 12)}
                         </td>
                         <td className="px-4 py-2.5">
-                          <Badge tone={actionTone as 'info' | 'neutral'}>{log.action}</Badge>
+                          <Badge tone={actionTone}>{log.action}</Badge>
                         </td>
                         <td className="max-w-xs truncate px-4 py-2.5 font-mono text-xs">
                           {log.path || '-'}
