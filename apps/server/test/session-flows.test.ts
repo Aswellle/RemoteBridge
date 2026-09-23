@@ -245,10 +245,21 @@ describe('会话内多场景验证 (P1-14)', () => {
 
     // P0-03: 传输完整性负向测试 — seq 跳号/重复/提前 EOF/字节数不匹配
     describe('传输完整性校验 (P0-03 负向)', () => {
-      it('seq 跳号被拒绝：Host 发送 seq=0,seq=2（跳过 seq=1）→ Relay 丢弃后续帧', async () => {
+      // 基准 Host 处理器（外层 beforeAll 注册）——所有覆盖处理器的唯一 fallback 目标。
+      // 不在每个测试内捕获 listeners('message')[0]，否则处理器会逐测试链式叠加。
+      let baselineHandler: (data: unknown) => void;
+
+      beforeAll(() => {
+        baselineHandler = hostWs.listeners('message')[0] as (data: unknown) => void;
+      });
+
+      afterAll(() => {
+        hostWs.removeAllListeners('message');
+        hostWs.on('message', baselineHandler);
+      });
+
+      it('seq 跳号被拒绝：seq=0 → seq=2（跳号）导致传输 FAILED 且跳号帧内容不外泄', async () => {
         const integrityFile = '/data/test-integrity-seqgap.bin';
-        // 在该文件请求时，Host 模拟发送跳号 seq
-        const originalHandler = hostWs.listeners('message')[0] as (data: any) => void;
         hostWs.removeAllListeners('message');
 
         hostWs.on('message', (data) => {
@@ -284,56 +295,68 @@ describe('会话内多场景验证 (P1-14)', () => {
             if (!filePath) return;
             issuedTokens.delete(token);
 
-            // 故意发送跳号：seq=0, seq=2（跳过 seq=1）
-            const CHUNK = 256 * 1024;
-            const slice = FILE.subarray(0, FILE_SIZE);
+            // 两帧：seq=0（正常）→ seq=2（跳号，expectedSeq 仍为 1）
+            const partA = Buffer.alloc(CHUNK, 0xaa);
+            const droppedPart = Buffer.alloc(CHUNK, 0xbb);
 
-            // seq=0 正常
-            const part0 = slice.subarray(0, CHUNK);
             hostWs.send(encodeFileChunkFrame({
               transferId, seq: 0, eof: false,
               totalSize: FILE_SIZE, rangeStart: 0, rangeEnd: FILE_SIZE - 1,
               contentType: 'application/x-test', fileName: 'test.bin',
-            }, Buffer.from(part0)));
+            }, partA));
 
-            // seq=2 跳号（跳过 seq=1）—— Relay 应该丢弃
-            const part2 = slice.subarray(CHUNK, CHUNK * 2);
+            // seq=2 跳号（expectedSeq 为 1）—— Relay 必须拒绝并终止传输
             hostWs.send(encodeFileChunkFrame({
               transferId, seq: 2, eof: false,
-            }, Buffer.from(part2)));
+            }, droppedPart));
 
             return;
           }
 
-          // 其他消息走默认处理
-          originalHandler(data);
+          baselineHandler(data);
         });
 
-        // 当 Relay 检测到 seq 跳号时会关闭连接，fetch 可能抛出错误
-        // 这是预期行为 — 我们验证连接被拒绝（而不是成功接收到损坏的数据）
-        const CHUNK = 256 * 1024;
+        // Relay 二进制路径对跳号采取 fail-fast：置 FAILED 并销毁 HTTP 连接，
+        // 因此 fetch 或读取 body 可能抛错 —— 两种结果都证明跳号帧未被当作正常数据转发。
+        let status: number | undefined;
+        let receivedBytes = 0;
+        let leakedDroppedBytes = false;
         try {
           const res = await fetch(
             `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent(integrityFile)}`,
             { headers: { Authorization: `Bearer ${session.accessToken}` } },
           );
-          // 如果返回 200，验证只收到了部分数据（seq=0）
-          if (res.status === 200) {
-            const body = Buffer.from(await res.arrayBuffer());
-            expect(body.length).toBeLessThan(FILE_SIZE);
-          } else {
-            // 502 也是可接受的 — Relay 拒绝了损坏的传输
-            expect([502, 503]).toContain(res.status);
+          status = res.status;
+          const reader = res.body?.getReader();
+          if (reader) {
+            try {
+              for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                if (value) {
+                  receivedBytes += value.length;
+                  if (value.includes(0xbb)) leakedDroppedBytes = true;
+                }
+              }
+            } catch {
+              // 连接被 Relay 主动销毁 —— 预期行为
+            }
           }
-        } catch (err: any) {
-          // 连接被关闭是预期行为 — Relay 检测到恶意帧后终止传输
-          expect(err.code).toBe('UND_ERR_SOCKET');
+        } catch {
+          // 连接在 fetch 阶段即被销毁 —— 同样预期
+        }
+
+        // 核心不变量：跳号帧的内容（0xbb）绝不能出现在响应体中
+        expect(leakedDroppedBytes).toBe(false);
+        if (status !== undefined) {
+          // 头部在跳号被发现前已发送 → 200，但只可能包含 seq=0 的 256 KB
+          expect(status).toBe(200);
+          expect(receivedBytes).toBeLessThanOrEqual(CHUNK);
         }
       });
 
-      it('重复 seq 被拒绝：Host 发送 seq=0,seq=0 → 第二个 seq=0 被丢弃', async () => {
+      it('重复 seq 被拒绝：seq=0 重复发送导致传输 FAILED 且重复帧内容不外泄', async () => {
         const integrityFile = '/data/test-integrity-dupe.bin';
-        const originalHandler = hostWs.listeners('message')[0] as (data: any) => void;
         hostWs.removeAllListeners('message');
 
         hostWs.on('message', (data) => {
@@ -368,41 +391,66 @@ describe('会话内多场景验证 (P1-14)', () => {
             if (!filePath) return;
             issuedTokens.delete(token);
 
-            const CHUNK = 256 * 1024;
-            const slice = FILE.subarray(0, FILE_SIZE);
+            // 两帧：seq=0（正常）→ seq=0（重复，expectedSeq 已为 1）
+            const partA = Buffer.alloc(CHUNK, 0xaa);
+            const droppedPart = Buffer.alloc(CHUNK, 0xbb);
 
-            // seq=0 正常
-            const part0 = slice.subarray(0, CHUNK);
             hostWs.send(encodeFileChunkFrame({
               transferId, seq: 0, eof: false,
               totalSize: FILE_SIZE, rangeStart: 0, rangeEnd: FILE_SIZE - 1,
               contentType: 'application/x-test', fileName: 'test.bin',
-            }, Buffer.from(part0)));
+            }, partA));
 
+            // seq=0 重复（expectedSeq 已为 1）—— Relay 必须拒绝并终止传输
+            hostWs.send(encodeFileChunkFrame({
+              transferId, seq: 0, eof: false,
+            }, droppedPart));
 
-        // 重复 seq 可能被立即检测到并关闭连接
+            return;
+          }
+
+          baselineHandler(data);
+        });
+
+        // 重复 seq 同样触发 fail-fast：置 FAILED 并销毁 HTTP 连接
+        let status: number | undefined;
+        let receivedBytes = 0;
+        let leakedDroppedBytes = false;
         try {
           const res = await fetch(
             `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent(integrityFile)}`,
             { headers: { Authorization: `Bearer ${session.accessToken}` } },
           );
-          // 如果返回 200，验证只收到一个 chunk
-          if (res.status === 200) {
-            const body = Buffer.from(await res.arrayBuffer());
-            expect(body.length).toBe(256 * 1024); // 只有一个 chunk
-          } else {
-            // 502/503 也是可接受的
-            expect([502, 503]).toContain(res.status);
+          status = res.status;
+          const reader = res.body?.getReader();
+          if (reader) {
+            try {
+              for (;;) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                if (value) {
+                  receivedBytes += value.length;
+                  if (value.includes(0xbb)) leakedDroppedBytes = true;
+                }
+              }
+            } catch {
+              // 连接被 Relay 主动销毁 —— 预期行为
+            }
           }
-        } catch (err: any) {
-          // 连接被关闭是预期行为
-          expect(err.code).toBe('UND_ERR_SOCKET');
+        } catch {
+          // 连接在 fetch 阶段即被销毁 —— 同样预期
         }
-        });
+
+        // 核心不变量：重复帧的内容（0xbb）绝不能出现在响应体中
+        expect(leakedDroppedBytes).toBe(false);
+        if (status !== undefined) {
+          expect(status).toBe(200);
+          expect(receivedBytes).toBeLessThanOrEqual(CHUNK);
+        }
+      });
 
       it('提前 EOF 被拒绝：bytes 不足时 eof=true → transfer FAILED', async () => {
         const integrityFile = '/data/test-integrity-eof.bin';
-        const originalHandler = hostWs.listeners('message')[0] as (data: any) => void;
         hostWs.removeAllListeners('message');
 
         hostWs.on('message', (data) => {
@@ -449,26 +497,22 @@ describe('会话内多场景验证 (P1-14)', () => {
             return;
           }
 
-          originalHandler(data);
+          baselineHandler(data);
         });
 
         const res = await fetch(
           `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent(integrityFile)}`,
           { headers: { Authorization: `Bearer ${session.accessToken}` } },
         );
-        // 字节数不匹配应该导致传输失败（502 或连接断开）
-        // 因为 deliverChunk 检测到 receivedBytes !== expectedBytes
-        expect(res.status === 502 || res.status === 200).toBeTruthy();
-        // 如果是 200，body 应该不完整（只有 256KB 而不是 700KB）
-        if (res.status === 200) {
-          const body = Buffer.from(await res.arrayBuffer());
-          expect(body.length).toBeLessThan(FILE_SIZE);
-        }
+        // 首帧即 EOF 且字节不足 → deliverChunk 完整性校验失败 →
+        // onError 在 headersSent=false 时走 502 分支（确定性路径）
+        expect(res.status).toBe(502);
+        const json = await res.json();
+        expect(json.error?.code).toBe('TUNNEL_ERROR');
       });
 
       it('字节数不匹配：发送多余字节后 eof=true → transfer FAILED', async () => {
         const integrityFile = '/data/test-integrity-overflow.bin';
-        const originalHandler = hostWs.listeners('message')[0] as (data: any) => void;
         hostWs.removeAllListeners('message');
 
         hostWs.on('message', (data) => {
@@ -514,19 +558,17 @@ describe('会话内多场景验证 (P1-14)', () => {
             return;
           }
 
-          originalHandler(data);
+          baselineHandler(data);
         });
 
         const res = await fetch(
           `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent(integrityFile)}`,
           { headers: { Authorization: `Bearer ${session.accessToken}` } },
         );
-        // 字节数不匹配：receivedBytes(200) !== expectedBytes(100)
-        // 应该失败
-        if (res.status === 200) {
-          const body = Buffer.from(await res.arrayBuffer());
-          expect(body.length).toBeLessThanOrEqual(100);
-        }
+        // 字节数不匹配：receivedBytes(200) !== expectedBytes(100) → 502
+        expect(res.status).toBe(502);
+        const json = await res.json();
+        expect(json.error?.code).toBe('TUNNEL_ERROR');
       });
     });
   });
