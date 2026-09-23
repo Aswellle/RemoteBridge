@@ -315,19 +315,21 @@ export default function MessagesPage() {
           <div ref={messagesEndRef} />
         </div>
         {/* 输入框 */}
-        <div className="px-6 py-3">
-          <form onSubmit={handleSend} className="flex space-x-3">
+        <div className="px-6 py-3 border-t border-[color-mix(in_srgb,currentColor_8%,transparent)] bg-surface-canvas">
+          <form onSubmit={handleSend} className="flex gap-3">
             <Input
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={selectedClient ? '输入消息...' : '请先选择一个客户端'}
               disabled={!selectedClient}
+              className="bg-surface-raised"
             />
             <Button
               type="submit"
               variant="primary"
               disabled={!inputValue.trim() || !selectedClient || sending}
+              className="px-5"
             >
               {sending ? (
                 <span
@@ -370,15 +372,15 @@ function MessageBubble({
       <div
         className={`max-w-[70%] px-4 py-2.5 rounded-2xl ${
           isMe
-            ? 'bg-accent-surface/10 text-accent-text rounded-br-md'
-            : 'bg-surface-subtle text-foreground rounded-bl-md'
+            ? 'bg-accent-solid text-primary-foreground rounded-br-md'
+            : 'bg-surface-raised text-foreground rounded-bl-md'
         }`}
       >
         {!isMe && message.senderLabel && (
           <p className="text-xs text-muted-foreground mb-1">{message.senderLabel}</p>
         )}
         <p className="text-sm">{message.content}</p>
-        <p className={`text-xs mt-1 ${isMe ? 'text-accent-text/60' : 'text-muted-foreground'}`}>
+        <p className={`text-xs mt-1 ${isMe ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
           {formatTime(message.createdAt)}
         </p>
       </div>

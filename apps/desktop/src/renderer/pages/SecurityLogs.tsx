@@ -39,7 +39,11 @@ interface PagedResult {
   totalPages: number;
 }
 
-export default function SecurityLogs() {
+interface SecurityLogsProps {
+  onConfigureRelay?: () => void;
+}
+
+export default function SecurityLogs({ onConfigureRelay }: SecurityLogsProps) {
   const [logs, setLogs] = useState<SecurityLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -124,39 +128,42 @@ export default function SecurityLogs() {
       <PageHeader title="安全审计日志" />
 
       {/* 筛选栏 */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground">事件类型:</label>
-          <select
-            value={filterEventType}
-            onChange={(e) => setFilterEventType(e.target.value)}
-            className="h-9 rounded-sm border border-transparent bg-surface-subtle px-3 text-sm focus:border-accent-border/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
-          >
-            <option value="">全部</option>
-            {Object.entries(EVENT_TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="whitespace-nowrap text-sm text-muted-foreground">事件类型:</label>
+            <select
+              value={filterEventType}
+              onChange={(e) => setFilterEventType(e.target.value)}
+              className="h-9 rounded-sm border border-transparent bg-surface-subtle px-3 text-sm focus:border-accent-border/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
+            >
+              <option value="">全部</option>
+              {Object.entries(EVENT_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="whitespace-nowrap text-sm text-muted-foreground">客户端 ID:</label>
+            <Input
+              value={filterClientId}
+              onChange={(e) => setFilterClientId(e.target.value)}
+              placeholder="筛选客户端"
+              className="w-44"
+            />
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground">客户端 ID:</label>
-          <Input
-            value={filterClientId}
-            onChange={(e) => setFilterClientId(e.target.value)}
-            placeholder="筛选客户端"
-            className="w-48"
-          />
+        <div className="flex items-center gap-3">
+          <span className="whitespace-nowrap text-sm text-muted-foreground">
+            共 {total} 条记录
+          </span>
+          <Button variant="secondary" onClick={() => fetchLogs(1)}>
+            <RefreshCw className="size-3.5" />
+            刷新
+          </Button>
         </div>
-
-        <Button variant="secondary" onClick={() => fetchLogs(1)}>
-          <RefreshCw className="size-3.5" />
-          刷新
-        </Button>
-
-        <span className="ml-auto text-sm text-muted-foreground">
-          共 {total} 条记录
-        </span>
       </div>
       {error && (
         <div className="mb-4 flex items-start justify-between gap-3 rounded-sm bg-surface-warning/10 px-3 py-2">
@@ -171,10 +178,17 @@ export default function SecurityLogs() {
               )}
             </div>
           </div>
-          <Button variant="secondary" onClick={() => fetchLogs(1)}>
-            <RefreshCw className="size-3" />
-            重试
-          </Button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {error.includes('无法连接到 Relay') && onConfigureRelay && (
+              <Button variant="ghost" onClick={onConfigureRelay}>
+                配置中继
+              </Button>
+            )}
+            <Button variant="secondary" onClick={() => fetchLogs(1)}>
+              <RefreshCw className="size-3" />
+              重试
+            </Button>
+          </div>
         </div>
       )}
 

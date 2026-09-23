@@ -969,7 +969,7 @@ export default function App() {
         {activeTab === 'messages' && <MessagesPage />}
 
         {/* === 安全审计页 === */}
-        {activeTab === 'security' && <SecurityLogs />}
+        {activeTab === 'security' && <SecurityLogs onConfigureRelay={() => setActiveTab('settings')} />}
 
         {/* === 设置页 === */}
         {activeTab === 'settings' && <SettingsPage />}
