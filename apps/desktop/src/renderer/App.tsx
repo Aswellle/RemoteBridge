@@ -212,7 +212,7 @@ export default function App() {
 
   // 检测是否首次启动
   useEffect(() => {
-    window.electronAPI.isFirstLaunch?.().then((isFirst) => {
+    window.electronAPI.isFirstLaunch?.().then((isFirst: boolean) => {
       if (isFirst) setShowFirstLaunchModal(true);
     }).catch(() => {});
   }, []);
@@ -358,7 +358,7 @@ export default function App() {
   // 订阅更新状态推送 + 启动时同步当前状态
   useEffect(() => {
     window.electronAPI.getUpdateStatus?.().then(setUpdateStatus).catch(() => {});
-    window.electronAPI.onUpdateStatus?.((s) => setUpdateStatus(s as UpdateStatus));
+    window.electronAPI.onUpdateStatus?.((s: UpdateStatus) => setUpdateStatus(s));
     return () => { window.electronAPI.removeAllListeners('event:update-status'); };
   }, []);
 
@@ -624,7 +624,7 @@ export default function App() {
             ) : (
               <>
                 {/* 系统信息卡片 */}
-                <div className="bg-card rounded-xl p-6 mb-6 border border-border/50">
+                <div className="bg-surface-raised rounded-xl p-6 mb-6 shadow-sm shadow-black/5 dark:shadow-none">
                   <div className="grid grid-cols-2 gap-6">
                     <div>
                       <span className="text-xs text-muted-foreground uppercase tracking-wider">主机名</span>
@@ -710,7 +710,7 @@ export default function App() {
                     {connectionStatus === 'idle' && (
                       <button
                         onClick={handleRegister}
-                        className="px-6 py-2.5 bg-primary hover:bg-primary/90 rounded-lg transition-colors text-sm font-medium"
+                        className="h-10 px-5 bg-accent-solid hover:brightness-110 active:scale-[0.96] rounded-sm text-sm font-medium text-primary-foreground transition-all"
                       >
                         连接到 Relay 服务器
                       </button>
@@ -745,7 +745,7 @@ export default function App() {
 
                 {/* PIN 码生成 */}
                 {connectionStatus === 'connected' && (
-                  <div className="bg-card rounded-xl p-6 border border-border/50">
+                  <div className="bg-surface-raised rounded-xl p-6 shadow-sm shadow-black/5 dark:shadow-none">
                     <h3 className="text-lg font-semibold mb-2">生成连接码</h3>
                     <p className="text-muted-foreground text-sm mb-5">
                       生成一次性 PIN 码，让远程设备通过浏览器连接到此电脑
@@ -753,7 +753,7 @@ export default function App() {
 
                     <button
                       onClick={handleGeneratePin}
-                      className="px-6 py-2.5 bg-success hover:bg-success/90 rounded-lg transition-colors text-sm font-medium"
+                      className="h-10 px-5 bg-accent-solid hover:brightness-110 active:scale-[0.96] rounded-sm text-sm font-medium text-primary-foreground transition-all"
                     >
                       生成连接码
                     </button>
@@ -862,7 +862,7 @@ export default function App() {
               // 空状态动画
               <div className="text-center py-16">
                 <div className="inline-block mb-4">
-                  <FolderOpen className="w-16 h-16 text-gray-600 animate-bounce" aria-hidden="true" />
+                  <FolderOpen className="w-16 h-16 text-muted-foreground/40 animate-bounce" aria-hidden="true" />
                 </div>
                 <p className="text-muted-foreground text-lg mb-2">尚未添加共享目录</p>
                 <p className="text-muted-foreground text-sm">点击上方按钮添加要远程访问的目录</p>
@@ -872,12 +872,12 @@ export default function App() {
                 {directories.map((dir: any) => (
                   <div
                     key={dir.id}
-                    className="bg-card rounded-xl p-5 flex items-center justify-between border border-border/50 hover:border-border transition-colors"
+                    className="bg-surface-raised rounded-lg p-4 flex items-center justify-between hover:bg-surface-hover transition-colors"
                   >
                     <div className="flex items-center gap-4 min-w-0 flex-1">
                       {/* 目录图标 */}
-                      <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center flex-shrink-0">
-                        <FolderOpen className="w-5 h-5 text-primary" aria-hidden="true" />
+                      <div className="size-10 rounded-lg bg-surface-subtle flex items-center justify-center flex-shrink-0">
+                        <FolderOpen className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="font-mono text-sm truncate">{dir.path}</p>
@@ -888,7 +888,7 @@ export default function App() {
                               value={aliasValue}
                               onChange={(e) => setAliasValue(e.target.value)}
                               placeholder="输入别名..."
-                              className="px-2 py-1 bg-secondary border border-border rounded text-xs w-48 focus:outline-none focus:ring-1 focus:ring-primary"
+                              className="h-8 px-2.5 bg-surface-subtle border border-transparent rounded-sm text-xs w-48 focus:border-accent-border/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                               autoFocus
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') handleSaveAlias(dir.id);
@@ -917,7 +917,7 @@ export default function App() {
                           const dirs = await window.electronAPI.listDirectories();
                           setDirectories(dirs);
                         }}
-                        className="px-3 py-1.5 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                        className="h-8 px-3 bg-surface-subtle border border-transparent rounded-sm text-sm focus:border-accent-border/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring"
                       >
                         <option value="readonly">只读</option>
                         <option value="download">允许下载</option>
