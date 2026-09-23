@@ -169,11 +169,20 @@ export default function TextViewer({ rawBytes, fileName, isPartial }: TextViewer
           </pre>
         </div>
       </div>
-
       {/* 底部信息栏 */}
       <div className="px-4 py-2 bg-card border-t border-border flex items-center justify-between text-xs text-muted-foreground">
         <span>{fileName} · {ext.toUpperCase()}</span>
-        <span>{content.length.toLocaleString()} 字符</span>
+        <div className="flex items-center gap-2">
+          <span>{content.length.toLocaleString()} 字符</span>
+          {isPartial && (
+            <button
+              className="px-2 py-0.5 text-xs bg-secondary hover:bg-primary hover:text-white rounded transition-colors"
+              title="加载更多内容（下载完整文件）"
+            >
+              下载查看全部
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
