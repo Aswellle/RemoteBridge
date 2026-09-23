@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { FolderOpen, Loader2 } from 'lucide-react';
 import FilePreview from '@/components/previews/FilePreview';
-import DownloadPanel from '@/components/DownloadPanel';
+import TransferCenter from '@/components/TransferCenter';
 import FileList from '@/components/FileList';
 import Breadcrumb from '@/components/Breadcrumb';
 import NotConnected from '@/components/ui/NotConnected';
@@ -95,9 +95,9 @@ export default function FilesPage() {
           </div>
         </div>
 
-        {/* 右侧: 下载面板 */}
-        <div className="w-full lg:w-80 flex-shrink-0">
-          <DownloadPanel />
+        {/* 右侧: 传输中心 */}
+        <div className="w-full lg:w-96 flex-shrink-0 h-[calc(100vh-12rem)]">
+          <TransferCenter />
         </div>
       </div>
 

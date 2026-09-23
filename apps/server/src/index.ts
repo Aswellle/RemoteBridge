@@ -17,9 +17,9 @@ import { messagesRoutes } from './routes/messages';
 import { securityLogsRoutes } from './routes/security-logs';
 import { proxyRoutes } from './routes/proxy';
 import { setupWebSocket } from './ws/handler';
+import { transferRegistry } from './ws/transfer-registry';
 import { startTicketCleaner } from './ws/tickets';
 import { CORS_OPTIONS } from './utils/cors';
-
 // ===== 环境变量 =====
 const PORT = parseInt(process.env.RELAY_PORT || '3002', 10);
 const HOST = process.env.RELAY_HOST || '0.0.0.0';
@@ -88,14 +88,36 @@ async function registerRoutes() {
         db,
       };
     }
-
     return {
       status: 'ok',
       instance_id: INSTANCE_ID,
-
       timestamp: Date.now(),
       version: APP_VERSION,
       db,
+      transfers: {
+        active: transferRegistry.activeCount(),
+      },
+    };
+  });
+
+  // Transfer metrics endpoint (P2-04: Observability)
+  app.get('/api/v1/metrics/transfers', async () => {
+    const active = transferRegistry.getActive();
+    return {
+      active_count: active.length,
+      active: active.map((t) => ({
+        id: t.transferId,
+        direction: t.direction,
+        state: t.state,
+        fileName: t.fileName,
+        totalBytes: t.totalBytes,
+        transferredBytes: t.transferredBytes,
+        progress: t.totalBytes > 0 ? Math.round((t.transferredBytes / t.totalBytes) * 100) : 0,
+        sessionId: t.sessionId,
+        clientId: t.clientId,
+        startedAt: t.createdAt,
+        lastActivityAt: t.lastActivityAt,
+      })),
     };
   });
 

@@ -89,7 +89,8 @@ export default function FileList({ entries, onDirClick, onFileClick, loading, is
 
   return (
     <div className="divide-y divide-border" role="list">
-      <div className="grid grid-cols-12 gap-4 px-6 py-3 text-sm font-medium text-muted-foreground bg-card/80">
+      {/* Desktop header: hidden on mobile */}
+      <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 text-sm font-medium text-muted-foreground bg-card/80">
         <div className={isRootView ? 'col-span-5' : 'col-span-6'}>名称</div>
         {isRootView && <div className="col-span-2">权限</div>}
         <div className="col-span-2 text-right">大小</div>
@@ -141,10 +142,9 @@ function FileRow({ entry, onDirClick, onFileClick, isRootView }: FileRowProps) {
       onFileClick(entry);
     }
   };
-
   return (
     <div
-      className="grid grid-cols-12 gap-4 px-6 py-3 hover:bg-secondary/50 focus-visible:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset cursor-pointer transition-colors items-center"
+      className="grid grid-cols-12 gap-4 px-4 md:px-6 py-3 md:py-4 hover:bg-secondary/50 focus-visible:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset cursor-pointer transition-colors items-center min-h-[44px]"
       onClick={handleClick}
       role="button"
       tabIndex={0}
@@ -152,16 +152,16 @@ function FileRow({ entry, onDirClick, onFileClick, isRootView }: FileRowProps) {
       aria-label={isDir ? `文件夹: ${entry.name}` : `文件: ${entry.name}${entry.size ? `, ${formatFileSize(entry.size)}` : ''}`}
     >
       {/* 名称 */}
-      <div className={`${isRootView ? 'col-span-5' : 'col-span-6'} flex items-center min-w-0`}>
+      <div className={`${isRootView ? 'col-span-11 md:col-span-5' : 'col-span-11 md:col-span-6'} flex items-center min-w-0`}>
         <IconComponent className={`w-5 h-5 mr-3 flex-shrink-0 ${iconColor}`} />
         <span className={`truncate ${isDir ? 'text-primary hover:underline' : 'text-foreground'}`}>
           {entry.name}
         </span>
       </div>
 
-      {/* 权限徽章（仅白名单根列表） */}
+      {/* 权限徽章（仅白名单根列表）- 桌面端 */}
       {isRootView && (
-        <div className="col-span-2">
+        <div className="hidden md:block col-span-2">
           {entry.permission === 'download' ? (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-success/15 text-success">
               <Download className="w-3 h-3" />
@@ -176,18 +176,18 @@ function FileRow({ entry, onDirClick, onFileClick, isRootView }: FileRowProps) {
         </div>
       )}
 
-      {/* 大小 */}
-      <div className="col-span-2 text-right text-muted-foreground text-sm">
+      {/* 大小 - 右对齐，移动端可见 */}
+      <div className="col-span-1 md:col-span-2 text-right text-muted-foreground text-sm">
         {isDir ? '—' : formatFileSize(entry.size)}
       </div>
 
-      {/* 类型 */}
-      <div className="col-span-1 text-muted-foreground text-sm">
+      {/* 类型 - 仅桌面端 */}
+      <div className="hidden md:block col-span-1 text-muted-foreground text-sm">
         {isDir ? '文件夹' : (entry.extension ? `.${entry.extension}` : '文件')}
       </div>
 
-      {/* 修改时间 */}
-      <div className="col-span-2 text-right text-muted-foreground text-sm">
+      {/* 修改时间 - 仅桌面端 */}
+      <div className="hidden md:block col-span-2 text-right text-muted-foreground text-sm">
         {formatRelativeTime(entry.modifiedAt)}
       </div>
     </div>
