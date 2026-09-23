@@ -31,6 +31,7 @@ export interface SysInfo {
   chromeVersion: string;
   osVersion: string;
   platform: string;
+  arch: string;
   hostname: string;
 }
 

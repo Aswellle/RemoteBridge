@@ -4,6 +4,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   // === 系统信息 ===
   getSystemInfo: () => ipcRenderer.invoke('system:info'),
+  getAppIcon: () => ipcRenderer.invoke('system:icon'),
 
   // === 目录管理 ===
   selectDirectory: () => ipcRenderer.invoke('dirs:select-dialog'),
@@ -24,65 +25,66 @@ contextBridge.exposeInMainWorld('electronAPI', {
   registerHost: () => ipcRenderer.invoke('auth:register-host'),
   disconnectRelay: () => ipcRenderer.invoke('auth:disconnect'),
   getRelayStatus: () => ipcRenderer.invoke('relay:get-status'),
-  generatePin: (expiresIn: number) =>
-    ipcRenderer.invoke('auth:generate-pin', expiresIn),
+  generatePin: (expiresIn: number) => ipcRenderer.invoke('auth:generate-pin', expiresIn),
+  getRelayUrl: () => ipcRenderer.invoke('relay:get-url') ?? '',
 
-  // === Host 信息 ===
-  getRelayUrl: () => ipcRenderer.invoke('host:get-relay-url'),
-
-  // === 客户端管理 ===
+  // === 客户端 ===
   listClients: () => ipcRenderer.invoke('clients:list'),
   revokeClient: (sessionId: string, clientId?: string) =>
     ipcRenderer.invoke('clients:revoke', sessionId, clientId),
-
-  // === 消息发送 ===
-  sendMessage: (clientId: string, content: string) =>
-    ipcRenderer.invoke('messages:send', clientId, content),
-
-  // === 消息历史 ===
-  getMessageHistory: (limit?: number) =>
-    ipcRenderer.invoke('messages:get-history', limit),
-
-  // === 访问日志 ===
-  getAccessLogs: (limit?: number) =>
-    ipcRenderer.invoke('logs:access', limit),
-
-  // === 安全日志（经主进程访问 Relay，支持分页/筛选） ===
-  getSecurityLogs: (query?: { page?: number; pageSize?: number; eventType?: string; clientId?: string }) =>
-    ipcRenderer.invoke('logs:security', query),
-
-  // === 信任客户端（trusted=false 为取消信任） ===
   trustClient: (clientId: string, trusted: boolean) =>
     ipcRenderer.invoke('clients:trust', clientId, trusted),
 
-  // === 通知 ===
-  sendNotification: (title: string, body: string) =>
-    ipcRenderer.invoke('notification:send', title, body),
+  // === 日志 ===
+  getAccessLogs: (limit?: number) => ipcRenderer.invoke('logs:access', limit),
+  getSecurityLogs: (query?: { page?: number; pageSize?: number; eventType?: string; clientId?: string }) =>
+    ipcRenderer.invoke('logs:security', query),
+
+  // === 消息 ===
+  getMessageHistory: (limit?: number) => ipcRenderer.invoke('messages:get-history', limit),
+  sendMessage: (sessionId: string, content: string) =>
+    ipcRenderer.invoke('messages:send', sessionId, content),
 
   // === 设置 ===
   getSettings: () => ipcRenderer.invoke('settings:get'),
-  saveSettings: (settings: any) => ipcRenderer.invoke('settings:save', settings),
+  saveSettings: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
+  getRelayLatency: () => ipcRenderer.invoke("settings:get-relay-latency"),
+  getUploadPaths: () => ipcRenderer.invoke('settings:get-upload-paths'),
+  setUploadPaths: (paths: unknown) => ipcRenderer.invoke('settings:set-upload-paths', paths),
 
-  // === 文件接收路径 ===
-  getUploadPaths: () => ipcRenderer.invoke('upload:get-paths'),
-  setUploadPaths: (paths: any) => ipcRenderer.invoke('upload:set-paths', paths),
+  // === 本地中继 ===
+  localRelayStart: (port?: number) => ipcRenderer.invoke('relay-local:start', port),
+  localRelayStop: () => ipcRenderer.invoke('relay-local:stop'),
+  localRelayGetState: () => ipcRenderer.invoke('relay-local:get-state'),
+  localRelayGetConfig: () => ipcRenderer.invoke('relay-local:get-config'),
+  localRelaySetConfig: (cfg: { port?: number; autoStart?: boolean }) =>
+    ipcRenderer.invoke('relay-local:set-config', cfg),
 
-  // === 延迟 ===
-  getRelayLatency: () => ipcRenderer.invoke('relay:get-latency'),
-
-  // === 事件订阅 (Main → Renderer) ===
-  // 每次订阅前先清除旧监听器，防止 React effect 重跑时监听器堆叠
-  onClientJoined: (callback: (data: unknown) => void) => {
-    ipcRenderer.removeAllListeners('event:client-joined');
-    ipcRenderer.on('event:client-joined', (_, data) => callback(data));
+  // === 自动更新 ===
+  getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
+  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
+  onUpdateStatus: (callback: (status: unknown) => void) => {
+    ipcRenderer.removeAllListeners('event:update-status');
+    ipcRenderer.on('event:update-status', (_, status) => callback(status));
   },
-  onClientLeft: (callback: (data: unknown) => void) => {
-    ipcRenderer.removeAllListeners('event:client-left');
-    ipcRenderer.on('event:client-left', (_, data) => callback(data));
-  },
+
+  // === 外部链接（系统浏览器打开） ===
+  openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+
+  // === 事件监听（push 通道） ===
   onConnectionStatus: (callback: (data: unknown) => void) => {
     ipcRenderer.removeAllListeners('event:connection-status');
     ipcRenderer.on('event:connection-status', (_, data) => callback(data));
+  },
+  onClientJoined: (callback: () => void) => {
+    ipcRenderer.removeAllListeners('event:client-joined');
+    ipcRenderer.on('event:client-joined', () => callback());
+  },
+  onClientLeft: (callback: () => void) => {
+    ipcRenderer.removeAllListeners('event:client-left');
+    ipcRenderer.on('event:client-left', () => callback());
   },
   onNewMessage: (callback: (data: unknown) => void) => {
     ipcRenderer.removeAllListeners('event:new-message');
@@ -96,18 +98,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('event:file-received');
     ipcRenderer.on('event:file-received', (_, data) => callback(data));
   },
-
-  // === Host token 轮换 ===
-  getHostTokenExpiryDays: () => ipcRenderer.invoke('host:get-token-expiry-days'),
-
-  // === 本地中继服务器 ===
-  localRelayStart: (port?: number) => ipcRenderer.invoke('relay-local:start', port),
-  localRelayStop: () => ipcRenderer.invoke('relay-local:stop'),
-  localRelayGetState: () => ipcRenderer.invoke('relay-local:state'),
-  localRelayGetConfig: () => ipcRenderer.invoke('relay-local:get-config'),
-  localRelaySetConfig: (cfg: { port?: number; autoStart?: boolean }) =>
-    ipcRenderer.invoke('relay-local:set-config', cfg),
-  onLocalRelayStatus: (callback: (data: { status: string; error: string }) => void) => {
+  onLocalRelayStatus: (callback: (data: unknown) => void) => {
     ipcRenderer.removeAllListeners('event:local-relay-status');
     ipcRenderer.on('event:local-relay-status', (_, data) => callback(data));
   },
@@ -116,20 +107,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('event:local-relay-log', (_, line) => callback(line));
   },
 
-  // === 自动更新 ===
-  getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
-  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
-  downloadUpdate: () => ipcRenderer.invoke('updater:download'),
-  installUpdate: () => ipcRenderer.invoke('updater:install'),
-  onUpdateStatus: (callback: (status: unknown) => void) => {
-    ipcRenderer.removeAllListeners('event:update-status');
-    ipcRenderer.on('event:update-status', (_, status) => callback(status));
-  },
-
   // === 清理事件监听器（SL3：限白名单频道，防止渲染层静默安全通知频道） ===
   removeAllListeners: (channel: string) => {
     const SAFE_CHANNELS = [
-      'event:client-joined', 'event:client-left', 'event:connection-status',
+      'event:connection-status', 'event:client-joined', 'event:client-left',
       'event:new-message', 'event:session-revoked', 'event:file-received',
       'event:update-status', 'event:local-relay-status', 'event:local-relay-log',
     ];
@@ -139,14 +120,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 });
 
-// ===== TypeScript 类型声明 =====
-export interface SettingsData {
-  relayUrl: string;
-  relayApiUrl: string;
-  autoStart: boolean;
-  minimizeToTray: boolean;
-  theme: 'light' | 'dark';
-}
+// ===== 类型导出 =====
 
 export interface UploadPaths {
   images: string;
@@ -154,6 +128,14 @@ export interface UploadPaths {
   documents: string;
   archives: string;
   markdown: string;
+}
+
+export interface SettingsData {
+  relayUrl: string;
+  relayApiUrl: string;
+  autoStart: boolean;
+  minimizeToTray: boolean;
+  theme: 'light' | 'dark';
 }
 
 export interface ElectronAPI {
@@ -170,6 +152,7 @@ export interface ElectronAPI {
     nodeVersion: string;
     chromeVersion: string;
   }>;
+  getAppIcon: () => Promise<string>;
   selectDirectory: () => Promise<string | null>;
   addDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   removeDirectory: (id: number) => Promise<{ success: boolean }>;
@@ -193,7 +176,6 @@ export interface ElectronAPI {
   getRelayUrl: () => Promise<string>;
   listClients: () => Promise<Array<{
     clientId: string;
-    /** Relay 不可达（本地回退）时为 null，此时吊销不可用 */
     sessionId: string | null;
     label: string | null;
     lastSeenAt: number;
@@ -201,8 +183,7 @@ export interface ElectronAPI {
     isTrusted: boolean;
   }>>;
   revokeClient: (sessionId: string, clientId?: string) => Promise<{ success: boolean; error?: string }>;
-  sendMessage: (clientId: string, content: string) => Promise<{ success: boolean; error?: string }>;
-  getMessageHistory: (limit?: number) => Promise<any[]>;
+  trustClient: (clientId: string, trusted: boolean) => Promise<{ success: boolean; error?: string }>;
   getAccessLogs: (limit?: number) => Promise<Array<{
     id: number;
     client_id: string;
@@ -230,38 +211,37 @@ export interface ElectronAPI {
       totalPages: number;
     };
   }>;
-  trustClient: (clientId: string, trusted: boolean) => Promise<{ success: boolean; error?: string }>;
-  sendNotification: (title: string, body: string) => Promise<void>;
+  getMessageHistory: (limit?: number) => Promise<any[]>;
+  sendMessage: (sessionId: string, content: string) => Promise<{ success: boolean; error?: string }>;
   getSettings: () => Promise<SettingsData>;
   saveSettings: (settings: SettingsData) => Promise<{
     success: boolean;
     error?: string;
-    /** Relay 地址变更时返回：是否已按新地址重连成功 */
     reconnected?: boolean;
     reconnectError?: string;
   }>;
   getRelayLatency: () => Promise<number>;
-  onClientJoined: (callback: (data: any) => void) => void;
-  onClientLeft: (callback: (data: any) => void) => void;
-  onConnectionStatus: (callback: (data: { status: string; error?: string }) => void) => void;
-  onNewMessage: (callback: (data: any) => void) => void;
-  onSessionRevoked: (callback: (data: any) => void) => void;
-  onFileReceived: (callback: (data: { fileName: string; savedPath: string }) => void) => void;
   getUploadPaths: () => Promise<{ success: boolean; data?: UploadPaths; error?: string }>;
   setUploadPaths: (paths: UploadPaths) => Promise<{ success: boolean; error?: string }>;
-  getHostTokenExpiryDays: () => Promise<number | null>;
   localRelayStart: (port?: number) => Promise<{ success: boolean; error?: string }>;
   localRelayStop: () => Promise<void>;
   localRelayGetState: () => Promise<{ status: string; port: number; pid: number | null; error: string; logs: string[] }>;
   localRelayGetConfig: () => Promise<{ port: number; autoStart: boolean }>;
   localRelaySetConfig: (cfg: { port?: number; autoStart?: boolean }) => Promise<void>;
-  onLocalRelayStatus: (callback: (data: { status: string; error: string }) => void) => void;
-  onLocalRelayLog: (callback: (line: string) => void) => void;
   getUpdateStatus: () => Promise<UpdateStatus>;
   checkForUpdates: () => Promise<void>;
   downloadUpdate: () => Promise<void>;
   installUpdate: () => Promise<void>;
   onUpdateStatus: (callback: (status: UpdateStatus) => void) => void;
+  openExternal: (url: string) => Promise<void>;
+  onConnectionStatus: (callback: (data: { status: string; error?: string }) => void) => void;
+  onClientJoined: (callback: (data: any) => void) => void;
+  onClientLeft: (callback: (data: any) => void) => void;
+  onNewMessage: (callback: (data: any) => void) => void;
+  onSessionRevoked: (callback: (data: any) => void) => void;
+  onFileReceived: (callback: (data: { fileName: string; savedPath: string }) => void) => void;
+  onLocalRelayStatus: (callback: (data: { status: string; error: string }) => void) => void;
+  onLocalRelayLog: (callback: (line: string) => void) => void;
   removeAllListeners: (channel: string) => void;
 }
 

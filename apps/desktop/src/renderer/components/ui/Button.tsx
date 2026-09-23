@@ -5,7 +5,7 @@
  * - primary:   实心 accent，仅用于 保存/启动/确认/完成
  * - secondary: 次级操作（刷新/选择目录/停止）
  * - ghost:     工具栏 / 辅助操作 / inline action，默认几乎无视觉重量
- * - danger:    默认 ghost/neutral，hover 时淡红 surface，confirm 时红底
+ * - danger:    默认 ghost/neutral，hover 时微红 surface，confirm 时红底
  * - icon:      纯图标按钮，最小 32×32
  *
  * 交互 (better-ui):
@@ -15,9 +15,11 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'icon';
+export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
+  size?: ButtonSize;
   children?: ReactNode;
 }
 
@@ -51,10 +53,16 @@ const variants: Record<ButtonVariant, string> = {
     'hover:bg-surface-hover hover:text-foreground',
 };
 
+const sizes: Record<ButtonSize, string> = {
+  sm: 'h-7 px-2.5 text-xs',
+  md: 'h-9 px-3.5 text-sm',
+  lg: 'h-11 px-5 text-base',
+};
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'secondary', className = '', children, ...rest }, ref) => {
+  ({ variant = 'secondary', size = 'md', className = '', children, ...rest }, ref) => {
     const isIcon = variant === 'icon';
-    const sizeClass = isIcon ? '' : 'h-9 px-3.5 text-sm';
+    const sizeClass = isIcon ? '' : sizes[size];
 
     return (
       <button

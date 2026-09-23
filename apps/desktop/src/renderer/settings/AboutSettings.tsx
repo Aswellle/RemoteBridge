@@ -1,16 +1,28 @@
 /**
- * About 设置页 —— 版本信息 + 自动更新检测
+ * About 设置页 —— 品牌信息 + 自动更新 + 外部链接
  *
- * 设计规范 (Spec §30):
- * - 版本号是比较明显的信息
- * - 进入该页面时自动检测有无可用新版本
- * - 发现新版本：提示下载，显示进度条，完成后退出安装
+ * 设计：
+ * - 顶部：LOGO（应用图标）+ RemoteBridge 名称 + 版本 + 检查更新
+ * - 检查到更新：右侧显眼下载按钮（带新版版本号）
+ * - 底部：GitHub 仓库 + 更新日志链接按钮（系统浏览器打开）
  */
 import { useState, useEffect } from 'react';
-import { Download, RefreshCw, Check, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
+import {
+  Download,
+  RefreshCw,
+  Check,
+  AlertCircle,
+  Loader2,
+  ExternalLink,
+  Github,
+  ScrollText,
+} from 'lucide-react';
 import { Button, Section } from '../components/ui';
 import type { UpdateStatus } from '../../preload/index';
 import type { SysInfo } from './types';
+
+const GITHUB_REPO_URL = 'https://github.com/Aswellle/RemoteBridge';
+const CHANGELOG_URL = 'https://github.com/Aswellle/RemoteBridge/releases';
 
 export interface AboutSettingsProps {
   sysInfo: SysInfo | null;
@@ -23,30 +35,22 @@ function formatMB(bytes: number): string {
 
 export function AboutSettings({ sysInfo }: AboutSettingsProps) {
   const [status, setStatus] = useState<UpdateStatus>({ state: 'idle' });
+  const [iconUrl, setIconUrl] = useState('');
 
   useEffect(() => {
-    // 订阅主进程推送的更新状态
     window.electronAPI.onUpdateStatus((s) => setStatus(s as UpdateStatus));
-
-    // 进入页面时自动检测
     window.electronAPI.checkForUpdates().catch(() => {});
-
+    window.electronAPI.getAppIcon().then(setIconUrl).catch(() => {});
     return () => {
       window.electronAPI.removeAllListeners('event:update-status');
     };
   }, []);
 
-  const handleDownload = () => {
-    window.electronAPI.downloadUpdate().catch(() => {});
-  };
-
-  const handleInstall = () => {
-    window.electronAPI.installUpdate();
-  };
-
-  const handleRetry = () => {
-    window.electronAPI.checkForUpdates().catch(() => {});
-  };
+  const handleDownload = () => window.electronAPI.downloadUpdate().catch(() => {});
+  const handleInstall = () => window.electronAPI.installUpdate();
+  const handleRetry = () => window.electronAPI.checkForUpdates().catch(() => {});
+  const handleOpenGitHub = () => window.electronAPI.openExternal(GITHUB_REPO_URL);
+  const handleOpenChangelog = () => window.electronAPI.openExternal(CHANGELOG_URL);
 
   const currentVersion = sysInfo?.appVersion || '1.0.0';
 
@@ -54,128 +58,185 @@ export function AboutSettings({ sysInfo }: AboutSettingsProps) {
     <div>
       <header className="mb-6">
         <h2 className="text-2xl font-semibold text-foreground">关于</h2>
-        <p className="mt-1 text-sm text-muted-foreground">应用与运行时信息</p>
+        <p className="mt-1 text-sm text-muted-foreground">应用信息与版本更新</p>
       </header>
 
-      {/* ===== 版本 + 更新 ===== */}
-      <Section title="版本">
-        <div className="flex items-baseline gap-3">
-          <p className="text-2xl font-semibold text-foreground">v{currentVersion}</p>
-          {status.state === 'not-available' && (
-            <span className="text-xs text-muted-foreground">已是最新版本</span>
-          )}
+      {/* ===== 品牌 + 更新卡片 ===== */}
+      <div className="rounded-xl bg-surface-raised p-5">
+        <div className="flex items-center justify-between gap-4">
+          {/* 左侧：LOGO + 名称 + 版本 */}
+          <div className="flex items-center gap-4">
+            {/* LOGO 图标 */}
+            {iconUrl ? (
+              <img
+                src={iconUrl}
+                alt="RemoteBridge"
+                className="size-14 rounded-xl"
+              />
+            ) : (
+              <div className="flex size-14 items-center justify-center rounded-xl bg-accent-solid text-primary-foreground">
+                <span className="text-xl font-bold">RB</span>
+              </div>
+            )}
+            <div>
+              <p className="text-lg font-semibold text-foreground">RemoteBridge</p>
+              <p className="text-sm text-muted-foreground">桌面端 v{currentVersion}</p>
+              {status.state === 'not-available' && (
+                <p className="mt-0.5 text-xs text-success">已是最新版本</p>
+              )}
+              {status.state === 'checking' && (
+                <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                  <Loader2 className="size-3 animate-spin" />
+                  正在检查更新...
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* 右侧：操作区 */}
+          <div className="flex flex-shrink-0 items-center gap-3">
+            {/* 发现新版本 —— 显眼下载按钮 */}
+            {status.state === 'available' && (
+              <Button variant="primary" size="lg" onClick={handleDownload} className="gap-2 px-6">
+                <Download className="size-4" />
+                下载 v{status.version}
+              </Button>
+            )}
+
+            {/* 下载中 */}
+            {status.state === 'downloading' && (
+              <div className="w-40 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">下载中</span>
+                  <span className="font-mono text-foreground">{status.percent.toFixed(0)}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-surface-subtle">
+                  <div
+                    className="h-full rounded-full bg-accent-solid transition-all duration-200"
+                    style={{ width: `${Math.min(status.percent, 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {formatMB(status.transferred)} / {formatMB(status.total)} MB
+                </p>
+              </div>
+            )}
+
+            {/* 下载完成 */}
+            {status.state === 'downloaded' && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 text-sm text-success">
+                  <Check className="size-4" />
+                  <span>v{status.version} 已就绪</span>
+                </div>
+                <Button variant="primary" onClick={handleInstall}>
+                  退出并安装
+                </Button>
+              </div>
+            )}
+
+            {/* 错误 */}
+            {status.state === 'error' && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 text-sm text-destructive">
+                  <AlertCircle className="size-4" />
+                  <span className="max-w-48 truncate">{status.message}</span>
+                </div>
+                <Button variant="secondary" onClick={handleRetry}>
+                  <RefreshCw className="size-3" />
+                  重试
+                </Button>
+              </div>
+            )}
+
+            {/* 空闲 / 最新 —— 突出的检查更新按钮 */}
+            {(status.state === 'idle' || status.state === 'not-available') && (
+              <Button variant="primary" onClick={handleRetry}>
+                <RefreshCw className="size-3.5" />
+                检查更新
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* 检测中 */}
-        {status.state === 'checking' && (
-          <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            <span>正在检查更新...</span>
+        {/* 新版发行说明 */}
+        {status.state === 'available' && status.releaseNotes && (
+          <div className="mt-4 rounded-sm bg-surface-subtle p-3">
+            <p className="mb-1 text-xs font-medium text-foreground">更新内容</p>
+            <p className="max-h-20 overflow-y-auto text-xs leading-relaxed text-muted-foreground">
+              {status.releaseNotes}
+            </p>
           </div>
         )}
+      </div>
 
-        {/* 发现新版本 */}
-        {status.state === 'available' && (
-          <div className="mt-4 rounded-sm bg-surface-raised p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  发现新版本 <span className="text-accent-text font-semibold">v{status.version}</span>
-                </p>
-                {status.releaseNotes && (
-                  <p className="mt-1 max-w-md text-xs text-muted-foreground line-clamp-3">
-                    {status.releaseNotes}
-                  </p>
-                )}
-              </div>
-              <Button variant="primary" onClick={handleDownload}>
-                <Download className="size-3.5" />
-                下载更新
-              </Button>
+      {/* ===== 外部链接 ===== */}
+      <div className="mt-4 flex gap-3">
+        <button
+          onClick={handleOpenGitHub}
+          className="flex flex-1 items-center justify-center gap-2 rounded-sm bg-surface-raised px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-hover"
+        >
+          <Github className="size-4" />
+          开源仓库
+          <ExternalLink className="size-3 text-muted-foreground" />
+        </button>
+        <button
+          onClick={handleOpenChangelog}
+          className="flex flex-1 items-center justify-center gap-2 rounded-sm bg-surface-raised px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-hover"
+        >
+          <ScrollText className="size-4" />
+          更新日志
+          <ExternalLink className="size-3 text-muted-foreground" />
+        </button>
+      </div>
+
+      {/* ===== 运行时 / 系统信息 ===== */}
+      <div className="mt-6 grid grid-cols-2 gap-4">
+        <Section title="运行时">
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Electron</dt>
+              <dd className="font-mono text-xs">{sysInfo?.electronVersion || '—'}</dd>
             </div>
-          </div>
-        )}
-
-        {/* 下载中 */}
-        {status.state === 'downloading' && (
-          <div className="mt-4 space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">正在下载...</span>
-              <span className="font-mono text-xs text-foreground">
-                {formatMB(status.transferred)} MB / {formatMB(status.total)} MB
-              </span>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Chromium</dt>
+              <dd className="font-mono text-xs">{sysInfo?.chromeVersion || '—'}</dd>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-surface-subtle">
-              <div
-                className="h-full rounded-full bg-accent-solid transition-all duration-200"
-                style={{ width: `${Math.min(status.percent, 100)}%` }}
-              />
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">Node.js</dt>
+              <dd className="font-mono text-xs">{sysInfo?.nodeVersion || '—'}</dd>
             </div>
-            <p className="text-xs text-muted-foreground">{status.percent.toFixed(0)}% 完成</p>
-          </div>
-        )}
+          </dl>
+        </Section>
 
-        {/* 下载完成，等待安装 */}
-        {status.state === 'downloaded' && (
-          <div className="mt-4 flex items-center justify-between rounded-sm bg-surface-raised p-4">
-            <div className="flex items-center gap-2">
-              <Check className="size-4 text-success" />
-              <span className="text-sm text-foreground">
-                v{status.version} 已下载完成，退出后将自动安装
-              </span>
+        <Section title="系统">
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">操作系统</dt>
+              <dd className="text-xs">{sysInfo?.osVersion || '—'}</dd>
             </div>
-            <Button variant="primary" onClick={handleInstall}>
-              退出并安装
-            </Button>
-          </div>
-        )}
-
-        {/* 错误 */}
-        {status.state === 'error' && (
-          <div className="mt-4 flex items-center justify-between rounded-sm bg-surface-danger/10 p-4">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="size-4 flex-shrink-0 text-destructive" />
-              <span className="text-sm text-foreground">{status.message}</span>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">主机名</dt>
+              <dd className="font-mono text-xs">{sysInfo?.hostname || '—'}</dd>
             </div>
-            <Button variant="secondary" onClick={handleRetry}>
-              <RefreshCw className="size-3" />
-              重试
-            </Button>
-          </div>
-        )}
-      </Section>
-
-      {/* ===== 运行时 ===== */}
-      <Section title="运行时">
-        <dl className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Electron</dt>
-            <dd className="font-mono text-xs">{sysInfo?.electronVersion || '—'}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Chromium</dt>
-            <dd className="font-mono text-xs">{sysInfo?.chromeVersion || '—'}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">Node.js</dt>
-            <dd className="font-mono text-xs">{sysInfo?.nodeVersion || '—'}</dd>
-          </div>
-        </dl>
-      </Section>
-
-      {/* ===== 系统 ===== */}
-      <Section title="系统">
-        <dl className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">操作系统</dt>
-            <dd className="text-xs">{sysInfo?.osVersion || '—'}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted-foreground">主机名</dt>
-            <dd className="font-mono text-xs">{sysInfo?.hostname || '—'}</dd>
-          </div>
-        </dl>
-      </Section>
+            <div className="flex justify-between">
+              <dt className="text-muted-foreground">平台</dt>
+              <dd className="font-mono text-xs">
+                {sysInfo ? `${getPlatformName(sysInfo.platform)} ${sysInfo.arch}` : '—'}
+              </dd>
+            </div>
+          </dl>
+        </Section>
+      </div>
     </div>
   );
+}
+
+function getPlatformName(platform: string): string {
+  const names: Record<string, string> = {
+    win32: 'Windows',
+    darwin: 'macOS',
+    linux: 'Linux',
+  };
+  return names[platform] || platform;
 }

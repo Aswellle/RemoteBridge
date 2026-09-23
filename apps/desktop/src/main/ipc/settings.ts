@@ -87,4 +87,9 @@ export function registerSettingsHandlers(
       return { success: false, error: error.message };
     }
   });
+
+  // 获取当前 Relay 连接的平均 RTT
+  ipcMain.handle("settings:get-relay-latency", (): number => {
+    return getRelayClient()?.getAverageRtt() ?? 0;
+  });
 }
