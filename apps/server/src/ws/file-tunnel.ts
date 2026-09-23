@@ -1,9 +1,10 @@
 import { WSMessage, WSMessageType, TransferState } from '@remotebridge/shared';
+import type { TransferRecord } from '@remotebridge/shared';
 import { db } from '../db/client';
 import { securityLogs } from '../db/schema';
 import { randomUUID } from 'node:crypto';
 import type { RespFileChunkPayload, RespFileErrorPayload, DecodedFileChunkFrame, CmdCancelTransferPayload } from '@remotebridge/shared';
-
+import { transferRegistry } from './transfer-registry';
 /**
  * 文件隧道传输注册表（Relay 代理 ↔ Host）。
  *
@@ -80,6 +81,19 @@ export function beginFileTransfer(
   };
   transfers.set(transferId, transfer);
   armTimer(transferId, transfer);
+
+  // P1-02: Register with unified Transfer Engine for state tracking
+  transferRegistry.begin({
+    transferId,
+    direction: 'download',
+    fileName: '', // will be updated on first frame
+    mimeType: '',
+    totalBytes: 0,
+    state: TransferState.PENDING,
+    sessionId,
+    hostId,
+    clientId,
+  });
 }
 
 /**
@@ -112,6 +126,7 @@ export function cancelFileTransfer(transferId: string, reason?: CmdCancelTransfe
   transfer.cancelReason = reason;
   transfer.onError(new Error('transfer cancelled: ' + (reason ?? 'unknown')));
   transfers.delete(transferId);
+  transferRegistry.cancel(transferId, reason);
   return true;
 }
 
@@ -128,6 +143,8 @@ export function cancelTransfersBySession(sessionId: string, reason?: CmdCancelTr
       }
     }
   }
+  // P1-02: Also cancel in unified Transfer Engine (covers transfers not in local map)
+  transferRegistry.cancelSession(sessionId, reason);
   return count;
 }
 
@@ -173,17 +190,24 @@ export function endFileTransfer(transferId: string): void {
     clearTimeout(transfer.timer);
     transfer.state = TransferState.COMPLETED;
     transfers.delete(transferId);
+    transferRegistry.complete(transferId);
   }
 }
-
 /** 分块到达（任一格式）的共用收尾逻辑：到 eof 清理传输，否则续期空闲计时器 */
 async function deliverChunk(transferId: string, transfer: ActiveTransfer, chunk: NormalizedFileChunk): Promise<void> {
+  // P1-02: Update unified Transfer Engine state
+  if (transfer.state !== TransferState.STREAMING) {
+    transferRegistry.markStreaming(transferId);
+  }
+  transferRegistry.recordBytes(transferId, chunk.data.length);
+
   if (chunk.eof) {
     // P0-03: Validate byte integrity before marking complete
     if (transfer.expectedBytes !== undefined && transfer.receivedBytes !== transfer.expectedBytes) {
       transfer.state = TransferState.FAILED;
       clearTimeout(transfer.timer);
       transfers.delete(transferId);
+      transferRegistry.fail(transferId, 'integrity mismatch: expected ' + transfer.expectedBytes + ' bytes but received ' + transfer.receivedBytes, 'INTEGRITY_ERROR');
       transfer.onError(new Error(
         'integrity mismatch: expected ' + transfer.expectedBytes + ' bytes but received ' + transfer.receivedBytes,
       ));
@@ -192,6 +216,7 @@ async function deliverChunk(transferId: string, transfer: ActiveTransfer, chunk:
     clearTimeout(transfer.timer);
     transfer.state = TransferState.COMPLETED;
     transfers.delete(transferId);
+    transferRegistry.complete(transferId);
   } else {
     armTimer(transferId, transfer);
   }

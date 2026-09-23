@@ -143,6 +143,7 @@ export async function startFileServer(): Promise<number> {
       // PR-05: 安全响应头
       reply.header('X-Content-Type-Options', 'nosniff');
       reply.header('Referrer-Policy', 'no-referrer');
+      reply.header('Content-Security-Policy', 'sandbox');
 
       return reply.send(createReadStream(filePath, { start, end }));
     } else {
@@ -150,6 +151,7 @@ export async function startFileServer(): Promise<number> {
       // PR-05: 安全响应头
       reply.header('X-Content-Type-Options', 'nosniff');
       reply.header('Referrer-Policy', 'no-referrer');
+      reply.header('Content-Security-Policy', 'sandbox');
       reply.header('Content-Length', stat.size);
       return reply.send(createReadStream(filePath));
     }

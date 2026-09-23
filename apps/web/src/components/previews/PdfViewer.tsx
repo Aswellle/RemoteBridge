@@ -28,7 +28,7 @@ export default function PdfViewer({ url, fileName }: PdfViewerProps) {
             生产环境应在服务端验证文件确实是 PDF（magic bytes）后再提供 blob: URL。 */}
         <iframe
           src={url}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts"
           className="w-full h-full border-0"
           onLoad={() => setLoading(false)}
           title={fileName}

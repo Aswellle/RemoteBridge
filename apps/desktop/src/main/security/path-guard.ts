@@ -1,6 +1,7 @@
 import path from 'path';
 import os from 'os';
 import { realpathSync } from 'fs';
+import fs from 'node:fs/promises';
 import { getBlockedDirsForPlatform } from '@remotebridge/shared';
 import type { PathValidationResult } from '@remotebridge/shared';
 import log from '../logger';
@@ -134,11 +135,63 @@ function isPathInWhitelist(resolvedPath: string, allowedDirs: string[]): boolean
 
 // ===== V2: TOCTOU 加固 =====
 /**
- * 验证文件句柄仍然指向白名单内的路径（TOCTOU 防护）。
- * 在 open() 之后调用，使用 fstat 检查真实路径是否仍在白名单内。
- * 返回 true 表示安全，false 表示路径在 check 和 use 之间被篡改。
- */
-export { validatePath as validatePathTOCTOU };
+ * 验证已打开的文件句柄仍然指向白名单内的路径（TOCTOU 防护）。
+ * 在 fs.open() 之后调用，使用 fstat 检查文件是否被篡改。
+ *
+ * @param fd - 已打开的文件描述符（来自 fs.open）
+ * @param allowedDirs - 当前白名单目录列表
+ * @returns true 表示安全，false 表示路径在 check 和 use 之间被篡改
+export async function validatePathTOCTOU(fd: number, allowedDirs: AllowedDirectory[]): Promise<boolean> {
+  try {
+    // 使用 fstat 获取已打开文件的真实信息（不受后续 symlink 替换影响）
+    const stat = await fs.fstat(fd);
+
+    // 确保仍然是常规文件（不是被替换为 symlink/device）
+    if (!stat.isFile() && !stat.isDirectory()) {
+      log.warn(`TOCTOU: 文件句柄非常规文件类型 (mode: ${stat.mode})`);
+      return false;
+    }
+
+    // 尝试通过 /proc/self/fd/<fd> 获取真实路径（Linux）
+    let realFdPath: string | null = null;
+    try {
+      realFdPath = await fs.readlink(`/proc/self/fd/${fd}`);
+    } catch {
+      // 非 Linux 平台或 /proc 不可用 — 跳过路径重校验
+    }
+
+    if (realFdPath) {
+      const resolvedReal = path.resolve(realFdPath);
+      const activeAllowed = allowedDirs.filter(d => d.is_active).map(d => d.path);
+      if (!isPathInWhitelist(resolvedReal, activeAllowed)) {
+        log.warn(`TOCTOU: 文件句柄真实路径不在白名单内 (${resolvedReal})`);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (err) {
+    log.error(`TOCTOU: fstat 校验失败: ${err}`);
+    return false;
+  }
+}
+      // 解析 /proc/self/fd 返回的路径（可能是相对路径）
+      const resolvedReal = path.resolve(realFdPath);
+
+      // 重新校验白名单
+      const activeAllowed = allowedDirs.filter(d => d.is_active).map(d => d.path);
+      if (!isPathInWhitelist(resolvedReal, activeAllowed)) {
+        log.warn(`TOCTOU: 文件句柄真实路径不在白名单内 (${resolvedReal})`);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (err) {
+    log.error(`TOCTOU: fstat 校验失败: ${err}`);
+    return false;
+  }
+}
 
 /**
  * 清除路径缓存（用于测试）。

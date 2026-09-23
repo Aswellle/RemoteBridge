@@ -4,6 +4,7 @@ import { createWriteStream, type WriteStream } from 'node:fs';
 import { open as fsOpen, copyFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { WSMessageType, UploadCategory, FileCategory, decodeUploadChunkFrame } from '@remotebridge/shared';
 import type {
+  ClientJoinedPayload,
   ClientLeftPayload,
   MsgTextPayload,
   MsgSystemPayload,
@@ -12,6 +13,7 @@ import type {
   UploadEndPayload,
   UploadCancelPayload,
 } from '@remotebridge/shared';
+import { BrowserWindow, Notification } from 'electron';
 import { getRelayClient } from './client';
 import { db } from '../db/client';
 import { config, getDefaultUploadPaths } from '../config/store';
@@ -26,7 +28,7 @@ interface UploadTransferV2 {
   writeStream: WriteStream | null;
   fileName: string;
   mimeType: string;
-  category: FileCategory;
+  category: UploadCategory;
   totalSize: number;
   actualBytes: number;
   seq: number;
@@ -382,17 +384,18 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
 
   // --- MSG_TEXT: 文本消息 ---
   client.on(WSMessageType.MSG_TEXT, (payload: MsgTextPayload) => {
+    // Relay 运行时注入 messageId/sessionId，但 shared 类型中为可选字段 — 此处断言访问
+    const msgPayload = payload as MsgTextPayload & { messageId?: string; sessionId?: string; senderId?: string; senderLabel?: string };
 
-    // 消息持久化：以 Relay 注入的原始消息 id 为主键（INSERT OR IGNORE 去重）
     try {
       db.insertMessage({
-        id: payload.messageId || randomUUID(),
-        sessionId: payload.sessionId,
-        direction: 'client_to_host',
-        content: payload.content || '',
+        id: msgPayload.messageId || randomUUID(),
+        sessionId: msgPayload.sessionId || '',
+        direction: 'host_to_client',
+        content: msgPayload.content || '',
         type: 'text',
-        senderId: payload.senderId,
-        senderLabel: payload.senderLabel,
+        senderId: msgPayload.senderId,
+        senderLabel: msgPayload.senderLabel,
       });
     } catch (err) {
       log.error('持久化收到的消息失败:', err);

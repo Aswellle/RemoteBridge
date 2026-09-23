@@ -57,11 +57,11 @@ export async function handleDownloadReady(payload: RespDownloadReadyPayload): Pr
   try {
     if (isHostLocalUrl) {
       const { sessionId } = store;
-      // P1-04: Use opaque resourceId in URL when available (filePath no longer in URL)
-      const proxyUrl = payload.resourceId
-        ? `${RELAY_API_BASE}/proxy/resource/${payload.resourceId}`
-        : `${RELAY_API_BASE}/proxy/download/${sessionId}?filePath=${encodeURIComponent(download.filePath)}`;
-      store.updateDownload(download.id, { downloadUrl: proxyUrl });
+      // P1-04: Always use opaque resourceId (filePath never in URL)
+      if (!payload.resourceId) {
+        throw new Error('服务器响应缺少 resourceId');
+      }
+      const proxyUrl = `${RELAY_API_BASE}/proxy/resource/${payload.resourceId}`;
       // 代理端点通过 httpOnly cookie 鉴权（02a-S11），<a download> 带不了 cookie，
       // 必须用 fetch credentials:'include' 流式下载，顺便拿到真实进度
       await streamDownload(proxyUrl, fileName, payload.fileSize || 0, download.id, controller.signal);
