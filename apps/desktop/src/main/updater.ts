@@ -105,12 +105,10 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
     autoUpdater.quitAndInstall(true, true);
   });
 
-  // 启动后延迟 10s 静默检查（仅打包后运行；开发模式跳过以免噪音）
-  if (app.isPackaged) {
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch((err: Error) => {
-        log.warn('启动时检查更新失败:', err.message);
-      });
-    }, 10_000);
-  }
+  // 启动后延迟 10s 静默检查（开发模式也启用，便于测试更新流程）
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err: Error) => {
+      log.warn('启动时检查更新失败:', err.message);
+    });
+  }, 10_000);
 }
