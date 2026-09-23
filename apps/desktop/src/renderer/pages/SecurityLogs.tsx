@@ -162,7 +162,14 @@ export default function SecurityLogs() {
         <div className="mb-4 flex items-start justify-between gap-3 rounded-sm bg-surface-warning/10 px-3 py-2">
           <div className="flex items-start gap-2 min-w-0">
             <AlertCircle className="mt-0.5 size-4 flex-shrink-0 text-warning" />
-            <p className="text-sm text-foreground">{error}</p>
+            <div className="min-w-0">
+              <p className="text-sm text-foreground">{error}</p>
+              {error.includes('无法连接到 Relay') && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  请先启动本地 Relay 服务器，或在设置中配置远程服务器地址
+                </p>
+              )}
+            </div>
           </div>
           <Button variant="secondary" onClick={() => fetchLogs(1)}>
             <RefreshCw className="size-3" />

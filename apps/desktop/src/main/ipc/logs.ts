@@ -19,7 +19,7 @@ export function registerLogsHandlers(): void {
     try {
       const relayApi = config.getRelayApiUrl();
       if (!relayApi) {
-        // 无 Relay 时返回空数据（本地模式）
+        // 无 Relay 配置时返回空数据（本地模式）
         return { success: true, data: { logs: [], total: 0, page: 1, pageSize: 20, totalPages: 0 } };
       }
       const params: Record<string, string | number> = {
@@ -31,8 +31,12 @@ export function registerLogsHandlers(): void {
 
       const resp = await axios.get(`${relayApi}/hosts/${config.getHostId()}/security-logs`, { params });
       return { success: true, data: resp.data };
-    } catch (err) {
-      return { success: false, error: (err as Error).message };
+    } catch (err: any) {
+      // 区分连接被拒绝 vs 其他错误，给出友好提示
+      if (err?.code === 'ECONNREFUSED' || err?.message?.includes('ECONNREFUSED')) {
+        return { success: false, error: '无法连接到 Relay 服务器，请先启动本地 Relay 或配置远程服务器' };
+      }
+      return { success: false, error: err?.message || '获取安全日志失败' };
     }
   });
 }
