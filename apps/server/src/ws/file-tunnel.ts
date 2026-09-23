@@ -131,6 +131,16 @@ export function cancelTransfersBySession(sessionId: string, reason?: CmdCancelTr
   return count;
 }
 
+/** Get all active transfer IDs belonging to a session (for revoke notification to Host) */
+export function getSessionTransferIds(sessionId: string): string[] {
+  const ids: string[] = [];
+  for (const [transferId, transfer] of transfers) {
+    if (transfer.sessionId === sessionId) {
+      ids.push(transferId);
+    }
+  }
+  return ids;
+}
 /**
  * Get transfer state (for tests / observability).
  */

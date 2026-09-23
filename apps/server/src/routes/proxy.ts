@@ -20,14 +20,14 @@ type ProxyRequest = FastifyRequest<{ Params: { sessionId: string }; Querystring:
 
 // ===== Range 头解析（PR-04: 严格 Range 语义） =====
 
-/** 仅做语法解析，不校验可满足性 */
-function parseRangeHeader(rangeHeader: string | undefined): { start: number; end?: number } | null {
+/** 仅做语法解析，不校验可满足性。返回 null=无 Range 头；返回 'invalid'=语法错误或 end<start */
+function parseRangeHeader(rangeHeader: string | undefined): { start: number; end?: number } | null | 'invalid' {
   if (!rangeHeader) return null;
   const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader.trim());
-  if (!match) return null;
+  if (!match) return 'invalid';
   const start = parseInt(match[1], 10);
   const end = match[2] ? parseInt(match[2], 10) : undefined;
-  if (end != null && end < start) return null;
+  if (end != null && end < start) return 'invalid';
   return { start, end };
 }
 
@@ -50,7 +50,7 @@ function validateRangeAgainstSize(
 //
 // 调用本函数后响应即被接管（hijack）：成功、失败都由这里收尾，
 // 调用方不得再操作 reply。仅在发送 CMD 之前的参数错误会以异常抛回。
-function tunnelFromHost(
+async function tunnelFromHost(
   hostWs: WebSocket,
   hostUrl: string,
   rangeHeader: string | undefined,
@@ -59,18 +59,29 @@ function tunnelFromHost(
   extraHeaders: Record<string, string> = {},
   clientId?: string,
   sessionId?: string,
+  hostId?: string,
 ): Promise<void> {
   const token = new URL(hostUrl).searchParams.get('token');
   if (!token) {
-    throw new Error('Host 返回的下载地址缺少令牌');
   }
   const range = parseRangeHeader(rangeHeader);
   const corsHdrs = corsHeadersFor(origin);
   const transferId = randomUUID();
 
+  if (range === 'invalid') {
+    reply.code(416)
+      .header('Accept-Ranges', 'bytes')
+      .header('Content-Type', 'application/json; charset=utf-8')
+      .headers(corsHdrs)
+      .send(JSON.stringify({ error: { code: 'INVALID_RANGE', message: 'Range 头格式错误或 end < start' } }));
+    return undefined;
+  }
+
+
+
+
   reply.hijack();
   const raw = reply.raw;
-
   return new Promise((resolve) => {
     let headersSent = false;
     let finished = false;
@@ -155,21 +166,24 @@ function tunnelFromHost(
       },
       30000,
       sessionId,
-      undefined,
+      hostId,
       clientId,
     );
 
     raw.on('close', () => {
-      if (!finished && hostWs.readyState === 1) {
-        sendWSMessage(hostWs, {
-          type: WSMessageType.CMD_CANCEL_TRANSFER,
-          payload: { transferId, reason: 'proxy_closed' },
-          timestamp: Date.now(),
-        });
+      if (!finished) {
+        // PR-04/P0-01: 先设置 cancel 状态（审计日志 + 状态机），再通知 Host
+        cancelFileTransfer(transferId, 'proxy_closed');
+        if (hostWs.readyState === 1) {
+          sendWSMessage(hostWs, {
+            type: WSMessageType.CMD_CANCEL_TRANSFER,
+            payload: { transferId, reason: 'proxy_closed' },
+            timestamp: Date.now(),
+          });
+        }
       }
       finish();
     });
-
     sendWSMessage(hostWs, {
       type: WSMessageType.CMD_FETCH_FILE,
       payload: {
@@ -331,7 +345,7 @@ async function proxyFileRequest(
         }
       : { 'Cache-Control': 'no-store' };
 
-    await tunnelFromHost(hostWs, fileUrl, request.headers.range, request.headers.origin, reply, extraHeaders, payload.sub, sessionId);
+    await tunnelFromHost(hostWs, fileUrl, request.headers.range, request.headers.origin, reply, extraHeaders, payload.sub, sessionId, hostId);
   } catch (err: any) {
     request.log.error({ err }, isDownload ? '代理下载失败' : '代理预览失败');
     return reply.code(502).send({

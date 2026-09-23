@@ -10,12 +10,12 @@ import { compare } from '@node-rs/bcrypt';
 
 import { signHostToken, signClientAccessToken, signClientRefreshToken, verifyHostToken, verifyRefreshToken, verifyAccessToken, extractTokenFromHeader, extractTokenFromRequest } from '../utils/jwt';
 import { notifyAndDisconnectClient } from '../ws/relay';
- import { cancelTransfersBySession } from '../ws/file-tunnel';
- import { isHostOnline } from '../ws/connection-registry';
- import { issueTicket } from '../ws/tickets';
- import { RATE_LIMIT_CONFIG, JWT_CONFIG, WSMessageType } from '@remotebridge/shared';
+import { sendWSMessage } from '../ws/relay';
+import { cancelTransfersBySession, getSessionTransferIds } from '../ws/file-tunnel';
+import { isHostOnline, getHostSocket } from '../ws/connection-registry';
+import { issueTicket } from '../ws/tickets';
+import { RATE_LIMIT_CONFIG, JWT_CONFIG, WSMessageType } from '@remotebridge/shared';
 import type { ApiResponse, RegisterHostRequest, GeneratePinResponse, ConnectRequest, ConnectResponse } from '@remotebridge/shared';
-// ===== Cookie 工具（02a-S11）=====
 const isProd = process.env.NODE_ENV === 'production';
 
 function setCookies(reply: FastifyReply, accessToken: string, refreshToken: string): void {
@@ -593,9 +593,24 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       .set({ revokedAt: now })
       .where(eq(sessions.id, sessionId));
 
-    // P0-02/P0-07: Cancel all active transfers for this session BEFORE notifying client
+    // P0-07: Cancel all active transfers for this session BEFORE notifying client
+    // 先收集传输 ID，再取消并通知 Host 中断读盘
+    const transferIds = getSessionTransferIds(sessionId);
     cancelTransfersBySession(sessionId, 'session_revoked');
 
+    // 通知 Host 取消所有属于该 session 的传输（Host 中止读盘/写盘）
+    if (transferIds.length > 0) {
+      const hostWs = getHostSocket(hostId);
+      if (hostWs) {
+        for (const tid of transferIds) {
+          sendWSMessage(hostWs, {
+            type: WSMessageType.CMD_CANCEL_TRANSFER,
+            payload: { transferId: tid, reason: 'session_revoked' },
+            timestamp: Date.now(),
+          });
+        }
+      }
+    }
     // 记录安全日志
     await db.insert(securityLogs).values({
       id: randomUUID(),

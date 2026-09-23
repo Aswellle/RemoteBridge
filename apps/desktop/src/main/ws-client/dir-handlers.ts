@@ -1,4 +1,5 @@
 import { WSMessageType, getFileCategory, isPreviewableFile } from '@remotebridge/shared';
+import type { CmdListDirPayload, CmdRequestDownloadPayload, CmdRequestPreviewPayload } from '@remotebridge/shared';
 import { BrowserWindow } from 'electron';
 import { getRelayClient } from './client';
 import db from '../db/client';
@@ -10,6 +11,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import log from '../logger';
 
+// Relay 保证注入 clientId/sessionId，但 shared 类型中为可选 — 此处收紧为必填
+type RequireRouting<T> = T & { clientId: string; sessionId: string };
 // ===== 白名单目录缓存（CQ-M5/PERF-M4）=====
 // 每次 WS 消息都调一次同步 SQLite 查询开销过大；用 10s TTL 缓存，
 // dir 变更时由 ipc/dirs.ts 调 invalidateAllowedDirsCache() 主动失效。

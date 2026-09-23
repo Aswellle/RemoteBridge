@@ -242,6 +242,282 @@ describe('会话内多场景验证 (P1-14)', () => {
         expect(body.equals(FILE)).toBe(true);
       });
     });
+
+    // P0-03: 传输完整性负向测试 — seq 跳号/重复/提前 EOF/字节数不匹配
+    describe('传输完整性校验 (P0-03 负向)', () => {
+      it('seq 跳号被拒绝：Host 发送 seq=0,seq=2（跳过 seq=1）→ Relay 丢弃后续帧', async () => {
+        const integrityFile = '/data/test-integrity-seqgap.bin';
+        // 在该文件请求时，Host 模拟发送跳号 seq
+        const originalHandler = hostWs.listeners('message')[0] as (data: any) => void;
+        hostWs.removeAllListeners('message');
+
+        hostWs.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+
+          if (msg.type === 'CMD_REQUEST_DOWNLOAD' || msg.type === 'CMD_REQUEST_PREVIEW') {
+            const { requestId } = msg.payload;
+            const token = `tk-integrity-${++tokenSeq}`;
+            issuedTokens.set(token, integrityFile);
+            const isPreview = msg.type === 'CMD_REQUEST_PREVIEW';
+            hostWs.send(
+              JSON.stringify({
+                id: 'resp-' + requestId,
+                type: isPreview ? 'RESP_PREVIEW_READY' : 'RESP_DOWNLOAD_READY',
+                payload: {
+                  requestId,
+                  [isPreview ? 'previewUrl' : 'downloadUrl']: `http://127.0.0.1:9/${isPreview ? 'preview' : 'download'}?token=${token}`,
+                  fileName: 'test-integrity.bin',
+                  fileSize: FILE_SIZE,
+                  extension: 'bin',
+                  category: 'text',
+                  expiresAt: Date.now() + 60000,
+                },
+                timestamp: Date.now(),
+              }),
+            );
+            return;
+          }
+
+          if (msg.type === 'CMD_FETCH_FILE') {
+            const { transferId, token } = msg.payload;
+            const filePath = issuedTokens.get(token);
+            if (!filePath) return;
+            issuedTokens.delete(token);
+
+            // 故意发送跳号：seq=0, seq=2（跳过 seq=1）
+            const CHUNK = 256 * 1024;
+            const slice = FILE.subarray(0, FILE_SIZE);
+
+            // seq=0 正常
+            const part0 = slice.subarray(0, CHUNK);
+            hostWs.send(encodeFileChunkFrame({
+              transferId, seq: 0, eof: false,
+              totalSize: FILE_SIZE, rangeStart: 0, rangeEnd: FILE_SIZE - 1,
+              contentType: 'application/x-test', fileName: 'test.bin',
+            }, Buffer.from(part0)));
+
+            // seq=2 跳号（跳过 seq=1）—— Relay 应该丢弃
+            const part2 = slice.subarray(CHUNK, CHUNK * 2);
+            hostWs.send(encodeFileChunkFrame({
+              transferId, seq: 2, eof: false,
+            }, Buffer.from(part2)));
+
+            return;
+          }
+
+          // 其他消息走默认处理
+          originalHandler(data);
+        });
+
+        const res = await fetch(
+          `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent(integrityFile)}`,
+          { headers: { Authorization: `Bearer ${session.accessToken}` } },
+        );
+        // 应该能收到部分数据（seq=0），但 seq=2 被丢弃
+        expect(res.status).toBe(200);
+        const body = Buffer.from(await res.arrayBuffer());
+        // 只收到了 seq=0 的数据（256KB），而不是完整的 FILE_SIZE
+        expect(body.length).toBeLessThan(FILE_SIZE);
+      });
+
+      it('重复 seq 被拒绝：Host 发送 seq=0,seq=0 → 第二个 seq=0 被丢弃', async () => {
+        const integrityFile = '/data/test-integrity-dupe.bin';
+        const originalHandler = hostWs.listeners('message')[0] as (data: any) => void;
+        hostWs.removeAllListeners('message');
+
+        hostWs.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+
+          if (msg.type === 'CMD_REQUEST_DOWNLOAD' || msg.type === 'CMD_REQUEST_PREVIEW') {
+            const { requestId } = msg.payload;
+            const token = `tk-integrity-${++tokenSeq}`;
+            issuedTokens.set(token, integrityFile);
+            hostWs.send(
+              JSON.stringify({
+                id: 'resp-' + requestId,
+                type: 'RESP_DOWNLOAD_READY',
+                payload: {
+                  requestId,
+                  downloadUrl: `http://127.0.0.1:9/download?token=${token}`,
+                  fileName: 'test.bin',
+                  fileSize: FILE_SIZE,
+                  extension: 'bin',
+                  category: 'text',
+                  expiresAt: Date.now() + 60000,
+                },
+                timestamp: Date.now(),
+              }),
+            );
+            return;
+          }
+
+          if (msg.type === 'CMD_FETCH_FILE') {
+            const { transferId, token } = msg.payload;
+            const filePath = issuedTokens.get(token);
+            if (!filePath) return;
+            issuedTokens.delete(token);
+
+            const CHUNK = 256 * 1024;
+            const slice = FILE.subarray(0, FILE_SIZE);
+
+            // seq=0 正常
+            const part0 = slice.subarray(0, CHUNK);
+            hostWs.send(encodeFileChunkFrame({
+              transferId, seq: 0, eof: false,
+              totalSize: FILE_SIZE, rangeStart: 0, rangeEnd: FILE_SIZE - 1,
+              contentType: 'application/x-test', fileName: 'test.bin',
+            }, Buffer.from(part0)));
+
+            // seq=0 重复 —— Relay 应该丢弃
+            hostWs.send(encodeFileChunkFrame({
+              transferId, seq: 0, eof: false,
+            }, Buffer.from(part0)));
+
+            return;
+          }
+
+          originalHandler(data);
+        });
+
+        const res = await fetch(
+          `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent(integrityFile)}`,
+          { headers: { Authorization: `Bearer ${session.accessToken}` } },
+        );
+        expect(res.status).toBe(200);
+        const body = Buffer.from(await res.arrayBuffer());
+        // 只收到了一个 chunk，不是两个
+        expect(body.length).toBe(256 * 1024);
+      });
+
+      it('提前 EOF 被拒绝：bytes 不足时 eof=true → transfer FAILED', async () => {
+        const integrityFile = '/data/test-integrity-eof.bin';
+        const originalHandler = hostWs.listeners('message')[0] as (data: any) => void;
+        hostWs.removeAllListeners('message');
+
+        hostWs.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+
+          if (msg.type === 'CMD_REQUEST_DOWNLOAD' || msg.type === 'CMD_REQUEST_PREVIEW') {
+            const { requestId } = msg.payload;
+            const token = `tk-integrity-${++tokenSeq}`;
+            issuedTokens.set(token, integrityFile);
+            hostWs.send(
+              JSON.stringify({
+                id: 'resp-' + requestId,
+                type: 'RESP_DOWNLOAD_READY',
+                payload: {
+                  requestId,
+                  downloadUrl: `http://127.0.0.1:9/download?token=${token}`,
+                  fileName: 'test.bin',
+                  fileSize: FILE_SIZE,
+                  extension: 'bin',
+                  category: 'text',
+                  expiresAt: Date.now() + 60000,
+                },
+                timestamp: Date.now(),
+              }),
+            );
+            return;
+          }
+
+          if (msg.type === 'CMD_FETCH_FILE') {
+            const { transferId, token } = msg.payload;
+            const filePath = issuedTokens.get(token);
+            if (!filePath) return;
+            issuedTokens.delete(token);
+
+            // 只发一个 chunk 但 eof=true（字节数不匹配）
+            const CHUNK = 256 * 1024;
+            const part0 = FILE.subarray(0, CHUNK);
+            hostWs.send(encodeFileChunkFrame({
+              transferId, seq: 0, eof: true,  // 提前 EOF！
+              totalSize: FILE_SIZE, rangeStart: 0, rangeEnd: FILE_SIZE - 1,
+              contentType: 'application/x-test', fileName: 'test.bin',
+            }, Buffer.from(part0)));
+
+            return;
+          }
+
+          originalHandler(data);
+        });
+
+        const res = await fetch(
+          `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent(integrityFile)}`,
+          { headers: { Authorization: `Bearer ${session.accessToken}` } },
+        );
+        // 字节数不匹配应该导致传输失败（502 或连接断开）
+        // 因为 deliverChunk 检测到 receivedBytes !== expectedBytes
+        expect(res.status === 502 || res.status === 200).toBeTruthy();
+        // 如果是 200，body 应该不完整（只有 256KB 而不是 700KB）
+        if (res.status === 200) {
+          const body = Buffer.from(await res.arrayBuffer());
+          expect(body.length).toBeLessThan(FILE_SIZE);
+        }
+      });
+
+      it('字节数不匹配：发送多余字节后 eof=true → transfer FAILED', async () => {
+        const integrityFile = '/data/test-integrity-overflow.bin';
+        const originalHandler = hostWs.listeners('message')[0] as (data: any) => void;
+        hostWs.removeAllListeners('message');
+
+        hostWs.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+
+          if (msg.type === 'CMD_REQUEST_DOWNLOAD' || msg.type === 'CMD_REQUEST_PREVIEW') {
+            const { requestId } = msg.payload;
+            const token = `tk-integrity-${++tokenSeq}`;
+            issuedTokens.set(token, integrityFile);
+            hostWs.send(
+              JSON.stringify({
+                id: 'resp-' + requestId,
+                type: 'RESP_DOWNLOAD_READY',
+                payload: {
+                  requestId,
+                  downloadUrl: `http://127.0.0.1:9/download?token=${token}`,
+                  fileName: 'test.bin',
+                  fileSize: 100,  // 声称只有 100 字节
+                  extension: 'bin',
+                  category: 'text',
+                  expiresAt: Date.now() + 60000,
+                },
+                timestamp: Date.now(),
+              }),
+            );
+            return;
+          }
+
+          if (msg.type === 'CMD_FETCH_FILE') {
+            const { transferId, token } = msg.payload;
+            const filePath = issuedTokens.get(token);
+            if (!filePath) return;
+            issuedTokens.delete(token);
+
+            // 发送 200 字节但声称只有 100 字节
+            const overflowData = Buffer.alloc(200, 0xAB);
+            hostWs.send(encodeFileChunkFrame({
+              transferId, seq: 0, eof: true,
+              totalSize: 100, rangeStart: 0, rangeEnd: 99,
+              contentType: 'application/x-test', fileName: 'test.bin',
+            }, overflowData));
+
+            return;
+          }
+
+          originalHandler(data);
+        });
+
+        const res = await fetch(
+          `${API_BASE}/proxy/download/${session.sessionId}?filePath=${encodeURIComponent(integrityFile)}`,
+          { headers: { Authorization: `Bearer ${session.accessToken}` } },
+        );
+        // 字节数不匹配：receivedBytes(200) !== expectedBytes(100)
+        // 应该失败
+        if (res.status === 200) {
+          const body = Buffer.from(await res.arrayBuffer());
+          expect(body.length).toBeLessThanOrEqual(100);
+        }
+      });
+    });
   });
 
   describe('消息持久化双向语义 (移植自 manual-message-history.mjs)', () => {

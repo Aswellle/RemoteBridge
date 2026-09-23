@@ -97,6 +97,12 @@ export function setupFileTunnelHandler(): void {
       const totalSize = stat.size;
 
       // PR-04: Strict range validation — reject unsatisfiable ranges instead of clamping
+      // end < start → 416 (PR-04 RB-P0-04)
+      if (rangeStart != null && rangeEnd != null && rangeEnd < rangeStart) {
+        sendError('INVALID_RANGE', 'Range end < start');
+        cleanup();
+        return;
+      }
       if (rangeStart != null && rangeStart >= 0 && rangeStart < totalSize) {
         // valid start
       } else if (rangeStart != null) {

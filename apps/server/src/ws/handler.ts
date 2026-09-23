@@ -38,11 +38,33 @@ import { logger } from '../utils/logger';
 
 // ===== 心跳配置 =====
 const HEARTBEAT_INTERVAL = 30000;  // 30 秒
+const HEARTBEAT_TIMEOUT = 60000;   // 60 秒无响应则关闭
 
 // P1-04: Pending resource map — tracks resourceId by requestId for download/preview
 const pendingResources = new Map<string, string>();
 
-const HEARTBEAT_TIMEOUT = 60000;   // 60 秒无响应则关闭
+// P0-02: 二进制帧处理并发上限 — 防止慢速 HTTP consumer 下 Promise 无界堆积
+// 限制同时处理的文件隧道帧数量，超出时等待前一帧完成
+const MAX_CONCURRENT_BINARY_FRAMES = 8;
+let activeBinaryFrames = 0;
+const binaryFrameWaiters: Array<() => void> = [];
+
+async function withBinaryFrameConcurrency<T>(fn: () => Promise<T>): Promise<T> {
+  // 等待直到有空闲槽位
+  if (activeBinaryFrames >= MAX_CONCURRENT_BINARY_FRAMES) {
+    await new Promise<void>((resolve) => binaryFrameWaiters.push(resolve));
+  }
+  activeBinaryFrames++;
+  try {
+    return await fn();
+  } finally {
+    activeBinaryFrames--;
+    // 唤醒下一个等待者
+    const next = binaryFrameWaiters.shift();
+    if (next) next();
+  }
+}
+
 
 // ===== 设置 WebSocket 处理 =====
 export function setupWebSocket(app: FastifyInstance): void {
@@ -181,10 +203,10 @@ export function setupWebSocket(app: FastifyInstance): void {
       // 2. Client → Relay → Host 上传分块（upload chunk binary frame）
       if (isBinary) {
         if (meta.type === 'host') {
-          // Host → Relay: 文件隧道帧
+          // Host → Relay: 文件隧道帧（带并发上限，防止背压下 Promise 堆积）
           try {
             const decoded = decodeFileChunkFrame(data as Buffer);
-            void resolveFileTunnelBinaryFrame(decoded);
+            void withBinaryFrameConcurrency(() => resolveFileTunnelBinaryFrame(decoded));
           } catch (err) {
             app.log.error('解析文件隧道二进制帧失败:', err as any);
           }
@@ -198,6 +220,7 @@ export function setupWebSocket(app: FastifyInstance): void {
         }
         return;
       }
+
       try {
         const raw = JSON.parse(data.toString());
         const message = validateMessage(raw);

@@ -197,10 +197,10 @@ export class RelayClient {
     return false;
   }
 
+
   // ===== 注册消息处理器 =====
-  // ===== 注册消息处理器 =====
-  on(type: string, handler: (payload: unknown) => void): void {
-    this.messageHandlers.set(type, handler);
+  on<T = unknown>(type: string, handler: (payload: T) => void): void {
+    this.messageHandlers.set(type, handler as (payload: unknown) => void);
   }
 
   // ===== 注册二进制消息处理器（V2 Upload Chunk） =====

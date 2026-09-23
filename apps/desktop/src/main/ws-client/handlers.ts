@@ -3,7 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { createWriteStream, type WriteStream } from 'node:fs';
 import { open as fsOpen, copyFile, mkdir, rename, unlink } from 'node:fs/promises';
 import { WSMessageType, UploadCategory, FileCategory, decodeUploadChunkFrame } from '@remotebridge/shared';
-import { BrowserWindow, Notification } from 'electron';
+import type {
+  ClientLeftPayload,
+  MsgTextPayload,
+  MsgSystemPayload,
+  SessionRevokedPayload,
+  UploadStartPayload,
+  UploadEndPayload,
+  UploadCancelPayload,
+} from '@remotebridge/shared';
 import { getRelayClient } from './client';
 import { db } from '../db/client';
 import { config, getDefaultUploadPaths } from '../config/store';
@@ -342,9 +350,8 @@ async function uploadFinalize(uploadId: string): Promise<void> {
 export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
   const client = getRelayClient();
   if (!client) return;
-
   // --- CLIENT_JOINED: 新客户端加入 ---
-  client.on(WSMessageType.CLIENT_JOINED, (payload: any) => {
+  client.on(WSMessageType.CLIENT_JOINED, (payload: ClientJoinedPayload) => {
     log.debug('新客户端加入:', payload);
 
     // 登记到本地 connected_clients 表（"已连接客户端"列表与信任功能的数据源）
@@ -367,16 +374,14 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
     // 通知渲染进程
     mainWindow?.webContents.send('event:client-joined', payload);
   });
-
   // --- CLIENT_LEFT: 客户端离开 ---
-  client.on(WSMessageType.CLIENT_LEFT, (payload: any) => {
+  client.on(WSMessageType.CLIENT_LEFT, (payload: ClientLeftPayload) => {
     log.debug('客户端离开:', payload);
     mainWindow?.webContents.send('event:client-left', payload);
   });
 
   // --- MSG_TEXT: 文本消息 ---
-  client.on(WSMessageType.MSG_TEXT, (payload: any) => {
-    log.debug('收到消息:', payload);
+  client.on(WSMessageType.MSG_TEXT, (payload: MsgTextPayload) => {
 
     // 消息持久化：以 Relay 注入的原始消息 id 为主键（INSERT OR IGNORE 去重）
     try {
@@ -398,9 +403,8 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
   });
 
   // --- V2 UPLOAD_START: begin streaming upload (P1-01) ---
-  client.on(WSMessageType.UPLOAD_START, async (rawPayload: any) => {
+  client.on(WSMessageType.UPLOAD_START, async (rawPayload: UploadStartPayload) => {
     const { uploadId, fileName, mimeType, category, totalSize, clientId, sessionId } = rawPayload || {};
-
     // Strict validation: totalSize must be a safe integer within allowed range
     if (
       !uploadId ||
@@ -541,34 +545,34 @@ export function setupMessageHandlers(mainWindow: BrowserWindow | null): void {
   });
 
   // --- V2 UPLOAD_END: finalize streaming upload ---
-  client.on(WSMessageType.UPLOAD_END, async (rawPayload: any) => {
+  client.on(WSMessageType.UPLOAD_END, async (rawPayload: UploadEndPayload) => {
     const { uploadId } = rawPayload || {};
     if (!uploadId) return;
     await uploadFinalize(uploadId);
   });
 
   // --- V2 UPLOAD_CANCEL: cancel streaming upload ---
-  client.on(WSMessageType.UPLOAD_CANCEL, async (rawPayload: any) => {
+  client.on(WSMessageType.UPLOAD_CANCEL, async (rawPayload: UploadCancelPayload) => {
     const { uploadId, reason } = rawPayload || {};
     if (!uploadId) return;
     const transfer = uploadTransfers.get(uploadId);
-    if (transfer && !transfer.completed) {
+    if (transfer) {
       log.info(`上传已取消: ${uploadId}, reason: ${reason || 'unknown'}`);
       await abortUploadTransfer(uploadId, 'CANCELLED', '上传已取消');
     }
   });
 
   // --- MSG_SYSTEM: 系统消息 ---
-  client.on(WSMessageType.MSG_SYSTEM, (payload: any) => {
+  client.on(WSMessageType.MSG_SYSTEM, (payload: MsgSystemPayload) => {
     log.debug('系统消息:', payload);
     mainWindow?.webContents.send('event:new-message', {
       ...payload,
-      type: 'system',
+      timestamp: Date.now(),
     });
   });
 
   // --- SESSION_REVOKED: 会话被吊销 ---
-  client.on(WSMessageType.SESSION_REVOKED, (payload: any) => {
+  client.on(WSMessageType.SESSION_REVOKED, (payload: SessionRevokedPayload) => {
     log.debug('会话被吊销:', payload);
     mainWindow?.webContents.send('event:session-revoked', payload);
   });
