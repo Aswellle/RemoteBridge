@@ -21,8 +21,9 @@ import { registerDirsHandlers } from './ipc/dirs';
 import { registerClientsHandlers } from './ipc/clients';
 import { registerMessagesHandlers } from './ipc/messages';
 import { registerSettingsHandlers } from './ipc/settings';
+import { registerSystemHandlers } from './ipc/system';
+import { registerLogsHandlers } from './ipc/logs';
 import { registerLocalRelayHandlers, stopLocalRelay, startLocalRelay, onRelayReady } from './local-relay';
-
 // ===== Relay 配置（从 config store 加载） =====
 function getRelayUrl(): string {
   return config.getRelayUrl() || process.env.RELAY_URL || 'ws://127.0.0.1:3002/ws';
@@ -118,5 +119,7 @@ function registerIpcHandlers(): void {
   registerClientsHandlers(getRelayApi);
   registerMessagesHandlers();
   registerSettingsHandlers(getMainWindow, getRelayApi, getRelayUrl);
+  registerSystemHandlers();
+  registerLogsHandlers();
   registerLocalRelayHandlers(getMainWindow);
 }
