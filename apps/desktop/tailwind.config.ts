@@ -19,7 +19,23 @@ const config: Config = {
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
         border: 'hsl(var(--border))',
-        ring: 'hsl(var(--ring))',
+        surface: {
+          canvas: 'hsl(var(--surface-canvas))',
+          subtle: 'hsl(var(--surface-subtle))',
+          raised: 'hsl(var(--surface-raised))',
+          overlay: 'hsl(var(--surface-overlay))',
+          hover: 'hsl(var(--surface-hover))',
+          success: 'hsl(var(--surface-success))',
+          warning: 'hsl(var(--surface-warning))',
+          danger: 'hsl(var(--surface-danger))',
+        },
+        accent: {
+          solid: 'hsl(var(--accent-solid))',
+          text: 'hsl(var(--accent-text))',
+          surface: 'hsl(var(--accent-surface))',
+          border: 'hsl(var(--accent-border))',
+          ring: 'hsl(var(--accent-ring))',
+        },
       },
       fontFamily: {
         sans: [
@@ -34,6 +50,13 @@ const config: Config = {
           'ui-monospace', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"',
           '"Courier New"', 'monospace',
         ],
+      },
+      borderRadius: {
+        xs: 'var(--radius-xs)',
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)',
       },
     },
   },

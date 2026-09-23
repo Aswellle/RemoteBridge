@@ -36,7 +36,33 @@
 
     /* 边框 / 聚焦环 */
     --border: 217 18% 24%;
-    --ring: 217 91% 62%;
+    /* ===== Surface v2（层级：canvas → overlay） ===== */
+    --surface-canvas: 222 28% 8%;
+    --surface-subtle: 217 22% 22%;
+    --surface-raised: 217 26% 13%;
+    --surface-overlay: 217 20% 15%;
+    --surface-hover: 217 20% 19%;
+
+    /* ===== Accent v2（蓝色子令牌，限制蓝色使用范围） ===== */
+    --accent-solid: 217 91% 62%;
+    --accent-text: 220 85% 68%;
+    --accent-surface: 217 91% 62%;
+    --accent-border: 217 91% 62%;
+    --accent-ring: 217 91% 62%;
+
+    /* ===== Semantic surface 基色（用于低透明度背景） ===== */
+    --surface-success: 142 62% 48%;
+    --surface-warning: 38 90% 55%;
+    --surface-danger: 0 72% 58%;
+
+    /* ===== 圆角层级 ===== */
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius-md: 10px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+
+     /* 边框 / 聚焦环 */
 
     /* 圆角令牌：统一控件圆角 */
     --radius: 0.625rem;
@@ -83,8 +109,32 @@
     --warning: 32 90% 34%;
     --warning-foreground: 0 0% 100%;
 
-    --border: 215 20% 78%;
-    --ring: 217 91% 44%;
+
+    /* ===== Surface v2（层级：canvas → overlay） ===== */
+    --surface-canvas: 220 22% 97%;
+    --surface-subtle: 215 40% 94%;
+    --surface-raised: 0 0% 100%;
+    --surface-overlay: 0 0% 100%;
+    --surface-hover: 215 25% 91%;
+
+    /* ===== Accent v2（蓝色子令牌，亮色下稍深以保证对比） ===== */
+    --accent-solid: 217 91% 44%;
+    --accent-text: 217 91% 36%;
+    --accent-surface: 217 91% 44%;
+    --accent-border: 217 91% 44%;
+    --accent-ring: 217 91% 44%;
+
+    /* ===== Semantic surface 基色 ===== */
+    --surface-success: 142 62% 30%;
+    --surface-warning: 32 90% 34%;
+    --surface-danger: 0 70% 45%;
+
+    /* ===== 圆角层级 ===== */
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius-md: 10px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
 
     /* 亮色滚动条令牌 */
     --scrollbar-track: hsl(var(--muted));
@@ -93,6 +143,7 @@
   }
 
   /* ===== 全局聚焦环 ===== */
+
   *:focus-visible {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 2px;
