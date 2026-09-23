@@ -1,0 +1,6 @@
+# 开发模式下的 electron-updater 配置
+# 强制在 pnpm dev 中也启用更新检测（连接 GitHub Releases API）
+provider: github
+owner: Aswellle
+repo: RemoteBridge
+releaseType: release

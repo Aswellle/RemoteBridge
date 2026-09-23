@@ -105,7 +105,27 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
     autoUpdater.quitAndInstall(true, true);
   });
 
-  // 启动后延迟 10s 静默检查（开发模式也启用，便于测试更新流程）
+  // 开发模式也启用更新检测：forceDevUpdateConfig + 指定 config 路径
+  try {
+    const path = require('path');
+    const fs = require('fs');
+    // electron-vite 运行时 cwd 可能是项目根；尝试多个候选路径
+    const candidates = [
+      path.join(process.cwd(), 'dev-app-update.yml'),
+      path.join(__dirname, '..', 'dev-app-update.yml'),
+      path.join(__dirname, '..', '..', 'dev-app-update.yml'),
+    ];
+    for (const cfg of candidates) {
+      if (fs.existsSync(cfg)) {
+        autoUpdater.forceDevUpdateConfig = true;
+        autoUpdater.updateConfigPath = cfg;
+        log.info('dev update config:', cfg);
+        break;
+      }
+    }
+  } catch {}
+
+  // 启动后延迟 10s 静默检查
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err: Error) => {
       log.warn('启动时检查更新失败:', err.message);
