@@ -20,6 +20,34 @@ interface SecurityLogsQuery {
   clientId?: string;
 }
 
+/** 中继返回的安全日志分页数据（ApiResponse.data 内的实际负载） */
+interface SecurityLogsPage {
+  logs: unknown[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/**
+ * 从 ApiResponse 信封中取出分页负载。
+ * Relay 的响应形如 `{success, data: {logs, total, ...}, error, timestamp}`，需要再解一层；
+ * 若直接把信封交给渲染层，`data.logs` 为 undefined，页面在 `logs.length` 处崩溃
+ * （界面渲染出错了：Cannot read properties of undefined (reading 'length')）。
+ * 协议不符时返回 null，由调用方转成可读错误，避免把畸形数据传给渲染层。
+ */
+function extractSecurityLogsPage(envelope: unknown): SecurityLogsPage | null {
+  const payload = (envelope as { data?: unknown } | null)?.data as Partial<SecurityLogsPage> | undefined;
+  if (!payload || !Array.isArray(payload.logs)) return null;
+  return {
+    logs: payload.logs,
+    total: typeof payload.total === 'number' ? payload.total : payload.logs.length,
+    page: typeof payload.page === 'number' ? payload.page : 1,
+    pageSize: typeof payload.pageSize === 'number' ? payload.pageSize : payload.logs.length,
+    totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
+  };
+}
+
 /**
  * 读取 Host token。
  * config.getHostToken() 内部走 safeStorage 解密，系统密钥链不可用时会抛错；
@@ -37,6 +65,22 @@ function readHostToken(): string {
   } catch {
     return '';
   }
+}
+
+/**
+ * 将 Relay 响应信封转换为 IPC 返回值。
+ * 成功：解出分页负载（渲染层直接读 data.logs）。
+ * 失败/协议不符：返回可读错误，避免渲染层拿到 undefined 后崩溃。
+ */
+function respondWithPage(
+  envelope: unknown,
+): { success: true; data: SecurityLogsPage } | { success: false; error: string } {
+  const payload = extractSecurityLogsPage(envelope);
+  if (!payload) {
+    log.warn('安全日志响应格式不符:', JSON.stringify(envelope)?.slice(0, 200));
+    return { success: false, error: '中继返回的安全日志格式无法识别，请确认服务端版本' };
+  }
+  return { success: true, data: payload };
 }
 
 /** 向 Relay 换取新的 Host token（Host token 剩余有效期不足时使用） */
@@ -113,13 +157,13 @@ export function registerLogsHandlers(): void {
 
       try {
         const resp = await request(token);
-        return { success: true, data: resp.data };
+        return respondWithPage(resp.data);
       } catch (err: any) {
         // 401 多为 Host token 过期：轮换后重试一次，避免用户看到无意义的失败
         if (err?.response?.status !== 401) throw err;
         const renewed = await renewHostToken(relayApi, token);
         const resp = await request(renewed);
-        return { success: true, data: resp.data };
+        return respondWithPage(resp.data);
       }
     } catch (err: any) {
       log.warn('获取安全日志失败:', err?.message ?? err);

@@ -17,6 +17,13 @@ This file starts tracking changes from the 2026-06 comprehensive code review
   `local-relay.ts` 启动前先探测 `/health`：已有中继则复用（不启动第二个进程）、端口被
   其他程序占用则明确报错、空闲才拉起子进程；dev 模式下额外复核一次以规避与 `pnpm dev`
   的启动竞态（`apps/desktop/src/main/local-relay.ts`）
+- **安全审计页面白屏**：`logs:security` 直接把 Relay 的 `ApiResponse` 信封交给渲染层，
+  页面读 `data.logs` 得到 undefined，在 `logs.length` 处抛错并被错误边界接管
+  （"界面渲染出错了：Cannot read properties of undefined (reading 'length')"）。
+  此前该接口稳定 401、成功分支从未执行，形状错误一直未被发现。现按 `clients.ts`
+  既有约定解出 `resp.data.data` 并校验形态（logs 非数组时返回"格式无法识别"），
+  渲染层再兜一层 Array 判断，避免畸形载荷炸掉整个界面
+  （`apps/desktop/src/main/ipc/logs.ts`、`renderer/pages/SecurityLogs.tsx`）
 - **安全审计错误提示**：`logs:security` 对 401 先轮换 Host token 再重试一次，失败时返回
   中文可读提示（不再透出 `Request failed with status code 401` 等 axios 原始文案）；
   `safeStorage` 解密异常时降级到内存中的 Relay 客户端配置（`apps/desktop/src/main/ipc/logs.ts`、

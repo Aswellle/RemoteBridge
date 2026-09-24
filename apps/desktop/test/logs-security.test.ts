@@ -68,6 +68,18 @@ function invokeSecurity(query?: Record<string, unknown>) {
   return handlers.get('logs:security')!(null, query);
 }
 
+/** 中继真实响应：ApiResponse 信封，分页数据在 data 内 —— 少解一层会让页面白屏 */
+function relayPage(logs: unknown[] = []) {
+  return {
+    data: {
+      success: true,
+      data: { logs, total: logs.length, page: 1, pageSize: 20, totalPages: 1 },
+      error: null,
+      timestamp: Date.now(),
+    },
+  };
+}
+
 describe('logs:security IPC', () => {
   beforeEach(() => {
     handlers.clear();
@@ -80,21 +92,34 @@ describe('logs:security IPC', () => {
     registerLogsHandlers();
   });
 
-  it('returns logs when the Host token is accepted', async () => {
-    get.mockResolvedValueOnce({ data: { logs: [{ id: 'l1' }], total: 1, page: 1, pageSize: 20, totalPages: 1 } });
+  it('unwraps the relay ApiResponse envelope into the page payload', async () => {
+    get.mockResolvedValueOnce(relayPage([{ id: 'l1' }]));
 
     const res = await invokeSecurity({ page: 1, pageSize: 20 });
 
     expect(res.success).toBe(true);
+    // 渲染层直接读 data.logs，必须是数组而不是信封
+    expect(Array.isArray(res.data.logs)).toBe(true);
+    expect(res.data.logs).toHaveLength(1);
     expect(res.data.total).toBe(1);
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(res.data.totalPages).toBe(1);
     const [url, opts] = get.mock.calls[0];
     expect(url).toBe('http://127.0.0.1:3002/api/v1/security-logs');
     expect(opts.headers.Authorization).toBe('Bearer token-1');
   });
 
+  it('reports an unrecognized payload instead of handing the renderer undefined', async () => {
+    // 服务端若直接返回裸数组（协议不符），不能让渲染层拿到 data.logs === undefined
+    get.mockResolvedValueOnce({ data: [{ id: 'l1' }] });
+
+    const res = await invokeSecurity();
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('格式无法识别');
+  });
+
   it('renews the Host token and retries once on 401', async () => {
-    get.mockRejectedValueOnce(httpError(401)).mockResolvedValueOnce({ data: { logs: [], total: 0, page: 1, pageSize: 20, totalPages: 0 } });
+    get.mockRejectedValueOnce(httpError(401)).mockResolvedValueOnce(relayPage());
     post.mockResolvedValueOnce({ data: { data: { token: 'token-2' } } });
 
     const res = await invokeSecurity();

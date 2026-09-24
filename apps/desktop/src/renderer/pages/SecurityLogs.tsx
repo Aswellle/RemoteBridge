@@ -72,11 +72,14 @@ export default function SecurityLogs({ onConfigureRelay }: SecurityLogsProps) {
       });
 
       if (result.success && result.data) {
-        const data: PagedResult = result.data as PagedResult;
-        setLogs(data.logs);
-        setTotal(data.total);
-        setTotalPages(data.totalPages);
-        setPage(data.page);
+        // 主进程已解出分页负载；此处再兜一层 Array 判断：渲染层直接读 logs.length，
+        // 一旦拿到非数组会把整个界面炸成错误边界（曾因多解一层信封导致白屏）
+        const data = result.data as PagedResult;
+        const logs = Array.isArray(data.logs) ? data.logs : [];
+        setLogs(logs);
+        setTotal(typeof data.total === 'number' ? data.total : logs.length);
+        setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 1);
+        setPage(typeof data.page === 'number' ? data.page : currentPage);
       } else {
         throw new Error(result.error || '查询失败');
       }
