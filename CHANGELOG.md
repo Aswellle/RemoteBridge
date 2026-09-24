@@ -6,6 +6,48 @@ All notable changes to RemoteBridge are documented here. The desktop package
 This file starts tracking changes from the 2026-06 comprehensive code review
 (`.full-review/05-final-report.md`) onward.
 
+## [Unreleased]
+
+### Fixed
+
+- **安全审计日志 401**：根因是桌面端内部中继与外部中继**同端口双绑定**。已有中继监听
+  `0.0.0.0:3002` 时，内部中继以 `RELAY_HOST=127.0.0.1` 仍能绑定成功（Windows 允许具体
+  地址与通配地址并存，且回环流量优先走具体地址），导致桌面端全部 HTTP/WS 请求落到使用
+  另一套 JWT 密钥与数据库的"影子"中继上，安全审计等需要 Host token 的接口稳定 401。
+  `local-relay.ts` 启动前先探测 `/health`：已有中继则复用（不启动第二个进程）、端口被
+  其他程序占用则明确报错、空闲才拉起子进程；dev 模式下额外复核一次以规避与 `pnpm dev`
+  的启动竞态（`apps/desktop/src/main/local-relay.ts`）
+- **安全审计错误提示**：`logs:security` 对 401 先轮换 Host token 再重试一次，失败时返回
+  中文可读提示（不再透出 `Request failed with status code 401` 等 axios 原始文案）；
+  `safeStorage` 解密异常时降级到内存中的 Relay 客户端配置（`apps/desktop/src/main/ipc/logs.ts`、
+  `config/store.ts` 的 `decryptField` 增加可用性判断与 try/catch）
+- **关于页图标闪烁**：应用图标原图 1254×1254（base64 逾 1MB），每次进入"关于"页都重新经
+  IPC 序列化，界面先渲染兜底标识再切换为品牌图标。改为按 UI 尺寸缩放至 96px 并缓存
+  （IPC 载荷 1019KB → 8.3KB，减少 99.2%），渲染侧在模块级缓存，首帧即为真实图标
+  （`apps/desktop/src/main/ipc/system.ts`、`renderer/settings/AboutSettings.tsx`）
+- **检查更新错误脱敏**：`sanitizeUpdaterError` 覆盖 `net::ERR_*`、`getaddrinfo ENOTFOUND`、
+  HTTP 401/403/404/5xx、校验失败、配置缺失等类别，统一映射为固定中文提示，不再显示内部
+  URL、状态行或文件路径（`apps/desktop/src/main/updater.ts`）
+- **文件处理路径显示**：preload 调用的通道名 `settings:get-upload-paths` /
+  `settings:set-upload-paths` 与主进程注册的 `upload:get-paths` / `upload:set-paths` 不一致，
+  调用必然失败，路径框只显示"（使用默认路径）"占位符。已对齐通道名，`upload:get-paths`
+  返回"当前实际生效路径 + 平台默认路径"，界面回显完整路径、标记"默认"状态并支持恢复默认；
+  新增 `shell:open-path`（目录不存在时先创建）与每个类别的一键打开入口
+  （`apps/desktop/src/preload/index.ts`、`ipc/messages.ts`、`ipc/system.ts`、
+  `renderer/settings/FileHandlingSettings.tsx`、`SettingsShell.tsx`）
+- 移除 preload 中签名不存在的 `getRelayUrl`（通道 `relay:get-url` 无处理程序、无调用方），
+  修复 `setupAutoUpdater` 重复导入，恢复 `ws-client/client.ts` 被覆盖的事件 API
+  （`on`/`onBinary`/`sendRaw`/`getBufferedAmount`），全局 `uncaughtException` 处理统一由
+  `logger.ts` 负责
+
+### Tests
+
+- 新增 `test/local-relay-probe.test.ts`（端口探测：复用/占用/空闲/并发）、
+  `test/logs-security.test.ts`（401 轮换重试与友好提示）、
+  `test/updater-errors.test.ts`（错误脱敏）、
+  `test/upload-paths-ipc.test.ts`（路径回显、打开目录、图标缓存）
+- 桌面端测试 86 → 109
+
 ## [2.0.0] - 2026-09-14
 
 ### V2 Transfer Engine — 统一传输模型与状态机
@@ -957,8 +999,6 @@ Fixes from the 2026-06-14 and 2026-06-27 comprehensive code reviews.
 
 ### Assets
 - App icon updated to rainbow bridge design (multi-size ICO: 16/32/48/64/128/256 px)
-
-## [Unreleased]
 
 ## [1.1.8] — 2026-06-22
 

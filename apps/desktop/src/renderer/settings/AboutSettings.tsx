@@ -33,14 +33,54 @@ function formatMB(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1);
 }
 
+// 图标在模块级缓存：进入"关于"页时 IPC 往返未完成前只能渲染兜底图标，
+// 若每次挂载都重新请求就会反复闪现兜底图标（旧标识）。首帧即取缓存值。
+let iconCache = '';
+let iconPromise: Promise<string> | null = null;
+
+function loadAppIcon(): Promise<string> {
+  if (iconCache) return Promise.resolve(iconCache);
+  // 预取发生在模块加载阶段，此时必须确认 preload 桥已就绪，否则会中断模块求值
+  const api = window.electronAPI;
+  if (typeof api?.getAppIcon !== 'function') return Promise.resolve('');
+  if (!iconPromise) {
+    iconPromise = api
+      .getAppIcon()
+      .then((url) => {
+        iconCache = url || '';
+        return iconCache;
+      })
+      .catch(() => '')
+      .finally(() => {
+        iconPromise = null;
+      });
+  }
+  return iconPromise;
+}
+
+// 设置页模块加载时即预取图标：等用户切到"关于"时缓存已就绪，首次进入也不会
+// 出现兜底标识闪现。
+void loadAppIcon();
+
+// 自动检查每个应用会话只触发一次：原先每次进入"关于"页都会发起检查，
+// 短时间内反复挂载会连续打印 "Checking for update (already in progress)"，
+// 既无意义又干扰日志。手动点击"检查更新"不受此限制。
+let autoCheckDone = false;
+
 export function AboutSettings({ sysInfo }: AboutSettingsProps) {
   const [status, setStatus] = useState<UpdateStatus>({ state: 'idle' });
-  const [iconUrl, setIconUrl] = useState('');
+  const [iconUrl, setIconUrl] = useState(iconCache);
 
   useEffect(() => {
     window.electronAPI.onUpdateStatus((s) => setStatus(s as UpdateStatus));
-    window.electronAPI.checkForUpdates().catch(() => {});
-    window.electronAPI.getAppIcon().then(setIconUrl).catch(() => {});
+    if (!autoCheckDone) {
+      autoCheckDone = true;
+      window.electronAPI.checkForUpdates().catch(() => {});
+    } else {
+      // 复用主进程已有状态，避免重复发起检查
+      window.electronAPI.getUpdateStatus().then((s) => setStatus(s as UpdateStatus)).catch(() => {});
+    }
+    loadAppIcon().then(setIconUrl);
     return () => {
       window.electronAPI.removeAllListeners('event:update-status');
     };

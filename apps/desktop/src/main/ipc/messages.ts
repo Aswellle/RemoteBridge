@@ -61,12 +61,15 @@ export function registerMessagesHandlers(): void {
     }
   });
 
-  // --- 获取文件上传保存路径（未配置时返回平台默认值） ---
+  // --- 获取文件上传保存路径 ---
+  // data.paths: 当前实际生效的完整路径（未配置时为平台默认值），设置页据此回显，
+  //             用户未自定义时也能看到真实落盘位置，而不是只看到"使用默认路径"占位符。
+  // data.defaults: 平台默认路径，用于判断哪些类别处于"默认"状态并提供一键恢复默认。
   ipcMain.handle('upload:get-paths', async () => {
     try {
       const stored = config.getUploadPaths();
-      const paths = stored ?? await getDefaultUploadPaths();
-      return { success: true, data: paths };
+      const defaults = await getDefaultUploadPaths();
+      return { success: true, data: { paths: stored ?? defaults, defaults } };
     } catch (error: any) {
       log.error('获取上传路径失败:', error);
       return { success: false, error: error.message };

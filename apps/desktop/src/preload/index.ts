@@ -26,7 +26,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disconnectRelay: () => ipcRenderer.invoke('auth:disconnect'),
   getRelayStatus: () => ipcRenderer.invoke('relay:get-status'),
   generatePin: (expiresIn: number) => ipcRenderer.invoke('auth:generate-pin', expiresIn),
-  getRelayUrl: () => ipcRenderer.invoke('relay:get-url') ?? '',
 
   // === 客户端 ===
   listClients: () => ipcRenderer.invoke('clients:list'),
@@ -49,8 +48,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
   getRelayLatency: () => ipcRenderer.invoke("settings:get-relay-latency"),
-  getUploadPaths: () => ipcRenderer.invoke('settings:get-upload-paths'),
-  setUploadPaths: (paths: unknown) => ipcRenderer.invoke('settings:set-upload-paths', paths),
+  // 通道名与主进程 messages.ts 中的 upload:* 处理器一致（未配置时返回平台默认路径）
+  getUploadPaths: () => ipcRenderer.invoke('upload:get-paths'),
+  setUploadPaths: (paths: unknown) => ipcRenderer.invoke('upload:set-paths', paths),
 
   // === 本地中继 ===
   localRelayStart: (port?: number) => ipcRenderer.invoke('relay-local:start', port),
@@ -72,6 +72,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // === 外部链接（系统浏览器打开） ===
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+
+  // === 在系统文件管理器中打开目录 ===
+  openPath: (target: string) => ipcRenderer.invoke('shell:open-path', target),
 
   // === 事件监听（push 通道） ===
   onConnectionStatus: (callback: (data: unknown) => void) => {
@@ -173,7 +176,6 @@ export interface ElectronAPI {
   disconnectRelay: () => Promise<{ success: boolean }>;
   getRelayStatus: () => Promise<{ connected: boolean }>;
   generatePin: (expiresIn: number) => Promise<{ success: boolean; data?: { pin: string; expiresAt: number }; error?: string }>;
-  getRelayUrl: () => Promise<string>;
   listClients: () => Promise<Array<{
     clientId: string;
     sessionId: string | null;
@@ -221,7 +223,11 @@ export interface ElectronAPI {
     reconnectError?: string;
   }>;
   getRelayLatency: () => Promise<number>;
-  getUploadPaths: () => Promise<{ success: boolean; data?: UploadPaths; error?: string }>;
+  getUploadPaths: () => Promise<{
+    success: boolean;
+    error?: string;
+    data?: { paths: UploadPaths; defaults: UploadPaths };
+  }>;
   setUploadPaths: (paths: UploadPaths) => Promise<{ success: boolean; error?: string }>;
   localRelayStart: (port?: number) => Promise<{ success: boolean; error?: string }>;
   localRelayStop: () => Promise<void>;
@@ -234,6 +240,7 @@ export interface ElectronAPI {
   installUpdate: () => Promise<void>;
   onUpdateStatus: (callback: (status: UpdateStatus) => void) => void;
   openExternal: (url: string) => Promise<void>;
+  openPath: (target: string) => Promise<{ success: boolean; error?: string }>;
   onConnectionStatus: (callback: (data: { status: string; error?: string }) => void) => void;
   onClientJoined: (callback: (data: any) => void) => void;
   onClientLeft: (callback: (data: any) => void) => void;

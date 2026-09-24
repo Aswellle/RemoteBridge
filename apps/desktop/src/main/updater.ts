@@ -20,14 +20,47 @@ export type UpdateStatus =
 
 let currentStatus: UpdateStatus = { state: 'idle' };
 
+/**
+ * 将 electron-updater 的原始错误转成用户可读提示。
+ *
+ * electron-updater 抛出的 message 常含内部细节（GitHub API URL、HTTP 状态行、
+ * 响应体片段、`net::ERR_*` 之类的 Chromium 错误码）。这些既无助于用户排查，
+ * 也可能泄露内部地址，因此统一按错误类别映射为固定文案，绝不透传原始行。
+ */
 function sanitizeUpdaterError(err: Error): string {
-  const msg = err.message ?? '';
-  if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|network/i.test(msg)) return '网络连接失败，请检查网络后重试';
-  if (/404/.test(msg)) return '未找到更新资源，请检查发布配置';
-  if (/403|401/.test(msg)) return '访问更新服务器被拒绝';
-  // 取第一行，最多 80 字符，避免 HTTP 响应体泄露
-  const firstLine = msg.split('\n')[0].trim().slice(0, 80);
-  return firstLine || '检查更新失败';
+  const msg = err?.message ?? '';
+  const code = (err as NodeJS.ErrnoException)?.code ?? '';
+
+  // DNS / 网络不可达 / 代理 / 连接中断
+  if (
+    /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH/i.test(msg) ||
+    /net::ERR_|ERR_INTERNET_DISCONNECTED|ERR_NAME_NOT_RESOLVED|ERR_CONNECTION_|ERR_PROXY|ERR_TIMED_OUT|ERR_ADDRESS_UNREACHABLE|ERR_CERT/i.test(msg) ||
+    /socket hang up|getaddrinfo|network error|unable to resolve|timed? ?out/i.test(msg) ||
+    ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(code)
+  ) {
+    return '网络连接失败，无法访问更新服务器，请检查网络后重试';
+  }
+  // 更新服务器拒绝 / 未发布
+  if (/\b401\b|\b403\b/i.test(msg) || /unauthorized|forbidden/i.test(msg)) {
+    return '更新服务器拒绝了本次请求，请稍后重试';
+  }
+  if (/\b404\b/i.test(msg) || /not found|no published versions|no releases/i.test(msg)) {
+    return '未找到可用的更新发布，请确认发布配置';
+  }
+  if (/\b5\d\d\b/i.test(msg) || /server error|bad gateway|service unavailable/i.test(msg)) {
+    return '更新服务器暂时不可用，请稍后重试';
+  }
+  // 本地文件/配置问题（如 dev-app-update.yml 缺失、安装包写入失败）
+  if (/ENOENT|EACCES|EPERM|EBUSY/i.test(msg) || ['ENOENT', 'EACCES', 'EPERM', 'EBUSY'].includes(code)) {
+    return '更新程序读写本地文件失败，请检查文件权限';
+  }
+  if (/checksum|sha512|signature/i.test(msg) && /invalid|mismatch|fail/i.test(msg)) {
+    return '更新包校验失败，请重新下载';
+  }
+  if (/\bmissing\b|\brequired\b/i.test(msg) && /provider|publish|config|channel/i.test(msg)) {
+    return '更新配置不完整，请检查发布配置';
+  }
+  return '检查更新失败，请稍后重试';
 }
 
 function broadcast(getWin: () => BrowserWindow | null, status: UpdateStatus): void {

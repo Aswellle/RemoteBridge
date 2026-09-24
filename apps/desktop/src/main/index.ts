@@ -12,6 +12,8 @@ import { config } from './config/store';
 import db, { initDatabase } from './db/client';
 import axios from 'axios';
 import log from './logger';
+// 全局 uncaughtException 处理统一由 logger.ts 负责（EPIPE 静默忽略、其余写入日志），
+// 此处不再重复注册：多个 handler 会互相覆盖，且在此 re-throw 会让主进程无痕退出。
 
 // IPC 模块
 import { setupAutoUpdater } from './updater';
@@ -72,10 +74,16 @@ app.whenReady().then(async () => {
   registerIpcHandlers();
 
   // 首次启动或版本升级（且 autoStart 未开）：自动运行本地中继，确保用户能看到引导流程
+  // startLocalRelay 会先探测端口：若已有 Relay 在监听（如开发模式下由 pnpm dev 启动的
+  // 中继），则直接复用而不启动第二个实例，避免同端口双绑定导致请求落到不同数据库。
   const _currentVer = app.getVersion();
   if (!config.getFirstLaunchDone() ||
       (!config.getLocalRelayAutoStart() && config.getLastLaunchVersion() !== _currentVer)) {
-    startLocalRelay(config.getLocalRelayPort());
+    startLocalRelay(config.getLocalRelayPort())
+      .then((res) => {
+        if (!res.success) log.warn('本地中继启动未成功:', res.error);
+      })
+      .catch((err) => log.error('本地中继启动异常:', err));
   }
 
   // 启动时自动注册/连接 Relay（复用持久化身份；失败不阻塞启动，UI 可手动重试）

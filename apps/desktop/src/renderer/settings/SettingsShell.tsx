@@ -64,6 +64,8 @@ export default function SettingsShell() {
   const [uploadPaths, setUploadPaths] = useState<UploadPaths>({
     images: '', videos: '', documents: '', archives: '', markdown: '',
   });
+  // 平台默认路径：用于在界面上标记"默认"状态并提供一键恢复默认
+  const [uploadPathDefaults, setUploadPathDefaults] = useState<UploadPaths | null>(null);
   const [isSavingPaths, setIsSavingPaths] = useState(false);
   const [pathsSaveStatus, setPathsSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -96,12 +98,15 @@ export default function SettingsShell() {
     load();
   }, []);
 
-  // ── 加载上传路径 ──
+  // ── 加载上传路径（含平台默认值，用于回显真实落盘路径） ──
   useEffect(() => {
     async function load() {
       try {
         const result = await window.electronAPI.getUploadPaths();
-        if (result.success && result.data) setUploadPaths(result.data);
+        if (result.success && result.data) {
+          setUploadPaths(result.data.paths);
+          setUploadPathDefaults(result.data.defaults);
+        }
       } catch {}
     }
     load();
@@ -220,19 +225,49 @@ export default function SettingsShell() {
     if (dir) setUploadPaths((prev) => ({ ...prev, [category]: dir }));
   }, []);
 
+  // ── 在文件管理器中打开该类别的保存目录 ──
+  const handleOpenUploadPath = useCallback(
+    async (category: keyof UploadPaths) => {
+      // 输入框为空时回落到平台默认路径，保证按钮始终指向真实目录
+      const target = uploadPaths[category] || uploadPathDefaults?.[category];
+      if (!target) return;
+      await window.electronAPI.openPath(target);
+    },
+    [uploadPaths, uploadPathDefaults],
+  );
+
+  // ── 单个类别恢复为平台默认路径 ──
+  const handleResetUploadPath = useCallback(
+    (category: keyof UploadPaths) => {
+      if (!uploadPathDefaults) return;
+      setUploadPaths((prev) => ({ ...prev, [category]: uploadPathDefaults[category] }));
+    },
+    [uploadPathDefaults],
+  );
+
   const handleSaveUploadPaths = useCallback(async () => {
     setIsSavingPaths(true);
     setPathsSaveStatus('idle');
     try {
-      const result = await window.electronAPI.setUploadPaths(uploadPaths);
+      // 空输入回落到平台默认路径，避免把空字符串写进配置导致后续落盘失败
+      const normalized = { ...uploadPaths };
+      if (uploadPathDefaults) {
+        (Object.keys(normalized) as (keyof UploadPaths)[]).forEach((cat) => {
+          if (!normalized[cat]?.trim()) normalized[cat] = uploadPathDefaults[cat];
+        });
+      }
+      const result = await window.electronAPI.setUploadPaths(normalized);
       setPathsSaveStatus(result.success ? 'success' : 'error');
-      if (result.success) setTimeout(() => setPathsSaveStatus('idle'), 3000);
+      if (result.success) {
+        setUploadPaths(normalized);
+        setTimeout(() => setPathsSaveStatus('idle'), 3000);
+      }
     } catch {
       setPathsSaveStatus('error');
     } finally {
       setIsSavingPaths(false);
     }
-  }, [uploadPaths]);
+  }, [uploadPaths, uploadPathDefaults]);
 
   // ── 本地 Relay 操作 ──
   const handleLrStart = useCallback(async () => {
@@ -355,8 +390,11 @@ export default function SettingsShell() {
           {activeSection === 'fileHandling' && (
             <FileHandlingSettings
               paths={uploadPaths}
+              defaults={uploadPathDefaults}
               onPathsChange={setUploadPaths}
               onSelectPath={handleSelectPath}
+              onOpenPath={handleOpenUploadPath}
+              onResetPath={handleResetUploadPath}
               isSaving={isSavingPaths}
               saveStatus={pathsSaveStatus}
               onSave={handleSaveUploadPaths}

@@ -69,11 +69,20 @@ function encryptField(value: string): string {
 }
 
 function decryptField(value: string): string {
-  if (value.startsWith(ENCRYPTED_PREFIX)) {
+  if (!value.startsWith(ENCRYPTED_PREFIX)) {
+    return value; // 兼容旧版明文或加密不可用时的回退
+  }
+  // 加密可用性可能在运行期变化（如密钥链尚未解锁）：此时 decryptString 会抛错。
+  // 读取凭证是热路径，不能在系统密钥链不可用时把整个调用链带崩，故降级为空值。
+  if (!safeStorage.isEncryptionAvailable()) {
+    return '';
+  }
+  try {
     const buf = Buffer.from(value.slice(ENCRYPTED_PREFIX.length), 'base64');
     return safeStorage.decryptString(buf);
+  } catch {
+    return '';
   }
-  return value; // 兼容旧版明文或加密不可用时的回退
 }
 
 // ===== 创建配置存储实例 =====

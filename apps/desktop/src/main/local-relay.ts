@@ -16,6 +16,8 @@ let relayProc: EUtilityProcess | ChildProcess | null = null;
 let currentStatus: LocalRelayStatus = 'stopped';
 let currentPort = 3002;
 let lastError = '';
+// 端口探测是异步的：探测期间的重复调用必须被拒绝，否则会并发拉起两个子进程
+let starting = false;
 const logLines: string[] = [];
 const MAX_LOGS = 200;
 let healthPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -65,6 +67,65 @@ function stopHealthPoll(): void {
   if (healthPollTimer) { clearInterval(healthPollTimer); healthPollTimer = null; }
 }
 
+// ===== 端口占用探测 =====
+type PortProbe = 'free' | 'relay' | 'occupied';
+
+/**
+ * 探测 127.0.0.1:<port> 是否已被占用。
+ *
+ * 必要性（Windows 双重绑定陷阱）：已有 Relay 监听 0.0.0.0:3002 时，再以
+ * RELAY_HOST=127.0.0.1 启动一个本地 Relay 仍能成功绑定——Windows 允许具体地址
+ * 与通配地址并存，并且**回环流量优先走具体地址**。结果：桌面端 HTTP/WS 请求全部
+ * 落到这个"影子"Relay 上，而它与开发/外部 Relay 使用不同的 JWT 密钥与数据库，
+ * 于是所有需要 Host token 的请求（如安全审计日志）稳定 401，且数据来自另一个库。
+ *
+ * 因此启动前必须先探测：端口已被 Relay 占用则直接复用（不启动第二个实例），
+ * 被其他程序占用则明确报错提示更换端口，避免静默产生影子实例。
+ */
+function probePort(port: number, timeoutMs = 1000): Promise<PortProbe> {
+  const { promise, resolve } = Promise.withResolvers<PortProbe>();
+  // 单次 settle：error/timeout/end 可能先后触发，只认第一个结果
+  let settled = false;
+  const settle = (r: PortProbe) => {
+    if (settled) return;
+    settled = true;
+    resolve(r);
+  };
+
+  const req = http.get(`http://127.0.0.1:${port}/health`, { timeout: timeoutMs }, (res) => {
+    const chunks: Buffer[] = [];
+    res.on('data', (c: Buffer) => chunks.push(c));
+    res.on('end', () => {
+      // 仅当响应形如 Relay 的 /health（含 status 字段）才认定为 Relay，
+      // 否则视为被其他程序占用，避免误把任意 HTTP 服务当作可复用中继
+      try {
+        const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+        settle(parsed && typeof parsed === 'object' && 'status' in parsed ? 'relay' : 'occupied');
+      } catch {
+        settle('occupied');
+      }
+    });
+  });
+  req.on('error', (err: NodeJS.ErrnoException) => {
+    req.destroy();
+    settle(err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' ? 'free' : 'occupied');
+  });
+  req.on('timeout', () => {
+    req.destroy();
+    settle('occupied');
+  });
+
+  return promise;
+}
+
+/** 复用已存在的 Relay：接管状态但不持有子进程，停止时不影响外部实例 */
+function adoptExternalRelay(port: number): { success: boolean; error?: string } {
+  currentPort = port;
+  pushLog(`[本地 Relay] 检测到 127.0.0.1:${port} 已有 Relay 在运行，复用现有实例（不启动第二个进程）`);
+  setStatus('running');
+  return { success: true };
+}
+
 function startHealthPoll(port: number): void {
   stopHealthPoll();
   let attempts = 0;
@@ -110,9 +171,41 @@ export function onRelayReady(cb: () => void): void {
   relayReadyCallbacks.push(cb);
 }
 
-export function startLocalRelay(port = 3002): { success: boolean; error?: string } {
-  if (relayProc !== null) return { success: false, error: '本地 Relay 已在运行' };
+/**
+ * 探测端口，dev 模式下额外复核一次。
+ *
+ * `pnpm dev` 会并发启动 dev Relay 与 Electron；Electron 主进程到达自动启动分支时
+ * dev Relay 通常已监听，但存在竞态。首次探测到空闲时短暂等待后复核，避免在
+ * dev Relay 尚未绑定成功时抢先拉起内部实例（一旦内部实例先绑定 127.0.0.1，
+ * 后续所有回环请求都会落到它上面）。
+ * 打包运行时不存在并发启动的外部 Relay，无需复核。
+ */
+async function probePortWithGrace(port: number): Promise<PortProbe> {
+  const first = await probePort(port);
+  if (first !== 'free' || app.isPackaged) return first;
+  await new Promise((r) => setTimeout(r, 1500));
+  return probePort(port);
+}
 
+export function startLocalRelay(port = 3002): Promise<{ success: boolean; error?: string }> {
+  if (starting) return Promise.resolve({ success: false, error: '本地 Relay 正在启动中' });
+  if (relayProc !== null) return Promise.resolve({ success: false, error: '本地 Relay 已在运行' });
+  starting = true;
+  return probePortWithGrace(port).then((probe) => {
+    starting = false;
+    if (probe === 'relay') return adoptExternalRelay(port);
+    if (probe === 'occupied') {
+      const msg = `端口 ${port} 已被其他程序占用，请在"本地中继"中更换端口`;
+      pushLog(`[本地 Relay] ${msg}`);
+      setStatus('error', msg);
+      return { success: false, error: msg };
+    }
+    return spawnLocalRelay(port);
+  });
+}
+
+/** 端口空闲时才真正拉起子进程 */
+function spawnLocalRelay(port: number): { success: boolean; error?: string } {
   const entry = getEntryPath();
   if (!fs.existsSync(entry)) {
     const msg = app.isPackaged

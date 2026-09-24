@@ -271,6 +271,11 @@ export class RelayClient {
     }
   }
 
+  // ===== 获取配置（供 logs 等模块在解密异常时回退读取内存中的 token） =====
+  getConfig(): Readonly<RelayClientConfig> {
+    return this.config;
+  }
+
   // ===== 获取平均 RTT =====
   getAverageRtt(): number {
     if (this.rttSamples.length === 0) return 0;
