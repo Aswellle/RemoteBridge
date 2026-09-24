@@ -248,7 +248,7 @@ export function registerLocalRelayHandlers(getMainWindow: () => BrowserWindow | 
     stopLocalRelay();
   });
 
-  ipcMain.handle('relay-local:state', () => getLocalRelayState());
+  ipcMain.handle('relay-local:get-state', () => getLocalRelayState());
 
   ipcMain.handle('relay-local:get-config', () => ({
     port: config.getLocalRelayPort(),
