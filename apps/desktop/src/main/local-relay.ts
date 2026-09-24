@@ -83,14 +83,18 @@ type PortProbe = 'free' | 'relay' | 'occupied';
  * 被其他程序占用则明确报错提示更换端口，避免静默产生影子实例。
  */
 function probePort(port: number, timeoutMs = 1000): Promise<PortProbe> {
-  const { promise, resolve } = Promise.withResolvers<PortProbe>();
-  // 单次 settle：error/timeout/end 可能先后触发，只认第一个结果
-  let settled = false;
-  const settle = (r: PortProbe) => {
-    if (settled) return;
-    settled = true;
-    resolve(r);
-  };
+  // 不用 Promise.withResolvers：该 API 需要 Node ≥22 / V8 ≥12.4，而本仓库
+  // engines 声明 >=20，CI 在 Node 20 上运行（曾因此 4 个用例全挂）。
+  let settle!: (r: PortProbe) => void;
+  const promise = new Promise<PortProbe>((resolve) => {
+    // 单次 settle：error/timeout/end 可能先后触发，只认第一个结果
+    let settled = false;
+    settle = (r: PortProbe) => {
+      if (settled) return;
+      settled = true;
+      resolve(r);
+    };
+  });
 
   const req = http.get(`http://127.0.0.1:${port}/health`, { timeout: timeoutMs }, (res) => {
     const chunks: Buffer[] = [];
@@ -191,17 +195,22 @@ export function startLocalRelay(port = 3002): Promise<{ success: boolean; error?
   if (starting) return Promise.resolve({ success: false, error: '本地 Relay 正在启动中' });
   if (relayProc !== null) return Promise.resolve({ success: false, error: '本地 Relay 已在运行' });
   starting = true;
-  return probePortWithGrace(port).then((probe) => {
-    starting = false;
-    if (probe === 'relay') return adoptExternalRelay(port);
-    if (probe === 'occupied') {
-      const msg = `端口 ${port} 已被其他程序占用，请在"本地中继"中更换端口`;
-      pushLog(`[本地 Relay] ${msg}`);
-      setStatus('error', msg);
-      return { success: false, error: msg };
-    }
-    return spawnLocalRelay(port);
-  });
+  return probePortWithGrace(port)
+    .then((probe): { success: boolean; error?: string } => {
+      if (probe === 'relay') return adoptExternalRelay(port);
+      if (probe === 'occupied') {
+        const msg = `端口 ${port} 已被其他程序占用，请在"本地中继"中更换端口`;
+        pushLog(`[本地 Relay] ${msg}`);
+        setStatus('error', msg);
+        return { success: false, error: msg };
+      }
+      return spawnLocalRelay(port);
+    })
+    .finally(() => {
+      // 放在 finally：探测阶段若抛异常（如依赖的 API 在当前 Node 版本不存在），
+      // 也必须释放 starting，否则后续所有启动请求都会被"正在启动中"永久挡掉
+      starting = false;
+    });
 }
 
 /** 端口空闲时才真正拉起子进程 */
