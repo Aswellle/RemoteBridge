@@ -8,7 +8,34 @@ This file starts tracking changes from the 2026-06 comprehensive code review
 
 ## [Unreleased]
 
+### Added
+
+- **客户端版本上报链路**：Web 端在 WS 握手时通过 `&ver=` 上报自身版本（构建时由
+  `next.config.mjs` 从 package.json 注入），Relay 校验后记录在内存连接注册表并在
+  `GET /hosts/:hostId/clients` 返回，Host 端据此展示 Web 端版本。不落库（无需迁移），
+  客户端断开即失效；严格校验字符集与长度，非法值一律视为未上报
+  （`apps/web/src/lib/env.ts`、`hooks/useWebSocket.ts`、`apps/server/src/ws/handler.ts`、
+  `ws/connection-registry.ts`、`routes/hosts.ts`、`packages/shared/src/api-types.ts`）
+- 新增 `relay:get-server-info` IPC：读中继 `/health` 获取服务端版本（主进程 60s 缓存），
+  供桌面端展示"服务器"版本
+- 新增 `DataList` / `DataRow` UI 原语：只读「标签 + 值」信息列表（`dl/dt/dd` 语义、
+  数值 `tabular-nums`、长值 truncate + title 兜底）
+
+### Changed
+
+- **连接状态面板视觉升级**：原先 6 个同类样式的格子平铺，改为按重要度分组
+  （连接 → 客户端 → 版本 → 本机），分组间距 24px / 组内 8px（≥2× 对比）；
+  桌面宽度下 2 列排布（标签与值的水平距离由约 740px 收敛到列宽内），
+  窄窗口自动回落单列。标签 12px 次级色、值 14px 中等字重、补充说明 12px；
+  主机名/版本号用等宽字体，延迟与会话数用 tabular-nums 避免刷新跳动；
+  状态指示统一改用 `StatusDot` 原语；断开/重试按钮改为可见描边样式
+- **版本区块**：显示桌面端 / 服务器 / Web 端三个版本（不再显示 Electron/Node 等
+  框架与运行时版本），不可达或暂无连接时以 `—` + 说明降级展示
+- **侧栏底部系统信息**：改为浅面板承载（以背景形状而非分割线与导航区分离），
+  标签左、值右对齐，长主机名截断并保留 `title` 完整值
+
 ### Fixed
+
 
 - **CI 在 Node 20 下失败**：`local-relay.ts` 的端口探测使用了 `Promise.withResolvers`，
   该 API 需要 Node ≥22（V8 ≥12.4），而仓库 `engines` 为 `>=20`、CI 使用 `node-version: 20`，

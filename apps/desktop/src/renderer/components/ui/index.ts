@@ -22,3 +22,5 @@ export type { SettingRowProps } from './SettingRow';
 export { Divider } from './Divider';
 export { EmptyState } from './EmptyState';
 export type { EmptyStateProps } from './EmptyState';
+export { DataList, DataRow } from './DataList';
+export type { DataListProps, DataRowProps } from './DataList';

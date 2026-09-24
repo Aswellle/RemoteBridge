@@ -26,7 +26,7 @@ import SecurityLogs from './pages/SecurityLogs';
 import MessagesPage from './pages/Messages';
 import ClientsPage from './pages/Clients';
 import SettingsPage from './pages/Settings';
-import { showToast, ToastContainer } from './components/ui';
+import { showToast, ToastContainer, DataList, DataRow, StatusDot } from './components/ui';
 
 declare global {
   interface Window {
@@ -224,6 +224,10 @@ export default function App() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' });
   // 用户手动关闭过的更新版本号：同一版本不再弹横幅，出现更新的版本时重新提示
   const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
+  // 中继服务端信息（版本/实例 ID）：来自 /health，主进程内 60s 缓存
+  const [relayInfo, setRelayInfo] = useState<{ reachable: boolean; version?: string; instanceId?: string; error?: string }>(
+    { reachable: true },
+  );
   const [lrStatus, setLrStatus] = useState<'stopped' | 'starting' | 'running' | 'error'>('stopped');
   const [showFirstLaunchModal, setShowFirstLaunchModal] = useState(false);
 
@@ -356,6 +360,12 @@ export default function App() {
       window.electronAPI.removeAllListeners('event:new-message');
     };
   }, []);
+
+  // 中继服务端信息（版本）：连接状态变化时刷新，未连接时也拉一次以区分
+  // "中继未启动"与"已启动但主机未连接"（/health 是公开端点）
+  useEffect(() => {
+    window.electronAPI.getRelayServerInfo?.().then(setRelayInfo).catch(() => {});
+  }, [connectionStatus]);
 
   // 轮询延迟
   useEffect(() => {
@@ -537,6 +547,11 @@ export default function App() {
     }
   };
 
+  // 在线客户端与 Web 端版本：版本由客户端握手时上报，仅在线期间可知
+  const onlineClients = clients.filter((c: any) => c.online);
+  const onlineClientCount = onlineClients.length;
+  const webVersion: string | undefined = onlineClients.find((c: any) => c.version)?.version;
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
       <div className="sr-only" aria-live="polite" aria-atomic="true" role="status">
@@ -613,7 +628,8 @@ export default function App() {
           )}
         </nav>
 
-        {/* 底部系统信息 */}
+        {/* 底部系统信息：以浅面板与导航区分离（背景形状优先于分割线），
+            两行分别为「本机 + 主机名」与「系统」，长主机名截断并保留完整值可达 */}
         <div className="p-4 pt-3">
           {isLoading ? (
             <div className="space-y-2">
@@ -621,18 +637,37 @@ export default function App() {
               <Skeleton className="h-3 w-1/2" />
             </div>
           ) : (
-            <div className="text-xs text-muted-foreground space-y-1">
-              <div className="flex items-center gap-1.5">
-                <ArrowRight className="w-3 h-3" aria-hidden="true" />
-                <span className="font-mono">{systemInfo?.hostname || '-'}</span>
+            <div className="rounded-sm bg-surface-raised/60 px-3 py-2.5">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <ArrowRight className="size-3 flex-shrink-0" aria-hidden="true" />
+                <span className="flex-shrink-0">本机</span>
+                <span
+                  className="min-w-0 flex-1 truncate text-right font-mono text-[11px] text-foreground"
+                  title={systemInfo?.hostname || undefined}
+                >
+                  {systemInfo?.hostname || '—'}
+                </span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <Monitor className="w-3 h-3" aria-hidden="true" />
-                <span>{systemInfo ? `${getPlatformName(systemInfo.platform)} ${systemInfo.arch}` : '-'}</span>
+              <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
+                <Monitor className="size-3 flex-shrink-0" aria-hidden="true" />
+                <span className="flex-shrink-0">系统</span>
+                <span
+                  className="min-w-0 flex-1 truncate text-right text-foreground"
+                  title={
+                    systemInfo
+                      ? `${getPlatformName(systemInfo.platform)} ${systemInfo.arch}`
+                      : undefined
+                  }
+                >
+                  {systemInfo
+                    ? `${getPlatformName(systemInfo.platform)} ${systemInfo.arch}`
+                    : '—'}
+                </span>
               </div>
             </div>
           )}
         </div>
+
       </aside>
 
       <main className="flex-1 overflow-auto bg-surface-canvas">
@@ -658,86 +693,149 @@ export default function App() {
               </div>
             ) : (
               <>
-                {/* 系统信息卡片 */}
-                <div className="bg-surface-raised rounded-xl p-6 mb-6 shadow-sm shadow-black/5 dark:shadow-none">
-                  <div className="grid grid-cols-2 gap-6">
-                    <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">主机名</span>
-                      <p className="mt-1 font-mono text-sm">{systemInfo?.hostname || '-'}</p>
-                    </div>
-                    <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">系统</span>
-                      <p className="mt-1 text-sm">
-                        {systemInfo
-                          ? `${systemInfo.osVersion || getPlatformName(systemInfo.platform)} (${systemInfo.arch})`
-                          : '-'}
-                      </p>
-                      {systemInfo?.release && (
-                        <p className="mt-0.5 text-xs text-muted-foreground font-mono">内核 {systemInfo.release}</p>
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">Relay 连接</span>
-                      <div className="mt-1 flex items-center gap-2">
-                        {/* 状态指示灯 */}
-                        <div className={'w-2.5 h-2.5 rounded-full ' + (connectionStatus === 'connected' ? 'bg-success shadow shadow-success/50' : connectionStatus === 'connecting' ? 'bg-warning shadow shadow-warning/50' : connectionStatus === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40') + ' ' + (connectionStatus === 'connected' || connectionStatus === 'connecting' ? 'animate-pulse' : '')} />
-                        <span className={`text-sm ${
-                          connectionStatus === 'connected' ? 'text-success' :
-                          connectionStatus === 'connecting' ? 'text-warning' :
-                          connectionStatus === 'error' ? 'text-destructive' :
-                          'text-muted-foreground'
-                        }`}>
-                          {connectionStatus === 'connected' ? '已连接' :
-                           connectionStatus === 'connecting' ? '连接中...' :
-                           connectionStatus === 'error' ? '连接失败' : '未连接'}
-                        </span>
-                        {connectionStatus === 'connected' && (
-                          <span className="text-xs text-muted-foreground font-mono">
-                            延迟 {latency > 0 ? `${latency}ms` : '<1ms'}
+                {/* 状态总览：按重要度分组（连接 → 客户端 → 版本 → 本机）。
+                    分组之间用间距（mt-6）而非分割线承担层级，组内 8px，
+                    满足"组间距 ≥ 2× 组内间距"的阅读分组规则。 */}
+                <div className="bg-surface-raised rounded-xl p-6 mb-6 shadow-sm shadow-black/5">
+                  {/* 四组信息排成 2 列：单列占满宽度时标签与值相距逾 700px，
+                      视线往返成本高；窄窗口自动回落单列（断点由内容宽度决定） */}
+                  <div className="grid gap-x-10 gap-y-6 md:grid-cols-2">
+                  {/* ── 连接 ── */}
+                  <section>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      连接
+                    </h3>
+                    <DataList className="mt-3">
+                      <DataRow
+                        label="中继服务器"
+                        value={
+                          <StatusDot
+                            status={
+                              connectionStatus === 'connected'
+                                ? 'online'
+                                : connectionStatus === 'connecting'
+                                  ? 'connecting'
+                                  : connectionStatus === 'error'
+                                    ? 'error'
+                                    : 'offline'
+                            }
+                            label={
+                              connectionStatus === 'connected'
+                                ? '已连接'
+                                : connectionStatus === 'connecting'
+                                  ? '连接中'
+                                  : connectionStatus === 'error'
+                                    ? '连接失败'
+                                    : '未连接'
+                            }
+                          />
+                        }
+                        hint={
+                          connectionStatus === 'connected' ? (
+                            <span className="tabular-nums">
+                              延迟 {latency > 0 ? `${latency} ms` : '< 1 ms'}
+                            </span>
+                          ) : undefined
+                        }
+                      />
+                      <DataRow
+                        label="内置中继"
+                        value={
+                          <StatusDot
+                            status={
+                              lrStatus === 'running'
+                                ? 'online'
+                                : lrStatus === 'starting'
+                                  ? 'connecting'
+                                  : lrStatus === 'error'
+                                    ? 'error'
+                                    : 'offline'
+                            }
+                            label={
+                              lrStatus === 'running'
+                                ? '运行中'
+                                : lrStatus === 'starting'
+                                  ? '启动中'
+                                  : lrStatus === 'error'
+                                    ? '异常'
+                                    : connectionStatus === 'connected'
+                                      ? '未使用'
+                                      : '未运行'
+                            }
+                          />
+                        }
+                      />
+                    </DataList>
+                  </section>
+
+                  {/* ── 客户端 ── */}
+                  <section>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      客户端
+                    </h3>
+                    <DataList className="mt-3">
+                      <DataRow
+                        label="在线"
+                        value={
+                          <span className="tabular-nums">
+                            {onlineClientCount} 个
                           </span>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">内置中继</span>
-                      <div className="mt-1 flex items-center gap-2">
-                        <div className={'w-2.5 h-2.5 rounded-full ' + (lrStatus === 'running' ? 'bg-success shadow shadow-success/50' : lrStatus === 'starting' ? 'bg-warning shadow shadow-warning/50' : lrStatus === 'error' ? 'bg-destructive' : 'bg-muted-foreground/40') + ' ' + (lrStatus === 'running' || lrStatus === 'starting' ? 'animate-pulse' : '')} />
-                        <span className={`text-sm ${
-                          lrStatus === 'running' ? 'text-success' :
-                          lrStatus === 'starting' ? 'text-warning' :
-                          lrStatus === 'error' ? 'text-destructive' :
-                          'text-muted-foreground'
-                        }`}>
-                          {lrStatus === 'running' ? '运行中' :
-                           lrStatus === 'starting' ? '启动中...' :
-                           lrStatus === 'error' ? '错误' :
-                           connectionStatus === 'connected' ? '未使用' : '未运行'}
-                        </span>
-                        <button
-                          onClick={() => setActiveTab('settings')}
-                          className="text-xs text-muted-foreground/60 hover:text-primary transition-colors"
-                          title="管理本地中继"
-                        >
-                          <Server className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">已连接客户端</span>
-                      <p className="mt-1 text-sm">
-                        {clients.filter((c: any) => c.online).length} 个在线
-                        <span className="text-xs text-muted-foreground"> / 共 {clients.length} 个会话</span>
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">软件版本</span>
-                      <p className="mt-1 text-sm">RemoteBridge v{systemInfo?.appVersion || '1.0.0'}</p>
-                      {systemInfo?.electronVersion && (
-                        <p className="mt-0.5 text-xs text-muted-foreground font-mono">
-                          Electron {systemInfo.electronVersion} · Node {systemInfo.nodeVersion}
-                        </p>
-                      )}
-                    </div>
+                        }
+                        hint={<span className="tabular-nums">共 {clients.length} 个会话</span>}
+                      />
+                    </DataList>
+                  </section>
+
+                  {/* ── 版本 ── */}
+                  <section>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      版本
+                    </h3>
+                    <DataList className="mt-3">
+                      {/* 桌面端版本恒可知；中继/Web 端在不可达或未连接时才给出降级文案 */}
+                      <DataRow
+                        label="桌面端"
+                        mono
+                        value={`v${systemInfo?.appVersion || '—'}`}
+                      />
+                      <DataRow
+                        label="服务器"
+                        mono
+                        value={relayInfo.version ? `v${relayInfo.version}` : '—'}
+                        hint={relayInfo.reachable === false ? '中继不可达' : undefined}
+                      />
+                      <DataRow
+                        label="Web 端"
+                        mono
+                        value={webVersion ? `v${webVersion}` : '—'}
+                        hint={webVersion ? undefined : '暂无 Web 端连接'}
+                      />
+                    </DataList>
+                  </section>
+
+                  {/* ── 本机 ── */}
+                  <section>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      本机
+                    </h3>
+                    <DataList className="mt-3">
+                      <DataRow
+                        label="主机名"
+                        mono
+                        value={systemInfo?.hostname || '—'}
+                        title={systemInfo?.hostname}
+                      />
+                      <DataRow
+                        label="系统"
+                        value={
+                          systemInfo
+                            ? `${getPlatformName(systemInfo.platform)} ${systemInfo.arch}`
+                            : '—'
+                        }
+                        hint={systemInfo?.osVersion || undefined}
+                      />
+                    </DataList>
+                  </section>
                   </div>
 
                   {/* 连接/断开按钮 */}
@@ -753,15 +851,15 @@ export default function App() {
                     {connectionStatus === 'connecting' && (
                       <button
                         disabled
-                        className="px-6 py-2.5 bg-warning/50 rounded-lg text-sm font-medium cursor-not-allowed"
+                        className="h-10 px-5 border border-border/60 bg-surface-raised rounded-sm text-sm font-medium text-muted-foreground"
                       >
-                        连接中...
+                        连接中…
                       </button>
                     )}
                     {connectionStatus === 'error' && (
                       <button
                         onClick={handleRegister}
-                        className="px-6 py-2.5 bg-destructive/20 hover:bg-destructive/40 text-danger-text rounded-lg transition-colors text-sm font-medium"
+                        className="h-10 px-5 border border-destructive/50 hover:border-destructive/70 hover:bg-surface-danger/15 text-danger-text rounded-sm transition-colors text-sm font-medium active:scale-[0.96]"
                       >
                         重试连接
                       </button>
@@ -769,7 +867,7 @@ export default function App() {
                     {connectionStatus === 'connected' && (
                       <button
                         onClick={handleDisconnect}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-destructive/20 hover:bg-destructive/40 text-danger-text rounded-lg transition-colors text-sm font-medium"
+                        className="flex h-10 items-center gap-2 px-5 border border-destructive/50 hover:border-destructive/70 hover:bg-surface-danger/15 text-danger-text rounded-sm transition-colors text-sm font-medium active:scale-[0.96]"
                       >
                         {Icons.disconnect}
                         断开连接
