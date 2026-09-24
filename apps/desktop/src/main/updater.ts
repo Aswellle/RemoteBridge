@@ -9,16 +9,19 @@ autoUpdater.autoDownload = false;         // 发现更新后由用户决定是�
 autoUpdater.autoInstallOnAppQuit = true;  // 下载完成后退出时自动安装
 
 // ===== 更新状态 =====
+// 只包含"用户可见/可操作"的状态：错误不进全局状态（见 setupAutoUpdater 注释），
+// 因此在类型层面就不可能出现"错误横幅"。
 export type UpdateStatus =
   | { state: 'idle' }
   | { state: 'checking' }
   | { state: 'available'; version: string; releaseNotes: string }
   | { state: 'not-available' }
-  | { state: 'downloading'; percent: number; bytesPerSecond: number; transferred: number; total: number }
-  | { state: 'downloaded'; version: string }
-  | { state: 'error'; message: string };
+  | { state: 'downloading'; version: string; percent: number; bytesPerSecond: number; transferred: number; total: number }
+  | { state: 'downloaded'; version: string };
 
 let currentStatus: UpdateStatus = { state: 'idle' };
+// 最近一次发现的新版本号：下载失败时用它把横幅退回"可下载"状态
+let lastAvailableVersion: string | null = null;
 
 /**
  * 将 electron-updater 的原始错误转成用户可读提示。
@@ -69,11 +72,13 @@ function broadcast(getWin: () => BrowserWindow | null, status: UpdateStatus): vo
 }
 
 // ===== 初始化自动更新 =====
-// 计数器替代布尔标志，避免并发手动检查时 finally 过早重置
-let manualCheckCount = 0;
+// 状态广播只承载"用户需要看到的结果"：发现新版本 / 下载进度 / 下载完成 / 已是最新。
+// 检查与下载的失败不再进入全局状态：历史上一次网络抖动（net::ERR_CONNECTION_CLOSED）
+// 会被广播成 error 并长期驻留在顶部横幅，遮挡正常业务操作。失败改为随 IPC 返回值
+// 交给调用方（"关于"页内联展示），顶部横幅只用于可升级的提示。
 export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): void {
   autoUpdater.on('checking-for-update', () => {
-    if (manualCheckCount > 0) broadcast(getMainWindow, { state: 'checking' });
+    log.info('正在检查更新…');
   });
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
@@ -81,6 +86,7 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
     const notes = Array.isArray(info.releaseNotes)
       ? info.releaseNotes.map((n) => (typeof n === 'string' ? n : n.note ?? '')).join('\n')
       : (info.releaseNotes as string | null) ?? '';
+    lastAvailableVersion = info.version;
     broadcast(getMainWindow, { state: 'available', version: info.version, releaseNotes: notes });
   });
 
@@ -91,6 +97,7 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
     broadcast(getMainWindow, {
       state: 'downloading',
+      version: lastAvailableVersion ?? '',
       percent: Math.round(progress.percent),
       bytesPerSecond: Math.round(progress.bytesPerSecond),
       transferred: progress.transferred,
@@ -104,32 +111,40 @@ export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null): voi
   });
 
   autoUpdater.on('error', (err: Error) => {
+    // 仅记录：错误不进入全局状态，避免横幅长期驻留
     log.error('自动更新错误:', err.message);
-    // 仅用户手动检查时才广播错误，避免启动时弹出干扰通知
-    if (manualCheckCount > 0) {
-      broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
+    // 下载中途失败时把状态退回"可下载"，否则横幅会停在进度条上无法再操作
+    if (currentStatus.state === 'downloading') {
+      broadcast(
+        getMainWindow,
+        lastAvailableVersion
+          ? { state: 'available', version: lastAvailableVersion, releaseNotes: '' }
+          : { state: 'idle' },
+      );
     }
   });
+
   ipcMain.handle('updater:get-status', () => currentStatus);
 
-  ipcMain.handle('updater:check', async () => {
+  // 手动检查：成功返回最终状态（供"关于"页展示有无新版本），失败返回可读错误，
+  // 两者都不改变顶部横幅的显示条件
+  ipcMain.handle('updater:check', async (): Promise<{ success: boolean; status?: UpdateStatus; error?: string }> => {
     try {
-      manualCheckCount++;
       await autoUpdater.checkForUpdates();
+      return { success: true, status: currentStatus };
     } catch (err: any) {
       log.error('检查更新失败:', err.message);
-      broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
-    } finally {
-      manualCheckCount = Math.max(0, manualCheckCount - 1);
+      return { success: false, error: sanitizeUpdaterError(err) };
     }
   });
 
-  ipcMain.handle('updater:download', async () => {
+  ipcMain.handle('updater:download', async (): Promise<{ success: boolean; error?: string }> => {
     try {
       await autoUpdater.downloadUpdate();
+      return { success: true };
     } catch (err: any) {
       log.error('下载更新失败:', err.message);
-      broadcast(getMainWindow, { state: 'error', message: sanitizeUpdaterError(err) });
+      return { success: false, error: sanitizeUpdaterError(err) };
     }
   });
 

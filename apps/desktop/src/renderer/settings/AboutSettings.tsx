@@ -62,33 +62,39 @@ function loadAppIcon(): Promise<string> {
 // 出现兜底标识闪现。
 void loadAppIcon();
 
-// 自动检查每个应用会话只触发一次：原先每次进入"关于"页都会发起检查，
-// 短时间内反复挂载会连续打印 "Checking for update (already in progress)"，
-// 既无意义又干扰日志。手动点击"检查更新"不受此限制。
-let autoCheckDone = false;
-
 export function AboutSettings({ sysInfo }: AboutSettingsProps) {
   const [status, setStatus] = useState<UpdateStatus>({ state: 'idle' });
   const [iconUrl, setIconUrl] = useState(iconCache);
+  // 手动检查的进行中状态与失败提示：只在本页内联展示，不进入全局横幅
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState('');
 
   useEffect(() => {
     window.electronAPI.onUpdateStatus((s) => setStatus(s as UpdateStatus));
-    if (!autoCheckDone) {
-      autoCheckDone = true;
-      window.electronAPI.checkForUpdates().catch(() => {});
-    } else {
-      // 复用主进程已有状态，避免重复发起检查
-      window.electronAPI.getUpdateStatus().then((s) => setStatus(s as UpdateStatus)).catch(() => {});
-    }
+    // 不在此处自动发起检查：自动检查只在应用启动时进行一次（主进程 setupAutoUpdater），
+    // 进入"关于"页只读取当前已知状态；用户可点"检查更新"主动核对。
+    window.electronAPI.getUpdateStatus().then((s) => setStatus(s as UpdateStatus)).catch(() => {});
     loadAppIcon().then(setIconUrl);
     return () => {
       window.electronAPI.removeAllListeners('event:update-status');
     };
   }, []);
 
-  const handleDownload = () => window.electronAPI.downloadUpdate().catch(() => {});
+  const handleDownload = async () => {
+    setCheckError('');
+    const res = await window.electronAPI.downloadUpdate().catch(() => null);
+    if (res && !res.success) setCheckError(res.error || '下载更新失败，请稍后重试');
+  };
   const handleInstall = () => window.electronAPI.installUpdate();
-  const handleRetry = () => window.electronAPI.checkForUpdates().catch(() => {});
+  const handleRetry = async () => {
+    setChecking(true);
+    setCheckError('');
+    const res = await window.electronAPI.checkForUpdates().catch(() => null);
+    if (!res) setCheckError('检查更新失败，请稍后重试');
+    else if (!res.success) setCheckError(res.error || '检查更新失败，请稍后重试');
+    else if (res.status) setStatus(res.status);
+    setChecking(false);
+  };
   const handleOpenGitHub = () => window.electronAPI.openExternal(GITHUB_REPO_URL);
   const handleOpenChangelog = () => window.electronAPI.openExternal(CHANGELOG_URL);
 
@@ -121,14 +127,22 @@ export function AboutSettings({ sysInfo }: AboutSettingsProps) {
             <div>
               <p className="text-lg font-semibold text-foreground">RemoteBridge</p>
               <p className="text-sm text-muted-foreground">桌面端 v{currentVersion}</p>
-              {status.state === 'not-available' && (
-                <p className="mt-0.5 text-xs text-success">已是最新版本</p>
-              )}
-              {status.state === 'checking' && (
+              {checking && (
                 <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" />
+                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
                   正在检查更新...
                 </p>
+              )}
+              {!checking && status.state === 'not-available' && (
+                <p className="mt-0.5 text-xs text-success">已是最新版本</p>
+              )}
+              {!checking && status.state === 'available' && (
+                <p className="mt-0.5 text-xs text-accent-text">
+                  发现新版本 v{status.version}
+                </p>
+              )}
+              {!checking && status.state === 'downloaded' && (
+                <p className="mt-0.5 text-xs text-success">v{status.version} 已下载，退出后自动安装</p>
               )}
             </div>
           </div>
@@ -175,27 +189,24 @@ export function AboutSettings({ sysInfo }: AboutSettingsProps) {
               </div>
             )}
 
-            {/* 错误：重试按钮留在右上操作区，错误正文单独成行展示（见下方横幅），
-                避免被右侧操作区挤压后截断到无法阅读 */}
-            {status.state === 'error' && (
-              <Button variant="secondary" onClick={handleRetry}>
-                <RefreshCw className="size-3.5" />
-                重试
-              </Button>
-            )}
-
-            {/* 空闲 / 最新 —— 突出的检查更新按钮 */}
+            {/* 检查更新按钮：空闲 / 已是最新 / 检查失败后都可再次手动核对；
+                检查期间禁用并显示进行中，避免重复触发 */}
             {(status.state === 'idle' || status.state === 'not-available') && (
-              <Button variant="primary" onClick={handleRetry}>
-                <RefreshCw className="size-3.5" />
-                检查更新
+              <Button variant="primary" onClick={handleRetry} disabled={checking}>
+                {checking ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
+                {checking ? '检查中…' : '检查更新'}
               </Button>
             )}
           </div>
         </div>
 
-        {/* 检查更新错误：整行展示完整文案（不截断），超长时才由 title 兜底悬浮查看 */}
-        {status.state === 'error' && (
+        {/* 检查/下载失败：整行展示完整文案（不截断），超长时才由 title 兜底悬浮查看。
+            只在"关于"页内联提示，不进入全局更新横幅，避免影响正常操作 */}
+        {checkError && (
           <div
             role="status"
             className="mt-4 flex items-start gap-2 rounded-sm bg-surface-danger/10 px-3 py-2.5 text-danger-text"
@@ -203,9 +214,9 @@ export function AboutSettings({ sysInfo }: AboutSettingsProps) {
             <AlertCircle className="mt-0.5 size-4 flex-shrink-0" aria-hidden="true" />
             <p
               className="min-w-0 flex-1 text-xs leading-relaxed break-words"
-              title={status.message}
+              title={checkError}
             >
-              {status.message}
+              {checkError}
             </p>
           </div>
         )}

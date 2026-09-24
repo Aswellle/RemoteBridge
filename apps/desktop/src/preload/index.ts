@@ -235,8 +235,9 @@ export interface ElectronAPI {
   localRelayGetConfig: () => Promise<{ port: number; autoStart: boolean }>;
   localRelaySetConfig: (cfg: { port?: number; autoStart?: boolean }) => Promise<void>;
   getUpdateStatus: () => Promise<UpdateStatus>;
-  checkForUpdates: () => Promise<void>;
-  downloadUpdate: () => Promise<void>;
+  // 检查/下载失败通过返回值告知调用方（在"关于"页内联展示），不再走全局状态广播
+  checkForUpdates: () => Promise<{ success: boolean; status?: UpdateStatus; error?: string }>;
+  downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
   installUpdate: () => Promise<void>;
   onUpdateStatus: (callback: (status: UpdateStatus) => void) => void;
   openExternal: (url: string) => Promise<void>;
@@ -257,6 +258,5 @@ export type UpdateStatus =
   | { state: 'checking' }
   | { state: 'available'; version: string; releaseNotes: string }
   | { state: 'not-available' }
-  | { state: 'downloading'; percent: number; bytesPerSecond: number; transferred: number; total: number }
-  | { state: 'downloaded'; version: string }
-  | { state: 'error'; message: string };
+  | { state: 'downloading'; version: string; percent: number; bytesPerSecond: number; transferred: number; total: number }
+  | { state: 'downloaded'; version: string };

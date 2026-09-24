@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Monitor,
   AlertCircle,
+  Download,
   X,
   Loader2,
   Server,
@@ -34,85 +35,98 @@ declare global {
 }
 
 // ===== 更新横幅 =====
+// 只承载"有新版可升级"这类需要用户动作的提示：发现新版本 / 下载中 / 已就绪。
+// 检查失败不再占用横幅（错误只在"关于"页内联展示）：一次网络抖动曾让横幅长期驻留
+// 并遮挡正常操作。横幅按版本号记忆关闭状态，关掉后同一版本不再弹出，出现更新的
+// 版本时重新提示。
 function UpdateBanner({
   status,
+  dismissedVersion,
   onDownload,
   onInstall,
   onDismiss,
 }: {
   status: UpdateStatus;
+  dismissedVersion: string | null;
   onDownload: () => void;
   onInstall: () => void;
-  onDismiss: () => void;
+  onDismiss: (version: string) => void;
 }) {
-  if (status.state === 'idle' || status.state === 'checking' || status.state === 'not-available') {
-    return null;
-  }
+  const closeButton = (version: string) => (
+    <button
+      onClick={() => onDismiss(version)}
+      title="关闭提示"
+      aria-label="关闭更新提示"
+      className="flex size-7 flex-shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
+    >
+      <X className="size-4" aria-hidden="true" />
+    </button>
+  );
 
-  if (status.state === 'available') {
+  if (status.state === 'available' && status.version !== dismissedVersion) {
     return (
-      <div className="flex items-center justify-between px-4 py-2 bg-primary/10 border-b border-primary/20 text-sm">
+      <div className="flex items-center gap-3 border-b border-accent-border/20 bg-accent-surface/10 px-4 py-2 text-sm">
+        <Download className="size-4 flex-shrink-0 text-accent-text" aria-hidden="true" />
         <span className="text-foreground">
-          发现新版本 <span className="font-semibold">v{status.version}</span>，可立即升级
+          发现新版本 <span className="font-semibold">v{status.version}</span>
         </span>
         <button
           onClick={onDownload}
-          className="ml-4 px-3 py-1 bg-primary hover:bg-primary/90 rounded text-xs font-medium transition-colors"
+          className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-sm bg-accent-solid px-3 text-xs font-medium text-primary-foreground transition-colors hover:brightness-110 active:scale-[0.96]"
         >
+          <Download className="size-3.5" aria-hidden="true" />
           下载更新
         </button>
+        {closeButton(status.version)}
       </div>
     );
   }
 
-  if (status.state === 'downloading') {
+  if (status.state === 'downloading' && status.version !== dismissedVersion) {
     return (
-      <div className="flex items-center gap-3 px-4 py-2 bg-primary/10 border-b border-primary/20 text-sm">
-        <span className="text-foreground whitespace-nowrap">正在下载更新…</span>
-        <div className="flex-1 bg-secondary rounded-full h-1.5 overflow-hidden">
+      <div className="flex items-center gap-3 border-b border-accent-border/20 bg-accent-surface/10 px-4 py-2 text-sm">
+        <span className="whitespace-nowrap text-foreground">
+          正在下载{status.version ? ` v${status.version}` : '更新'}…
+        </span>
+        <div
+          className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-subtle"
+          role="progressbar"
+          aria-valuenow={status.percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
           <div
-            className="h-full bg-primary transition-all duration-300"
-            style={{ width: `${status.percent}%` }}
+            className="h-full rounded-full bg-accent-solid transition-all duration-300"
+            style={{ width: `${Math.min(status.percent, 100)}%` }}
           />
         </div>
-        <span className="text-muted-foreground text-xs whitespace-nowrap">{status.percent}%</span>
+        <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+          {status.percent}%
+        </span>
+        {closeButton(status.version || 'downloading')}
       </div>
     );
   }
 
-  if (status.state === 'downloaded') {
+  if (status.state === 'downloaded' && status.version !== dismissedVersion) {
     return (
-      <div className="flex items-center justify-between px-4 py-2 bg-success/10 border-b border-success/20 text-sm">
+      <div className="flex items-center gap-3 border-b border-success/20 bg-success/10 px-4 py-2 text-sm">
+        <Check className="size-4 flex-shrink-0 text-success" aria-hidden="true" />
         <span className="text-foreground">
           v<span className="font-semibold">{status.version}</span> 已下载完毕，重启即可完成升级
         </span>
         <button
           onClick={onInstall}
-          className="ml-4 px-3 py-1 bg-success hover:bg-success/90 rounded text-xs font-medium transition-colors"
+          className="ml-auto inline-flex h-8 items-center rounded-sm bg-success px-3 text-xs font-medium text-success-foreground transition-colors hover:brightness-110 active:scale-[0.96]"
         >
           立即安装
         </button>
+        {closeButton(status.version)}
       </div>
     );
   }
 
-  if (status.state === 'error') {
-    return (
-      <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-sm">
-        <AlertCircle className="w-4 h-4 flex-shrink-0 text-danger-text" />
-        <span className="text-danger-text font-medium">检查更新失败</span>
-        <span className="text-muted-foreground truncate flex-1" title={status.message}>{status.message}</span>
-        <button
-          onClick={onDismiss}
-          title="关闭"
-          className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-    );
-  }
-
+  // idle / checking / not-available / error：不显示横幅
   return null;
 }
 
@@ -208,6 +222,8 @@ export default function App() {
   const [aliasValue, setAliasValue] = useState('');
   const [latency, setLatency] = useState(0);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: 'idle' });
+  // 用户手动关闭过的更新版本号：同一版本不再弹横幅，出现更新的版本时重新提示
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
   const [lrStatus, setLrStatus] = useState<'stopped' | 'starting' | 'running' | 'error'>('stopped');
   const [showFirstLaunchModal, setShowFirstLaunchModal] = useState(false);
 
@@ -530,9 +546,10 @@ export default function App() {
       </div>
       <UpdateBanner
         status={updateStatus}
+        dismissedVersion={dismissedUpdateVersion}
         onDownload={handleDownloadUpdate}
         onInstall={handleInstallUpdate}
-        onDismiss={() => setUpdateStatus({ state: 'idle' })}
+        onDismiss={setDismissedUpdateVersion}
       />
       <div className="flex flex-1 min-h-0">
       {/* 侧边栏 */}
