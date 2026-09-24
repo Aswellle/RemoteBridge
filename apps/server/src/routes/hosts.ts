@@ -3,7 +3,7 @@ import { db } from '../db/client';
 import { hosts, sessions } from '../db/schema';
 import { eq, and, isNull } from 'drizzle-orm';
 import { extractTokenFromHeader, verifyAccessToken, verifyHostToken } from '../utils/jwt';
-import { isHostOnline, isClientOnline } from '../ws/connection-registry';
+import { isHostOnline, isClientOnline, getClientVersion } from '../ws/connection-registry';
 import type { ApiResponse, HostInfo, ClientInfo, SessionInfo } from '@remotebridge/shared';
 
 // ===== Host 信息路由 =====
@@ -154,6 +154,8 @@ export async function hostsRoutes(fastify: FastifyInstance): Promise<void> {
       lastSeenAt: s.lastActiveAt || s.createdAt,
       isTrusted: false, // 信任标记由桌面端本地 DB 维护，列表合并在桌面端完成
       online: isClientOnline(s.clientId),
+      // 客户端自报版本只存在于内存（连接期间有效）：离线客户端无从得知，故留空
+      version: isClientOnline(s.clientId) ? getClientVersion(s.clientId) : undefined,
     }));
 
     const response: ApiResponse<ClientInfo[]> = {

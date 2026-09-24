@@ -1,4 +1,5 @@
 import { ipcMain, app, BrowserWindow } from 'electron';
+import axios from 'axios';
 import { config } from '../config/store';
 import { getRelayClient } from '../ws-client/client';
 import { ensureHostRegisteredAndConnected, cancelAuthRecovery } from './auth';
@@ -92,4 +93,50 @@ export function registerSettingsHandlers(
   ipcMain.handle("settings:get-relay-latency", (): number => {
     return getRelayClient()?.getAverageRtt() ?? 0;
   });
+
+  // 获取中继服务端信息（版本等）：读 /health（公开端点，无需 token）。
+  // 结果短暂缓存：该值只在"连接状态"面板展示，没必要每次渲染都打一次网络。
+  ipcMain.handle('relay:get-server-info', async (): Promise<{
+    reachable: boolean;
+    version?: string;
+    instanceId?: string;
+    error?: string;
+  }> => {
+    const now = Date.now();
+    if (cachedRelayInfo && now - cachedRelayInfo.at < RELAY_INFO_TTL_MS) {
+      return cachedRelayInfo.value;
+    }
+
+    let value: { reachable: boolean; version?: string; instanceId?: string; error?: string };
+    try {
+      const resp = await axios.get(healthUrl(getRelayApi()), { timeout: 5000 });
+      const body = resp.data ?? {};
+      value = {
+        reachable: true,
+        // 服务端版本来自 /health 的 version 字段（服务端读自身 package.json）
+        version: typeof body.version === 'string' ? body.version : undefined,
+        instanceId: typeof body.instance_id === 'string' ? body.instance_id : undefined,
+      };
+    } catch (err: any) {
+      value = {
+        reachable: false,
+        error: err?.code === 'ECONNREFUSED' ? '无法连接中继服务器' : '中继服务器信息获取失败',
+      };
+    }
+    cachedRelayInfo = { at: now, value };
+    return value;
+  });
 }
+
+// /health 挂在服务根路径上，而 relayApi 形如 http://host:port/api/v1 —— 需回退到源站
+function healthUrl(relayApi: string): string {
+  try {
+    const u = new URL(relayApi);
+    return `${u.protocol}//${u.host}/health`;
+  } catch {
+    return `${relayApi.replace(/\/api\/v\d+\/?$/, '')}/health`;
+  }
+}
+
+const RELAY_INFO_TTL_MS = 60_000;
+let cachedRelayInfo: { at: number; value: { reachable: boolean; version?: string; instanceId?: string; error?: string } } | null = null;

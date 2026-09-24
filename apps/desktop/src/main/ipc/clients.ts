@@ -14,6 +14,8 @@ export interface ClientListEntry {
   lastSeenAt: number;
   online: boolean;
   isTrusted: boolean;
+  /** 客户端自报版本（Web 端握手携带）；仅在线期间有效，未上报为 undefined */
+  version?: string;
 }
 
 // ===== 注册客户端管理 IPC =====
@@ -37,6 +39,8 @@ export function registerClientsHandlers(getRelayApi: () => string): void {
         lastSeenAt: r.lastSeenAt,
         online: !!r.online,
         isTrusted: !!localById.get(r.clientId)?.is_trusted,
+        // 客户端自报版本（Web 端握手携带），原样透传供界面展示
+        version: typeof r.version === 'string' ? r.version : undefined,
       }));
     } catch {
       // relay 不可达 → 返回空列表，避免展示过期的本地缓存客户端条目

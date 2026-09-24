@@ -1,8 +1,20 @@
 /** @type {import('next').NextConfig} */
+import { readFileSync } from 'node:fs';
+
+// 该文件是 ESM（.mjs），不能用 require；用 import.meta.url 解析 package.json
+const { version: pkgVersion } = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf-8'),
+);
+
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@remotebridge/shared'],
   output: 'standalone',
+  // Web 端版本号：构建时从 package.json 注入，客户端上报给 Relay 供 Host 端展示。
+  // 用 env 而非 NEXT_PUBLIC_ 文件约定，保证 Docker 构建（standalone）下也能取到。
+  env: {
+    NEXT_PUBLIC_APP_VERSION: pkgVersion,
+  },
   // shared 包含 Node-only 的 fs 导入（realpathSync 符号链接校验），浏览器端
   // 仅消费其中的 UI 常量，需告知 webpack 将 fs 解析为空模块避免构建失败。
   webpack: (config, { isServer }) => {

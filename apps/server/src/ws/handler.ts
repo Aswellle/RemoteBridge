@@ -110,6 +110,11 @@ export function setupWebSocket(app: FastifyInstance): void {
     }
     const ticket = url.searchParams.get('ticket');
     const type = url.searchParams.get('type') as 'host' | 'client';
+    // 客户端自报版本（Web 端握手时带上，供 Host 端展示）。
+    // 严格校验：该值会进入 Host 端界面，只接受短小的版本号字符集，
+    // 其余一律视为未上报，避免任意字符串被当作版本展示。
+    const rawVer = url.searchParams.get('ver') ?? '';
+    const clientVersion = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/.test(rawVer) ? rawVer : undefined;
 
     if (!type || !['host', 'client'].includes(type)) {
       socket.close(4001, 'Missing or invalid parameters');
@@ -190,7 +195,7 @@ export function setupWebSocket(app: FastifyInstance): void {
         socket.close(4003, 'Session revoked');
         return;
       }
-      registerClient(meta.id, socket, meta.hostId);
+      registerClient(meta.id, socket, meta.hostId, clientVersion);
       app.log.info(`Client ${meta.id} 已连接`);
       // 异步部分：取 clientLabel 并通知 Host
       validateClientSession(socket, meta, app);

@@ -58,8 +58,17 @@ export function forEachHost(fn: (hostId: string, ws: WebSocket) => void): void {
 }
 
 // ===== Client =====
-export function registerClient(clientId: string, ws: WebSocket, hostId?: string): void {
+// clientId -> 客户端自报的软件版本（Web 端握手时通过 &ver= 上报）。
+// 只存在于内存：客户端断开即随之失效，因此无需数据库迁移；
+// 未上报（旧版客户端）时保持缺省，展示层自行降级。
+const clientVersions = new Map<string, string>();
+
+export function registerClient(clientId: string, ws: WebSocket, hostId?: string, version?: string): void {
   clientSockets.set(clientId, ws);
+  // 覆盖而非仅在有值时写入：同一设备可能重连（如旧版客户端或未上报版本），
+  // 必须清掉上一次的残留值，否则界面会显示已失效的版本号
+  if (version) clientVersions.set(clientId, version);
+  else clientVersions.delete(clientId);
   if (hostId) {
     sessionRooms.set(clientId, hostId);
     if (!hostClients.has(hostId)) hostClients.set(hostId, new Set());
@@ -70,6 +79,7 @@ export function registerClient(clientId: string, ws: WebSocket, hostId?: string)
 export function unregisterClient(clientId: string, expected: WebSocket): boolean {
   if (clientSockets.get(clientId) !== expected) return false;
   clientSockets.delete(clientId);
+  clientVersions.delete(clientId);
   const hostId = sessionRooms.get(clientId);
   sessionRooms.delete(clientId);
   if (hostId) {
@@ -77,6 +87,18 @@ export function unregisterClient(clientId: string, expected: WebSocket): boolean
     if (hostClients.get(hostId)?.size === 0) hostClients.delete(hostId);
   }
   return true;
+}
+
+/** 客户端自报版本（仅在线期间有效）；未上报返回 undefined */
+export function getClientVersion(clientId: string): string | undefined {
+  return clientVersions.get(clientId);
+}
+
+/** 在线客户端里最新的一个版本号（用于"Web 端版本"这类全局展示） */
+export function getLatestClientVersion(): string | undefined {
+  let latest: string | undefined;
+  clientVersions.forEach((v) => { latest = v; });
+  return latest;
 }
 
 export function getClientSocket(clientId: string): WebSocket | undefined {

@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
   getRelayLatency: () => ipcRenderer.invoke("settings:get-relay-latency"),
+  // 中继服务端信息（版本/实例 ID）：读 /health，主进程内 60s 缓存
+  getRelayServerInfo: () => ipcRenderer.invoke('relay:get-server-info'),
   // 通道名与主进程 messages.ts 中的 upload:* 处理器一致（未配置时返回平台默认路径）
   getUploadPaths: () => ipcRenderer.invoke('upload:get-paths'),
   setUploadPaths: (paths: unknown) => ipcRenderer.invoke('upload:set-paths', paths),
@@ -183,6 +185,8 @@ export interface ElectronAPI {
     lastSeenAt: number;
     online: boolean;
     isTrusted: boolean;
+    /** Web 端自报版本，仅在线期间可获取 */
+    version?: string;
   }>>;
   revokeClient: (sessionId: string, clientId?: string) => Promise<{ success: boolean; error?: string }>;
   trustClient: (clientId: string, trusted: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -223,6 +227,7 @@ export interface ElectronAPI {
     reconnectError?: string;
   }>;
   getRelayLatency: () => Promise<number>;
+  getRelayServerInfo: () => Promise<{ reachable: boolean; version?: string; instanceId?: string; error?: string }>;
   getUploadPaths: () => Promise<{
     success: boolean;
     error?: string;

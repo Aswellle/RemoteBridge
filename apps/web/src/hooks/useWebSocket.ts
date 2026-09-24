@@ -7,7 +7,7 @@ import { useAppStore } from '@/store/app-store';
 import api, { refreshAccessToken } from '@/lib/api';
 import { handleDownloadReady, handleDownloadError } from '@/lib/download-manager';
 import { logger } from '@/lib/logger';
-import { RELAY_WS_URL } from '@/lib/env';
+import { RELAY_WS_URL, APP_VERSION } from '@/lib/env';
 
 // ===== WebSocket 管理器 =====
 export class WebSocketManager {
@@ -98,7 +98,9 @@ export class WebSocketManager {
       return;
     }
 
-    const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}&type=client`;
+    // 带上 Web 端版本号：Relay 会把它记录在内存连接注册表中，供 Host 端的
+    // "已连接客户端"与版本信息展示（不回写数据库，无需迁移）
+    const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}&type=client&ver=${encodeURIComponent(APP_VERSION)}`;
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {

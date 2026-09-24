@@ -76,6 +76,11 @@ export interface ClientInfo {
   lastSeenAt: number;
   isTrusted: boolean;
   online: boolean;
+  /**
+   * 客户端自报的软件版本（Web 端握手时通过 `&ver=` 上报）。
+   * 仅在线期间可获取（内存态），离线客户端与旧版客户端为 undefined。
+   */
+  version?: string;
   revokedAt?: number;
 }
 
