@@ -1,19 +1,19 @@
 import { Tray, Menu, nativeImage, BrowserWindow, app } from 'electron';
+import path from 'path';
 import { getMainWindow, setAppQuitting } from './window';
 import { getRelayClient } from './ws-client/client';
 
 let tray: Tray | null = null;
-let connectionStatus: 'connected' | 'disconnected' = 'disconnected';
 
-// ===== 创建托盘图标（程序化生成 16x16 彩色圆圈） =====
-function createTrayIcon(status: 'connected' | 'disconnected'): Electron.NativeImage {
-  const size = 16;
-  const canvas = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-      <circle cx="8" cy="8" r="7" fill="${status === 'connected' ? '#22c55e' : '#6b7280'}" stroke="#1f2937" stroke-width="1"/>
-    </svg>
-  `;
-  return nativeImage.createFromBuffer(Buffer.from(canvas), { width: size, height: size });
+// ===== 创建托盘图标 =====
+// 使用 resources/icon.png 作为托盘图标（比 SVG buffer 更可靠）
+function createTrayIcon(): Electron.NativeImage {
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.png')
+    : path.join(app.getAppPath(), 'resources', 'icon.png');
+  const image = nativeImage.createFromPath(iconPath);
+  // 缩放到系统托盘标准尺寸（Windows 16x16，macOS 18x18）
+  return image.resize({ width: 16, height: 16 });
 }
 
 // ===== 构建右键菜单 =====
@@ -56,7 +56,7 @@ function buildContextMenu(): Electron.Menu {
 
 // ===== 初始化托盘 =====
 export function initTray(): Tray {
-  const icon = createTrayIcon('disconnected');
+  const icon = createTrayIcon();
   tray = new Tray(icon);
   tray.setToolTip('RemoteBridge Desktop');
   tray.setContextMenu(buildContextMenu());
@@ -78,10 +78,8 @@ export function initTray(): Tray {
 
 // ===== 更新托盘连接状态 =====
 export function updateTrayStatus(status: 'connected' | 'disconnected'): void {
-  connectionStatus = status;
   if (tray && !tray.isDestroyed()) {
-    const icon = createTrayIcon(status);
-    tray.setImage(icon);
+    // 仅更新 tooltip，图标保持不变（避免频繁重建图标）
     tray.setToolTip(`RemoteBridge Desktop - ${status === 'connected' ? '已连接' : '未连接'}`);
   }
 }
