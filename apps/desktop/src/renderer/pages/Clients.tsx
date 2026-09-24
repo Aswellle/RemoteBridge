@@ -3,7 +3,7 @@
  * 客户端列表 + 在线状态 + 信任/吊销操作 + 活动日志
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Users, ClipboardList, RefreshCw, Loader2 } from 'lucide-react';
 import {
   PageHeader,
@@ -40,10 +40,17 @@ interface AccessLogRecord {
   created_at: number;
 }
 
+// 视图切换项：图标与标签集中定义，键盘导航（方向键/Home/End）按此顺序循环
+const VIEW_TABS = [
+  { id: 'clients', label: '客户端列表', icon: <Users className="size-3.5" aria-hidden="true" /> },
+  { id: 'logs', label: '活动日志', icon: <ClipboardList className="size-3.5" aria-hidden="true" /> },
+] as const;
+
 export default function ClientsPage() {
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [accessLogs, setAccessLogs] = useState<AccessLogRecord[]>([]);
   const [activeSection, setActiveSection] = useState<'clients' | 'logs'>('clients');
+  const viewTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [actionError, setActionError] = useState('');
 
@@ -69,6 +76,27 @@ export default function ClientsPage() {
       console.error('加载访问日志失败:', err);
     }
   }, []);
+
+  // 视图切换：进入日志视图时按需加载访问日志
+  const selectView = useCallback((id: 'clients' | 'logs') => {
+    setActiveSection(id);
+    if (id === 'logs') loadAccessLogs();
+  }, [loadAccessLogs]);
+
+  // ARIA APG tabs 键盘语义：左右方向键循环切换，Home/End 跳到首末
+  const handleViewTabsKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const last = VIEW_TABS.length - 1;
+    const current = VIEW_TABS.findIndex((v) => v.id === activeSection);
+    let next: number | null = null;
+    if (e.key === 'ArrowRight') next = current === last ? 0 : current + 1;
+    else if (e.key === 'ArrowLeft') next = current === 0 ? last : current - 1;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = last;
+    if (next === null) return;
+    e.preventDefault();
+    selectView(VIEW_TABS[next].id);
+    viewTabRefs.current[next]?.focus();
+  }, [activeSection, selectView]);
 
   // 初始加载 + 10s 轮询（不注册 onClientJoined/onClientLeft 事件，
   // 避免覆盖 App.tsx 已注册的同名监听器导致主页客户端状态丢失）
@@ -154,25 +182,43 @@ export default function ClientsPage() {
         subtitle={activeSection === 'clients' ? '管理已注册的客户端与信任状态' : '查看文件访问操作日志'}
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => setActiveSection('clients')}>
-              {activeSection === 'clients' ? '● ' : ''}客户端列表
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setActiveSection('logs');
-                loadAccessLogs();
-              }}
+            {/* 视图切换用分段控件：当前视图以 surface + 强调色文字标出，比"文字前加 ● "
+                更易辨识，也不与右侧刷新按钮争夺视觉重量。
+                无障碍：按 ARIA APG 的 tabs 模式实现 roving tabindex + 左右方向键/Home/End，
+                避免 role="tab" 只有外壳而无键盘语义（"坏 ARIA 不如无 ARIA"）。 */}
+            <div
+              role="tablist"
+              aria-label="客户端视图"
+              className="flex items-center gap-1 rounded-sm bg-surface-subtle p-1"
+              onKeyDown={handleViewTabsKeyDown}
             >
-              {activeSection === 'logs' ? '● ' : ''}活动日志
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                loadClients();
-                loadAccessLogs();
-              }}
-            >
+              {VIEW_TABS.map((view, index) => {
+                const selected = activeSection === view.id;
+                return (
+                  <button
+                    key={view.id}
+                    ref={(el) => { viewTabRefs.current[index] = el; }}
+                    role="tab"
+                    aria-selected={selected}
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => selectView(view.id)}
+                    className={
+                      'inline-flex h-7 items-center gap-1.5 rounded-xs px-3 text-sm font-medium transition-colors duration-120 ' +
+                      (selected
+                        ? 'bg-surface-raised text-accent-text shadow-sm'
+                        : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground')
+                    }
+                  >
+                    {view.icon}
+                    {view.label}
+                  </button>
+                );
+              })}
+            </div>
+            <Button variant="outline" onClick={() => {
+              loadClients();
+              loadAccessLogs();
+            }}>
               <RefreshCw className="size-3.5" />
               刷新
             </Button>
@@ -181,7 +227,7 @@ export default function ClientsPage() {
       />
       {/* 操作错误提示 */}
       {actionError && (
-        <div className="mb-4 flex items-center justify-between rounded-sm bg-surface-danger/10 px-4 py-2.5 text-sm text-destructive">
+        <div className="mb-4 flex items-center justify-between rounded-sm bg-surface-danger/10 px-4 py-2.5 text-sm text-danger-text">
           <span>{actionError}</span>
           <button onClick={() => setActionError('')} className="ml-3 flex-shrink-0 hover:opacity-70">
             <X className="size-4" />

@@ -175,18 +175,13 @@ export function AboutSettings({ sysInfo }: AboutSettingsProps) {
               </div>
             )}
 
-            {/* 错误 */}
+            {/* 错误：重试按钮留在右上操作区，错误正文单独成行展示（见下方横幅），
+                避免被右侧操作区挤压后截断到无法阅读 */}
             {status.state === 'error' && (
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1.5 text-sm text-destructive">
-                  <AlertCircle className="size-4" />
-                  <span className="max-w-48 truncate">{status.message}</span>
-                </div>
-                <Button variant="secondary" onClick={handleRetry}>
-                  <RefreshCw className="size-3" />
-                  重试
-                </Button>
-              </div>
+              <Button variant="secondary" onClick={handleRetry}>
+                <RefreshCw className="size-3.5" />
+                重试
+              </Button>
             )}
 
             {/* 空闲 / 最新 —— 突出的检查更新按钮 */}
@@ -198,6 +193,22 @@ export function AboutSettings({ sysInfo }: AboutSettingsProps) {
             )}
           </div>
         </div>
+
+        {/* 检查更新错误：整行展示完整文案（不截断），超长时才由 title 兜底悬浮查看 */}
+        {status.state === 'error' && (
+          <div
+            role="status"
+            className="mt-4 flex items-start gap-2 rounded-sm bg-surface-danger/10 px-3 py-2.5 text-danger-text"
+          >
+            <AlertCircle className="mt-0.5 size-4 flex-shrink-0" aria-hidden="true" />
+            <p
+              className="min-w-0 flex-1 text-xs leading-relaxed break-words"
+              title={status.message}
+            >
+              {status.message}
+            </p>
+          </div>
+        )}
 
         {/* 新版发行说明 */}
         {status.state === 'available' && status.releaseNotes && (

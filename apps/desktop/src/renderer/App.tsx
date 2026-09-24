@@ -99,9 +99,9 @@ function UpdateBanner({
   if (status.state === 'error') {
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-sm">
-        <AlertCircle className="w-4 h-4 flex-shrink-0 text-destructive" />
-        <span className="text-destructive font-medium">检查更新失败</span>
-        <span className="text-muted-foreground truncate flex-1">{status.message}</span>
+        <AlertCircle className="w-4 h-4 flex-shrink-0 text-danger-text" />
+        <span className="text-danger-text font-medium">检查更新失败</span>
+        <span className="text-muted-foreground truncate flex-1" title={status.message}>{status.message}</span>
         <button
           onClick={onDismiss}
           title="关闭"
@@ -744,7 +744,7 @@ export default function App() {
                     {connectionStatus === 'error' && (
                       <button
                         onClick={handleRegister}
-                        className="px-6 py-2.5 bg-destructive/20 hover:bg-destructive/40 text-destructive rounded-lg transition-colors text-sm font-medium"
+                        className="px-6 py-2.5 bg-destructive/20 hover:bg-destructive/40 text-danger-text rounded-lg transition-colors text-sm font-medium"
                       >
                         重试连接
                       </button>
@@ -752,7 +752,7 @@ export default function App() {
                     {connectionStatus === 'connected' && (
                       <button
                         onClick={handleDisconnect}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-destructive/20 hover:bg-destructive/40 text-destructive rounded-lg transition-colors text-sm font-medium"
+                        className="flex items-center gap-2 px-6 py-2.5 bg-destructive/20 hover:bg-destructive/40 text-danger-text rounded-lg transition-colors text-sm font-medium"
                       >
                         {Icons.disconnect}
                         断开连接
@@ -841,7 +841,7 @@ export default function App() {
                 {directories.length > 0 && (
                   <button
                     onClick={handleClearAllDirectories}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-destructive/15 hover:bg-destructive/30 text-destructive rounded-lg transition-colors text-sm font-medium"
+                    className="flex items-center gap-2 px-4 py-2.5 border border-destructive/50 hover:border-destructive/70 hover:bg-surface-danger/15 text-destructive rounded-lg transition-colors text-sm font-medium active:scale-[0.96]"
                   >
                     {Icons.trash}
                     清空目录
@@ -915,13 +915,15 @@ export default function App() {
                             />
                             <button
                               onClick={() => handleSaveAlias(dir.id)}
-                              className="text-success hover:text-success/80 transition-colors"
+                              className="border border-border/60 bg-surface-raised p-2 text-success hover:bg-surface-hover hover:border-border rounded-lg transition-colors"
+                              title="保存别名"
+                              aria-label="保存别名"
                             >
                               {Icons.check}
                             </button>
                           </div>
                         ) : (
-                          <p className="text-xs text-muted-foreground mt-0.5">
+                          <p className="text-xs text-secondary-foreground mt-0.5">
                             {dir.label || '未设置别名'}
                           </p>
                         )}
@@ -942,15 +944,17 @@ export default function App() {
                       </select>
                       <button
                         onClick={() => handleEditAlias(dir)}
-                        className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                        className="border border-border/60 bg-surface-raised p-2 text-foreground hover:bg-surface-hover hover:border-border rounded-lg transition-colors"
                         title="编辑别名"
+                        aria-label="编辑别名"
                       >
                         {Icons.edit}
                       </button>
                       <button
                         onClick={() => handleRemoveDirectory(dir.id)}
-                        className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                        className="border border-border/60 bg-surface-raised p-2 text-foreground hover:bg-surface-danger/15 hover:text-destructive hover:border-destructive/50 rounded-lg transition-colors"
                         title="移除目录"
+                        aria-label="移除目录"
                       >
                         {Icons.trash}
                       </button>

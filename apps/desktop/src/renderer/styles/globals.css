@@ -22,13 +22,19 @@
     --secondary-foreground: 210 30% 90%;
 
     /* Muted：用于次级文本、占位符、分割线 */
-    /* 关键修复：lightness 由 55% 提升至 62%，确保在 --background 上 ≥4.5:1（WCAG AA） */
     --muted: 217 20% 18%;
-    --muted-foreground: 215 16% 62%;
+    /* 62% → 66%：暗色下 surface-subtle(22%) 比 canvas 更亮，muted 文本在其上
+       实测仅 4.40:1（占位符/次级文本低于 AA 4.5）。提升到 66% 后该组合 5.00:1，
+       card 6.70:1、canvas 7.59:1，仍明显弱于 secondary-foreground（90%）。 */
+    --muted-foreground: 215 16% 66%;
 
     /* 语义色：在暗色背景上均达 AA */
     --destructive: 0 72% 58%;
     --destructive-foreground: 0 0% 100%;
+    /* 破坏性"文字"色（用于错误横幅等带底色场景）：
+       --destructive 同时承担填充与文字两种角色，作为文字落在 10% 红底上仅 3.74:1。
+       文字角色单独提亮，实测 5.50:1（10% 红底）/ 4.48:1（surface-subtle）。 */
+    --danger-text: 0 91% 71%;
     --success: 142 62% 48%;
     --success-foreground: 140 70% 98%;
     --warning: 38 90% 55%;
@@ -104,6 +110,8 @@
 
     --destructive: 0 70% 45%;
     --destructive-foreground: 0 0% 100%;
+    /* 破坏性文字色：10% 红底上 5.54:1，纯白底 6.52:1 */
+    --danger-text: 0 70% 42%;
     --success: 142 62% 30%;
     --success-foreground: 0 0% 100%;
     --warning: 32 90% 34%;

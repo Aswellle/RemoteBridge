@@ -323,7 +323,6 @@ export default function MessagesPage() {
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={selectedClient ? '输入消息...' : '请先选择一个客户端'}
               disabled={!selectedClient}
-              className="bg-surface-raised"
             />
             <Button
               type="submit"

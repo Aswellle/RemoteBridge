@@ -18,10 +18,14 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
       ref={ref}
       className={
         'h-9 w-full rounded-sm bg-surface-subtle px-3 py-2 text-sm text-foreground ' +
-        'placeholder:text-muted-foreground/60 border border-transparent ' +
+        // 占位符不再叠加 /60 透明度：实测 60% 时仅 3.1:1（亮色），再叠加禁用态
+        // 透明度会低到 1.66:1。占位符常承载操作指引（如"请先选择一个客户端"），
+        // 必须保持可读，禁用感由 surface + cursor 表达而非压低文字对比。
+        'placeholder:text-muted-foreground ' +
+        'border border-transparent ' +
         'transition-colors duration-120 ' +
         'focus:border-accent-border/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ring ' +
-        'disabled:cursor-not-allowed disabled:opacity-50 ' +
+        'disabled:cursor-not-allowed disabled:border-border/40 disabled:bg-surface-subtle disabled:text-muted-foreground ' +
         className
       }
       {...rest}

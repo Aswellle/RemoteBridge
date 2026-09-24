@@ -16,6 +16,9 @@ const config: Config = {
         secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
         muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
         destructive: { DEFAULT: 'hsl(var(--destructive))', foreground: 'hsl(var(--destructive))' },
+        // 破坏性「文字」色（与填充色 --destructive 分离：填充上的白字与底色上的红字
+        // 需要不同的亮度才能各自达到 AA）
+        danger: { text: 'hsl(var(--danger-text))' },
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
         border: 'hsl(var(--border))',
