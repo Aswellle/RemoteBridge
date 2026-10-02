@@ -333,8 +333,6 @@ git push origin v2.0.0
 
 ## ⭐ 支持这个项目
 
-如果 RemoteBridge 对你有帮助，欢迎给我们一个 ⭐️ Star！
+如果 RemoteBridge 对你有帮助，欢迎给我一个 ⭐️ Star！
 
-你的每一次支持，都是我们持续改进的动力。
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Aswellle/RemoteBridge&type=Date)](https://star-history.com/#Aswellle/RemoteBridge&Date)
+你的每一次支持，都是我持续改进的动力。
